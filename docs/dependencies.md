@@ -2,7 +2,7 @@
 
 ## HTML Parsing And DOM
 
-The core crate uses `html5ever` as the parser foundation. It currently parses through `markup5ever_rcdom` and immediately wraps the parsed tree in a Defuddle-owned `Document` adapter. Raw `RcDom` handles are not exposed in the public API.
+The core crate uses `html5ever` as the parser foundation. It wraps the parsed tree in a Defuddle-owned `Document` adapter. Raw `RcDom` handles are not exposed in the public API.
 
 This keeps the implementation aligned with the port plan:
 - Defuddle needs whole-document traversal, scoring, retries, subtree mutation, and selected-node serialization.
@@ -13,15 +13,22 @@ This keeps the implementation aligned with the port plan:
 
 The adapter spike currently proves the operations the extraction pipeline will need: parse, select, ancestor traversal, remove, unwrap, replace, append, clone/reparse, attribute mutation, text extraction, and inner/outer HTML serialization.
 
-## Markdown Candidate
+## Markdown Conversion
 
-The initial Markdown crate candidate is `html-to-markdown-rs`.
+The Markdown crate is `html-to-markdown-rs` v3.8.1.
 
 Reasoning:
 - It is MIT licensed.
-- Its declared Rust version is compatible with the current toolchain.
-- It exposes feature flags that should allow avoiding heavy optional capabilities.
-- It appears more suitable than `html2md`, which is GPL-licensed, and `mdream`, whose current declared Rust version is newer than this workspace toolchain.
+- It is compatible with the current Rust toolchain.
+- It exposes extensive configuration options (heading style, link style, code block style, etc.) needed for Defuddle's custom output.
+- It supports CSS selector-based element exclusion via `exclude_selectors`.
 
-This is not yet a committed implementation dependency. Before Tranche 5, a spike must prove that the selected crate can support Defuddle's custom table, footnote, math, callout, media, and escaping rules without invasive work. If it cannot, the plan must be revised before writing a bespoke renderer.
+Custom Defuddle rules (footnote backrefs, callout blocks, math preservation, Table-based layout flattening) are layered on top of the standard conversion via HTML preprocessing in `src/standardize.rs`.
+
+## Release Audit (Tranche 10)
+
+The core crate (`defuddle`) has no network, TLS, proxy, async runtime, browser automation, or JavaScript engine dependencies. Verified via `cargo tree -p defuddle`.
+
+The CLI crate (`defuddle-cli`) adds only `lexopt` (arg parsing) and `atty` (TTY detection), neither of which introduces network dependencies.
+
 

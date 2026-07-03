@@ -1,3 +1,50 @@
+//! # Defuddle
+//!
+//! A Rust library for extracting clean, readable content from HTML documents.
+//! Defuddle identifies the main article content, strips clutter (ads, navigation,
+//! sidebars), extracts metadata, and optionally converts the result to Markdown.
+//!
+//! This is a port of the [Defuddle](https://github.com/kepano/defuddle)
+//! TypeScript library, targeting static HTML parity.
+//!
+//! ## Quick start
+//!
+//! ```rust
+//! use defuddle::{DefuddleOptions, parse_html};
+//!
+//! let html = r#"
+//! <html><head><meta property="og:title" content="Hello World"></head>
+//! <body><article><h1>Hello World</h1><p>This is an article.</p></article></body>
+//! </html>"#;
+//!
+//! let result = parse_html(html, DefuddleOptions {
+//!     url: Some("https://example.com/article".into()),
+//!     ..Default::default()
+//! }).unwrap();
+//!
+//! assert_eq!(result.title, "Hello World");
+//! assert_eq!(result.domain, "example.com");
+//! ```
+//!
+//! ## Features
+//!
+//! - HTML parsing via `html5ever`
+//! - CSS selector-based content extraction
+//! - Metadata extraction (title, author, date, site, etc.)
+//! - Schema.org JSON-LD support
+//! - Dangerous element/attribute sanitization
+//! - HTML-to-Markdown conversion via `html-to-markdown-rs`
+//! - No network, TLS, proxy, or async runtime dependencies
+//!
+//! ## Limitations
+//!
+//! This crate accepts static HTML input only. It does not:
+//! - Fetch URLs over HTTP
+//! - Execute JavaScript
+//! - Evaluate live browser CSS/layout
+//! - Access shadow DOM from extension isolated worlds
+//! - Support async/streaming extraction (future work)
+
 mod constants;
 mod dom;
 mod markdown;
