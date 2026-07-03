@@ -1,0 +1,6 @@
+# Machine-readable manifest for upstream tests or fixtures that are not part of
+# the current acceptance gate. Tranche 1 does not exclude any fixture from
+# discovery; parity failures are reported by the harness but do not fail yet.
+
+exceptions = []
+
