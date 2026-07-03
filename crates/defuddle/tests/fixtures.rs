@@ -103,6 +103,7 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
             DefuddleOptions {
                 url: Some(url),
                 separate_markdown: true,
+                debug: true,
                 ..DefuddleOptions::default()
             },
         )
@@ -111,6 +112,12 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
         let comparable = comparable_markdown(&result);
         let expected_path = expected_dir().join(format!("{name}.md"));
         let expected = fs::read_to_string(&expected_path).expect("expected markdown exists");
+
+        if name == "general--stephango.com-buy-wisely" {
+            eprintln!("=== COMPARABLE (first 500):\n{}", &comparable[..comparable.len().min(500)]);
+            eprintln!("=== EXPECTED (first 500):\n{}", &expected[..expected.len().min(500)]);
+        }
+
         if comparable.trim() != expected.trim() {
             mismatches.push(name.clone());
         }
@@ -190,16 +197,17 @@ fn fixture_url(html: &str, path: &Path) -> String {
 }
 
 fn comparable_markdown(result: &DefuddleResult) -> String {
-    let metadata = serde_json::json!({
-        "title": result.title,
-        "author": result.author,
-        "site": result.site,
-        "published": result.published,
-    });
+    let metadata = format!(
+        "{{\n  \"title\": {},\n  \"author\": {},\n  \"site\": {},\n  \"published\": {}\n}}",
+        serde_json::to_string(&result.title).unwrap_or_default(),
+        serde_json::to_string(&result.author).unwrap_or_default(),
+        serde_json::to_string(&result.site).unwrap_or_default(),
+        serde_json::to_string(&result.published).unwrap_or_default(),
+    );
     let content_markdown = result.content_markdown.as_deref().unwrap_or("");
     format!(
         "```json\n{}\n```\n\n{}",
-        serde_json::to_string_pretty(&metadata).expect("metadata serializes"),
+        metadata,
         content_markdown
     )
 }

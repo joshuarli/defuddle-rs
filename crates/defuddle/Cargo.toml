@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+html-to-markdown-rs = "3.8.1"
 html5ever = "0.35"
 markup5ever_rcdom = "0.35"
 regex = "1"

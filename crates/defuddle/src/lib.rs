@@ -1,10 +1,12 @@
 mod constants;
 mod dom;
+mod markdown;
 mod metadata;
 mod pipeline;
 pub mod sanitize;
 mod schema;
 mod scoring;
+mod standardize;
 pub mod utils;
 
 use serde::{Deserialize, Serialize};
@@ -127,6 +129,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
     let remove_exact = options.remove_exact_selectors.unwrap_or(true);
     let remove_partial = options.remove_partial_selectors.unwrap_or(true);
     let remove_hidden = options.remove_hidden_elements.unwrap_or(true);
+    let do_standardize = options.standardize.unwrap_or(true);
     let content_selector = options.content_selector.as_deref();
 
     let result = parse_internal(
@@ -134,6 +137,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
         remove_exact,
         remove_partial,
         remove_hidden,
+        do_standardize,
         content_selector,
         debug,
         &metadata,
@@ -150,6 +154,7 @@ fn parse_internal(
     remove_exact: bool,
     remove_partial: bool,
     remove_hidden: bool,
+    do_standardize: bool,
     content_selector: Option<&str>,
     debug: bool,
     metadata: &Metadata,
@@ -157,42 +162,72 @@ fn parse_internal(
     schema_org_data: &[serde_json::Value],
     _url: &str,
 ) -> DefuddleResult {
+    if remove_exact || remove_partial {
+        pipeline::remove_by_selector(&mut doc, remove_exact, remove_partial);
+    }
 
-    pipeline::remove_by_selector(&mut doc, remove_exact, remove_partial);
     if remove_hidden {
         pipeline::remove_hidden_elements(&mut doc);
     }
 
     let main_content = pipeline::extract_content(&mut doc, content_selector, debug);
+    let body_ids = doc.query_selector_all("body");
+    let content_id = main_content.or_else(|| body_ids.first().copied());
 
-    let content = if let Some(main) = main_content {
-        doc.outer_html(main)
+    if let Some(content) = content_id {
+        if do_standardize {
+            standardize::standardize_content(&mut doc, content);
+        }
+
+        let html = doc.inner_html(content);
+        let md = markdown::content_to_markdown(&doc, content);
+        let word_count = pipeline::count_html_words(&html);
+
+        let schema_val = if schema_org_data.is_empty() {
+            serde_json::Value::Array(Vec::new())
+        } else {
+            serde_json::Value::Array(schema_org_data.to_vec())
+        };
+
+        DefuddleResult {
+            content: html,
+            content_markdown: Some(md),
+            title: metadata.title.clone(),
+            description: metadata.description.clone(),
+            domain: metadata.domain.clone(),
+            favicon: metadata.favicon.clone(),
+            image: metadata.image.clone(),
+            language: metadata.language.clone(),
+            meta_tags: meta.to_vec(),
+            published: metadata.published.clone(),
+            author: metadata.author.clone(),
+            site: metadata.site.clone(),
+            schema_org_data: schema_val,
+            word_count,
+            ..DefuddleResult::default()
+        }
     } else {
-        doc.outer_html(doc.root())
-    };
+        let word_count = 0;
+        let schema_val = if schema_org_data.is_empty() {
+            serde_json::Value::Array(Vec::new())
+        } else {
+            serde_json::Value::Array(schema_org_data.to_vec())
+        };
 
-    let word_count = pipeline::count_html_words(&content);
-
-    let schema_val = if schema_org_data.is_empty() {
-        serde_json::Value::Array(Vec::new())
-    } else {
-        serde_json::Value::Array(schema_org_data.to_vec())
-    };
-
-    DefuddleResult {
-        content: content.clone(),
-        title: metadata.title.clone(),
-        description: metadata.description.clone(),
-        domain: metadata.domain.clone(),
-        favicon: metadata.favicon.clone(),
-        image: metadata.image.clone(),
-        language: metadata.language.clone(),
-        meta_tags: meta.to_vec(),
-        published: metadata.published.clone(),
-        author: metadata.author.clone(),
-        site: metadata.site.clone(),
-        schema_org_data: schema_val,
-        word_count,
-        ..DefuddleResult::default()
+        DefuddleResult {
+            title: metadata.title.clone(),
+            description: metadata.description.clone(),
+            domain: metadata.domain.clone(),
+            favicon: metadata.favicon.clone(),
+            image: metadata.image.clone(),
+            language: metadata.language.clone(),
+            meta_tags: meta.to_vec(),
+            published: metadata.published.clone(),
+            author: metadata.author.clone(),
+            site: metadata.site.clone(),
+            schema_org_data: schema_val,
+            word_count,
+            ..DefuddleResult::default()
+        }
     }
 }
