@@ -11,7 +11,11 @@ pub fn remove_by_selector(
     remove_partial: bool,
 ) {
     if remove_exact {
+        // Remove dangerous elements and clutter
         for selector in EXACT_SELECTORS {
+            if selector.contains(":not(") || selector.contains(":has(") {
+                continue;
+            }
             let matches = doc.query_selector_all(selector);
             for id in matches {
                 if doc.tag_name(id).is_empty() {
@@ -21,6 +25,38 @@ pub fn remove_by_selector(
                 if tag == "pre" || tag == "code" {
                     continue;
                 }
+                doc.remove(id);
+            }
+        }
+
+        // Handle :not() selectors manually
+        // Remove all scripts EXCEPT those with type starting with "math/"
+        let scripts = doc.query_selector_all("script");
+        for id in scripts {
+            let type_attr = doc.get_attr(id, "type").unwrap_or("");
+            if !type_attr.starts_with("math/") {
+                doc.remove(id);
+            }
+        }
+
+        // Remove iframes without src, video/audio without src
+        let iframes = doc.query_selector_all("iframe");
+        for id in iframes {
+            if doc.get_attr(id, "src").is_none() || doc.get_attr(id, "src").unwrap_or("").is_empty() {
+                doc.remove(id);
+            }
+        }
+
+        let videos = doc.query_selector_all("video");
+        for id in videos {
+            if doc.get_attr(id, "src").is_none() && doc.query_selector_all_in_subtree(id, "source").is_empty() {
+                doc.remove(id);
+            }
+        }
+
+        let audios = doc.query_selector_all("audio");
+        for id in audios {
+            if doc.get_attr(id, "src").is_none() && doc.query_selector_all_in_subtree(id, "source").is_empty() {
                 doc.remove(id);
             }
         }

@@ -47,7 +47,7 @@
 
 mod constants;
 mod dom;
-mod markdown;
+pub mod markdown;
 mod metadata;
 mod pipeline;
 pub mod sanitize;
@@ -173,6 +173,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
     let metadata = metadata::extract_metadata(&doc, &schema_org_data, &meta_tags_raw, url);
 
     let debug = options.debug;
+    let separate_markdown = options.separate_markdown;
     let remove_exact = options.remove_exact_selectors.unwrap_or(true);
     let remove_partial = options.remove_partial_selectors.unwrap_or(true);
     let remove_hidden = options.remove_hidden_elements.unwrap_or(true);
@@ -185,6 +186,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
         remove_partial,
         remove_hidden,
         do_standardize,
+        separate_markdown,
         content_selector,
         debug,
         &metadata,
@@ -202,6 +204,7 @@ fn parse_internal(
     remove_partial: bool,
     remove_hidden: bool,
     do_standardize: bool,
+    separate_markdown: bool,
     content_selector: Option<&str>,
     debug: bool,
     metadata: &Metadata,
@@ -209,6 +212,12 @@ fn parse_internal(
     schema_org_data: &[serde_json::Value],
     _url: &str,
 ) -> DefuddleResult {
+    // Find main content first
+    let main_content = pipeline::extract_content(&mut doc, content_selector, debug);
+    let body_ids = doc.query_selector_all("body");
+    let content_id = main_content.or_else(|| body_ids.first().copied());
+
+    // Then apply removals
     if remove_exact || remove_partial {
         pipeline::remove_by_selector(&mut doc, remove_exact, remove_partial);
     }
@@ -217,18 +226,30 @@ fn parse_internal(
         pipeline::remove_hidden_elements(&mut doc);
     }
 
-    let main_content = pipeline::extract_content(&mut doc, content_selector, debug);
-    let body_ids = doc.query_selector_all("body");
-    let content_id = main_content.or_else(|| body_ids.first().copied());
-
     if let Some(content) = content_id {
         if do_standardize {
             standardize::standardize_content(&mut doc, content);
         }
 
+        sanitize::strip_unsafe_elements(&mut doc);
+
         let html = doc.inner_html(content);
-        let md = markdown::content_to_markdown(&doc, content);
+        let md = if separate_markdown {
+            Some(markdown::content_to_markdown(&doc, content))
+        } else {
+            None
+        };
         let word_count = pipeline::count_html_words(&html);
+
+        let debug_info = if debug {
+            let content_sel = element_selector(&doc, content);
+            Some(DebugInfo {
+                content_selector: content_sel,
+                removals: Vec::new(),
+            })
+        } else {
+            None
+        };
 
         let schema_val = if schema_org_data.is_empty() {
             serde_json::Value::Array(Vec::new())
@@ -238,7 +259,7 @@ fn parse_internal(
 
         DefuddleResult {
             content: html,
-            content_markdown: Some(md),
+            content_markdown: md,
             title: metadata.title.clone(),
             description: metadata.description.clone(),
             domain: metadata.domain.clone(),
@@ -251,6 +272,7 @@ fn parse_internal(
             site: metadata.site.clone(),
             schema_org_data: schema_val,
             word_count,
+            debug: debug_info,
             ..DefuddleResult::default()
         }
     } else {
@@ -277,4 +299,29 @@ fn parse_internal(
             ..DefuddleResult::default()
         }
     }
+}
+
+fn element_selector(doc: &Document, node: NodeId) -> String {
+    let mut parts = Vec::new();
+    let mut current = Some(node);
+    while let Some(id) = current {
+        let tag = doc.tag_name(id).to_string();
+        let mut sel = tag;
+        if let Some(id_val) = doc.get_attr(id, "id") {
+            sel.push('#');
+            sel.push_str(id_val);
+        } else if let Some(class) = doc.get_attr(id, "class") {
+            let safe: Vec<&str> = class.split_whitespace()
+                .filter(|c| !c.contains([':', '[', ']', '(', ')', '>', '~', '+', ',']))
+                .collect();
+            if !safe.is_empty() {
+                sel.push('.');
+                sel.push_str(&safe.join("."));
+            }
+        }
+        parts.push(sel);
+        current = doc.parent(id);
+    }
+    parts.reverse();
+    parts.join(" > ")
 }

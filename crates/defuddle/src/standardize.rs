@@ -9,9 +9,9 @@ pub fn standardize_content(doc: &mut Document, content_id: NodeId) {
 fn remove_html_comments(doc: &mut Document, node: NodeId) {
     let children = doc.children(node).to_vec();
     for child in children {
-        if doc.tag_name(child).is_empty() {
+        if doc.is_comment(child) {
             doc.remove(child);
-        } else {
+        } else if doc.is_element(child) {
             remove_html_comments(doc, child);
         }
     }

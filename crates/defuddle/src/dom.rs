@@ -62,6 +62,18 @@ impl Document {
         }
     }
 
+    pub fn is_comment(&self, node: NodeId) -> bool {
+        matches!(&self.node(node).kind, NodeKind::Comment(_))
+    }
+
+    pub fn is_text(&self, node: NodeId) -> bool {
+        matches!(&self.node(node).kind, NodeKind::Text(_))
+    }
+
+    pub fn is_element(&self, node: NodeId) -> bool {
+        matches!(&self.node(node).kind, NodeKind::Element { .. })
+    }
+
     pub fn query_selector_all(&self, selector: &str) -> Vec<NodeId> {
         let parts: Vec<SimpleSelector> = selector
             .split_whitespace()
@@ -73,6 +85,21 @@ impl Document {
 
         self.live_node_ids()
             .filter(|&id| self.matches_selector_chain(id, &parts))
+            .collect()
+    }
+
+    /// Like query_selector_all but only searches within a subtree.
+    pub fn query_selector_all_in_subtree(&self, root: NodeId, selector: &str) -> Vec<NodeId> {
+        let parts: Vec<SimpleSelector> = selector
+            .split_whitespace()
+            .filter_map(SimpleSelector::parse)
+            .collect();
+        if parts.is_empty() {
+            return Vec::new();
+        }
+
+        self.live_node_ids()
+            .filter(|&id| self.contains(root, id) && self.matches_selector_chain(id, &parts))
             .collect()
     }
 
@@ -929,4 +956,21 @@ mod tests {
         assert!(cloned.outer_html(article).contains("data-seen=\"yes\""));
         assert!(cloned.outer_html(article).contains("<h2>New title</h2>"));
     }
+}
+
+
+
+
+#[test]
+fn test_inner_html_after_removals() {
+    let mut doc = Document::parse(r#"<!DOCTYPE html><html><body><article><h1>Title</h1><p>Text with <strong>bold</strong> inside.</p></article></body></html>"#);
+    let articles = doc.query_selector_all("article");
+    assert_eq!(articles.len(), 1);
+
+    let article = articles[0];
+    eprintln!("article children after parse: {}", doc.children(article).len());
+    let html = doc.inner_html(article);
+    eprintln!("inner_html: '{}'", html);
+    assert!(html.contains("<h1>Title</h1>"));
+    assert!(html.contains("<strong>bold</strong>"));
 }

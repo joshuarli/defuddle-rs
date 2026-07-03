@@ -1,0 +1,516 @@
+use defuddle::markdown::html_to_markdown;
+
+/// Direct tests of the standalone markdown conversion function,
+/// mirroring tests/markdown.test.ts
+mod markdown_conversion {
+    use super::*;
+
+    #[test]
+    fn wraps_link_destinations_with_spaces_in_angle_brackets() {
+        let html = r#"<article><p><a href="myapp:open shared page">Open page</a></p></article>"#;
+        let md = html_to_markdown(html);
+        assert!(md.contains("[Open page](<myapp:open shared page>)"));
+    }
+
+    #[test]
+    fn keeps_normal_link_destinations() {
+        let html = r#"<article><p><a href="https://example.com/page">Open page</a></p></article>"#;
+        let md = html_to_markdown(html);
+        assert!(md.contains("[Open page](https://example.com/page)"));
+    }
+
+    #[test]
+    fn does_not_affect_normal_image_syntax() {
+        let html = r#"<p>Hello world</p><img src="https://example.com/img.png" alt="photo">"#;
+        let md = html_to_markdown(html);
+        assert!(md.contains("![photo](https://example.com/img.png)"));
+    }
+
+    #[test]
+    fn removes_wbr_tags_without_spaces() {
+        let html = r#"<article><p>Super<wbr>cali<wbr>fragilistic</p></article>"#;
+        let md = html_to_markdown(html);
+        assert!(md.contains("Supercalifragilistic"));
+    }
+
+    #[test]
+    fn handles_wbr_inside_links() {
+        let html = r#"<p><a href="https://example.com">long<wbr>word</a></p>"#;
+        let md = html_to_markdown(html);
+        assert!(md.contains("longword"));
+    }
+
+    #[test]
+    fn converts_basic_tables() {
+        let html = r#"<article>
+            <table>
+                <tr><th>A</th><th>B</th></tr>
+                <tr><td>1</td><td>2</td></tr>
+            </table>
+        </article>"#;
+        let md = html_to_markdown(html);
+        assert!(md.contains("| A | B |"));
+        assert!(md.contains("| 1 | 2 |"));
+    }
+}
+
+#[test]
+fn preserves_video_elements_that_use_source_children() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Video With Source</title></head>
+<body>
+<article>
+<h1>Video With Source</h1>
+<p>This article includes a real video element.</p>
+<video controls poster="https://example.com/poster.jpg">
+    <source src="https://example.com/video.mp4" type="video/mp4">
+</video>
+</article>
+</body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com/video-with-source".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    let content = result.content.to_lowercase();
+    assert!(content.contains("<video"), "video element should be preserved");
+    assert!(content.contains("<source"), "source element should be preserved");
+    assert!(content.contains("video.mp4"), "video URL should be preserved");
+}
+
+#[test]
+fn strips_style_inside_svg() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>SVG style leak</title></head>
+<body>
+<article>
+<h1>SVG style leak</h1>
+<p>Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+<svg viewBox="0 0 200 200" width="200" height="200">
+<style>@import url("http://attacker.example/leak.css"); .x { fill: url("http://attacker.example/img.png"); }</style>
+<circle class="x" cx="100" cy="100" r="80"/>
+</svg>
+<p>More content here.</p>
+</article>
+</body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com/svg-style".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(!result.content.contains("@import"), "@import should be stripped");
+    assert!(!result.content.contains("attacker.example"), "attacker URL should be stripped");
+    assert!(!result.content.to_lowercase().contains("<style"), "style elements should be stripped");
+}
+
+#[test]
+fn markdown_true_converts_content() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Test Page</title></head>
+<body>
+    <article>
+        <h1>Test Article</h1>
+        <p>This is a <strong>test</strong> paragraph.</p>
+        <p>Another paragraph here.</p>
+    </article>
+</body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            separate_markdown: true,
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(result.content.contains("<p>"), "content should be HTML");
+    assert!(result.content.contains("<strong>"), "content should contain strong");
+
+    let md = result.content_markdown.unwrap_or_default();
+    assert!(!md.is_empty(), "markdown should not be empty");
+    assert!(!md.contains("<p>"), "markdown should not contain HTML");
+    assert!(md.contains("**test**"), "markdown should contain bold");
+}
+
+#[test]
+fn without_markdown_options_no_markdown_conversion() {
+    let html = r#"<html><head><title>Test</title></head><body><p>Test</p></body></html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            separate_markdown: false,
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(result.content.contains("<p>"), "content should be HTML");
+    assert!(result.content_markdown.is_none(), "content_markdown should be None");
+}
+
+#[test]
+fn parse_does_not_mutate_input() {
+    // Our parse_html takes &str, so the input is always immutable.
+    // This test confirms that parsing a document yields valid content
+    // without panicking.
+    let html = r#"
+<!DOCTYPE html>
+<html>
+<head><title>Live Page</title></head>
+<body>
+    <style id="page-style">.headline { color: red }</style>
+    <article>
+        <h1 class="headline">Real article headline</h1>
+        <p>This is a normal article with enough words for the content scorer to
+        extract it as the main content without falling back to anything. It keeps
+        going with several sentences so the word count is comfortably high.</p>
+        <p>A second paragraph adds more text so extraction succeeds on the first try.</p>
+        <script>console.log('inline script')</script>
+    </article>
+</body>
+</html>"#;
+
+    let original = html.to_string();
+    let result = defuddle::parse_html(
+        &html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert_eq!(html, original, "input HTML must not be mutated");
+    assert!(result.content.contains("second paragraph"), "content should be extracted");
+}
+
+#[test]
+fn debug_true_returns_debug_info() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body><article><h1>Title</h1><p>Content here.</p></article></body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            debug: true,
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(result.debug.is_some(), "debug should be present");
+    let debug = result.debug.unwrap();
+    assert!(!debug.content_selector.is_empty(), "content_selector should be set");
+}
+
+#[test]
+fn debug_false_does_not_include_debug_field() {
+    let html = r#"<html><head><title>Test</title></head><body><p>Content.</p></body></html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            debug: false,
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(result.debug.is_none(), "debug should be None");
+}
+
+#[test]
+fn content_selector_selects_specified_element() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+    <nav><a href="/">Home</a></nav>
+    <main>
+        <article><h1>Article</h1><p>Article content.</p></article>
+    </main>
+    <footer>Copyright</footer>
+</body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            content_selector: Some("article".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(result.content.contains("Article content."));
+    assert!(!result.content.contains("Home"));
+    assert!(!result.content.contains("Copyright"));
+}
+
+#[test]
+fn content_selector_falls_back_to_auto_detection() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body><article><p>Some content here that should be found.</p></article></body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            content_selector: Some(".nonexistent-class-xyz".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(result.content.contains("Some content"), "should fall back to auto-detection");
+}
+
+#[test]
+fn remove_low_scoring_false_produces_more_content() {
+    let html = r#"<!DOCTYPE html>
+<html><head><title>Test</title></head>
+<body><article><h1>Title</h1><p>Content that should be extracted normally.</p></article></body>
+</html>"#;
+
+    let defaults = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse");
+
+    let all_off = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            remove_low_scoring: Some(false),
+            remove_hidden_elements: Some(false),
+            remove_exact_selectors: Some(false),
+            remove_partial_selectors: Some(false),
+            ..Default::default()
+        },
+    )
+    .expect("parse");
+
+    assert!(all_off.word_count >= defaults.word_count, "all-off should produce >= content");
+}
+
+#[test]
+fn strips_script_tags_from_content() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<article>
+<h1>Title</h1>
+<p>Safe content.</p>
+<script>alert('xss')</script>
+</article>
+</body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            debug: true,
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(result.content.contains("Safe content"), "content should contain safe text");
+    assert!(!result.content.to_lowercase().contains("<script"), "script should be removed");
+    assert!(!result.content.contains("alert"), "script content should be removed");
+}
+
+#[test]
+fn strips_event_handlers() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<article>
+<h1>Title</h1>
+<p>Content.</p>
+<img src="x.jpg" onerror="alert('xss')" onclick="steal()">
+</article>
+</body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(!result.content.contains("onerror"), "onerror should be stripped");
+    assert!(!result.content.contains("onclick"), "onclick should be stripped");
+}
+
+#[test]
+fn strips_javascript_uris() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<article>
+<p>Content.</p>
+<a href="javascript:alert('xss')">click me</a>
+<a href="  javascript:void(0)">spaced</a>
+</article>
+</body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(!result.content.to_lowercase().contains("javascript:"), "javascript: URLs should be stripped");
+}
+
+#[test]
+fn strips_data_text_html_uris() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<article>
+<p>Content.</p>
+<img src="data:text/html,<script>alert(1)</script>">
+</article>
+</body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(!result.content.to_lowercase().contains("data:text/html"), "data:text/html should be stripped");
+}
+
+#[test]
+fn preserves_iframes_with_src() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<article>
+<p>Content.</p>
+<iframe src="https://www.youtube.com/embed/abc123"></iframe>
+<iframe src="https://open.spotify.com/embed/track/xyz"></iframe>
+</article>
+</body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            remove_hidden_elements: Some(false),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(result.content.contains("youtube.com/embed/abc123"));
+    assert!(result.content.contains("spotify.com/embed/track/xyz"));
+}
+
+#[test]
+fn strips_srcdoc_from_iframes() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<article>
+<p>Content.</p>
+<iframe srcdoc="<script>alert('xss')</script>"></iframe>
+</article>
+</body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(!result.content.contains("srcdoc"), "srcdoc should be stripped");
+    assert!(!result.content.contains("alert"), "script content should be stripped");
+}
+
+#[test]
+fn strips_object_and_embed_elements() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<article>
+<p>Content.</p>
+<object data="https://evil.com/flash.swf"></object>
+<embed src="https://evil.com/plugin">
+</article>
+</body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(!result.content.to_lowercase().contains("<object"), "object should be stripped");
+    assert!(!result.content.to_lowercase().contains("<embed"), "embed should be stripped");
+    assert!(!result.content.contains("evil.com"), "evil URLs should be stripped");
+}
