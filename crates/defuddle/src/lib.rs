@@ -1,8 +1,10 @@
 mod constants;
 mod dom;
 mod metadata;
+mod pipeline;
 pub mod sanitize;
 mod schema;
+mod scoring;
 pub mod utils;
 
 use serde::{Deserialize, Serialize};
@@ -121,30 +123,76 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
 
     let metadata = metadata::extract_metadata(&doc, &schema_org_data, &meta_tags_raw, url);
 
-    let content = doc.outer_html(doc.root());
+    let debug = options.debug;
+    let remove_exact = options.remove_exact_selectors.unwrap_or(true);
+    let remove_partial = options.remove_partial_selectors.unwrap_or(true);
+    let remove_hidden = options.remove_hidden_elements.unwrap_or(true);
+    let content_selector = options.content_selector.as_deref();
+
+    let result = parse_internal(
+        doc,
+        remove_exact,
+        remove_partial,
+        remove_hidden,
+        content_selector,
+        debug,
+        &metadata,
+        &meta,
+        &schema_org_data,
+        url,
+    );
+
+    Ok(result)
+}
+
+fn parse_internal(
+    mut doc: Document,
+    remove_exact: bool,
+    remove_partial: bool,
+    remove_hidden: bool,
+    content_selector: Option<&str>,
+    debug: bool,
+    metadata: &Metadata,
+    meta: &[MetaTagItem],
+    schema_org_data: &[serde_json::Value],
+    _url: &str,
+) -> DefuddleResult {
+
+    pipeline::remove_by_selector(&mut doc, remove_exact, remove_partial);
+    if remove_hidden {
+        pipeline::remove_hidden_elements(&mut doc);
+    }
+
+    let main_content = pipeline::extract_content(&mut doc, content_selector, debug);
+
+    let content = if let Some(main) = main_content {
+        doc.outer_html(main)
+    } else {
+        doc.outer_html(doc.root())
+    };
+
+    let word_count = pipeline::count_html_words(&content);
 
     let schema_val = if schema_org_data.is_empty() {
         serde_json::Value::Array(Vec::new())
     } else {
-        serde_json::Value::Array(schema_org_data.clone())
+        serde_json::Value::Array(schema_org_data.to_vec())
     };
 
-    let word_count = utils::count_words(&content);
-
-    Ok(DefuddleResult {
-        content,
-        title: metadata.title,
-        description: metadata.description,
-        domain: metadata.domain,
-        favicon: metadata.favicon,
-        image: metadata.image,
-        language: metadata.language,
-        meta_tags: meta,
-        published: metadata.published,
-        author: metadata.author,
-        site: metadata.site,
+    DefuddleResult {
+        content: content.clone(),
+        title: metadata.title.clone(),
+        description: metadata.description.clone(),
+        domain: metadata.domain.clone(),
+        favicon: metadata.favicon.clone(),
+        image: metadata.image.clone(),
+        language: metadata.language.clone(),
+        meta_tags: meta.to_vec(),
+        published: metadata.published.clone(),
+        author: metadata.author.clone(),
+        site: metadata.site.clone(),
         schema_org_data: schema_val,
         word_count,
         ..DefuddleResult::default()
-    })
+    }
 }
