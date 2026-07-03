@@ -113,9 +113,11 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
         let expected_path = expected_dir().join(format!("{name}.md"));
         let expected = fs::read_to_string(&expected_path).expect("expected markdown exists");
 
-        if name == "general--stephango.com-buy-wisely" {
-            eprintln!("=== COMPARABLE (first 500):\n{}", &comparable[..comparable.len().min(500)]);
-            eprintln!("=== EXPECTED (first 500):\n{}", &expected[..expected.len().min(500)]);
+        if name.contains("bbcode") || name.contains("chatgpt") || name.contains("hackernews")
+            || name.contains("reddit") || name.contains("mastodon") || name.contains("github") {
+            eprintln!("=== EXTRACTOR {name} ===");
+            eprintln!("COMPARABLE first 500:\n{}", &comparable[..comparable.len().min(500)]);
+            eprintln!("EXPECTED first 500:\n{}", &expected[..expected.len().min(500)]);
         }
 
         if comparable.trim() != expected.trim() {
@@ -133,16 +135,13 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
     }
 
     mismatches.sort();
-    eprintln!(
-        "fixture parity: {} mismatched, {} matched of {} total",
-        mismatches.len(),
-        total - mismatches.len(),
-        total
-    );
-    if !mismatches.is_empty() {
-        eprintln!("first five mismatches: {:?}", &mismatches[..mismatches.len().min(5)]);
+    let matched = total - mismatches.len();
+    if matched > 0 {
+        let first_five = &mismatches[..mismatches.len().min(5)];
+        eprintln!("fixture parity: {matched} matched, {} mismatched of {total} total. first five mismatches: {first_five:?}", mismatches.len());
+    } else {
+        eprintln!("fixture parity: 0 matched, {} mismatched of {total} total", mismatches.len());
     }
-    // Tranche 3: we expect some matches now
 }
 
 fn fixture_paths() -> Vec<PathBuf> {

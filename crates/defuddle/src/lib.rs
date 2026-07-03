@@ -47,6 +47,7 @@
 
 mod constants;
 mod dom;
+mod extractor;
 pub mod markdown;
 mod metadata;
 mod pipeline;
@@ -180,20 +181,71 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
     let do_standardize = options.standardize.unwrap_or(true);
     let content_selector = options.content_selector.as_deref();
 
-    let result = parse_internal(
-        doc,
-        remove_exact,
-        remove_partial,
-        remove_hidden,
-        do_standardize,
-        separate_markdown,
-        content_selector,
-        debug,
-        &metadata,
-        &meta,
-        &schema_org_data,
-        url,
-    );
+    let ext_registry = extractor::build_registry();
+    let (extractor_result, extractor_type): (Option<extractor::ExtractorResult>, Option<String>) = if let Some(ext) = ext_registry.find(url, &doc) {
+        let result = ext.extract(&doc);
+        (Some(result), Some(String::from("")))
+    } else {
+        (None, None)
+    };
+
+    let result = if let Some(ext_result) = extractor_result {
+        let content_html = ext_result.content_html;
+        let word_count = pipeline::count_html_words(&content_html);
+
+        let mut variables = ext_result.variables;
+        let title = variables.remove("title").unwrap_or_else(|| metadata.title.clone());
+        let author = variables.remove("author").unwrap_or_else(|| metadata.author.clone());
+        let site = variables.remove("site").unwrap_or_else(|| metadata.site.clone());
+        let published = variables.remove("published").unwrap_or_else(|| metadata.published.clone());
+        let description = variables.remove("description").unwrap_or_else(|| metadata.description.clone());
+
+        let content_markdown = if separate_markdown {
+            Some(markdown::html_to_markdown(&content_html))
+        } else {
+            None
+        };
+
+        let schema_val = if schema_org_data.is_empty() {
+            serde_json::Value::Array(Vec::new())
+        } else {
+            serde_json::Value::Array(schema_org_data.to_vec())
+        };
+
+        DefuddleResult {
+            content: content_html.clone(),
+            content_markdown,
+            title,
+            description,
+            domain: metadata.domain.clone(),
+            favicon: metadata.favicon.clone(),
+            image: metadata.image.clone(),
+            language: metadata.language.clone(),
+            meta_tags: meta,
+            published,
+            author,
+            site,
+            schema_org_data: schema_val,
+            word_count,
+            extractor_type,
+            ..DefuddleResult::default()
+        }
+    } else {
+        parse_internal(
+            doc,
+            remove_exact,
+            remove_partial,
+            remove_hidden,
+            do_standardize,
+            separate_markdown,
+            content_selector,
+            debug,
+            &metadata,
+            &meta,
+            &schema_org_data,
+            url,
+        )
+    };
 
     Ok(result)
 }
