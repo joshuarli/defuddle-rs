@@ -113,11 +113,22 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
         let expected_path = expected_dir().join(format!("{name}.md"));
         let expected = fs::read_to_string(&expected_path).expect("expected markdown exists");
 
-        if name.contains("bbcode") || name.contains("chatgpt") || name.contains("hackernews")
-            || name.contains("reddit") || name.contains("mastodon") || name.contains("github") {
+        if name.contains("bbcode")
+            || name.contains("chatgpt")
+            || name.contains("hackernews")
+            || name.contains("reddit")
+            || name.contains("mastodon")
+            || name.contains("github")
+        {
             eprintln!("=== EXTRACTOR {name} ===");
-            eprintln!("COMPARABLE first 500:\n{}", &comparable[..comparable.len().min(500)]);
-            eprintln!("EXPECTED first 500:\n{}", &expected[..expected.len().min(500)]);
+            eprintln!(
+                "COMPARABLE first 500:\n{}",
+                &comparable[..comparable.len().min(500)]
+            );
+            eprintln!(
+                "EXPECTED first 500:\n{}",
+                &expected[..expected.len().min(500)]
+            );
         }
 
         if comparable.trim() != expected.trim() {
@@ -138,9 +149,15 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
     let matched = total - mismatches.len();
     if matched > 0 {
         let first_five = &mismatches[..mismatches.len().min(5)];
-        eprintln!("fixture parity: {matched} matched, {} mismatched of {total} total. first five mismatches: {first_five:?}", mismatches.len());
+        eprintln!(
+            "fixture parity: {matched} matched, {} mismatched of {total} total. first five mismatches: {first_five:?}",
+            mismatches.len()
+        );
     } else {
-        eprintln!("fixture parity: 0 matched, {} mismatched of {total} total", mismatches.len());
+        eprintln!(
+            "fixture parity: 0 matched, {} mismatched of {total} total",
+            mismatches.len()
+        );
     }
 }
 
@@ -174,16 +191,15 @@ fn expected_dir() -> PathBuf {
 }
 
 fn fixture_url(html: &str, path: &Path) -> String {
-    if let Some(start) = html.find("<!--") {
-        if let Some(end_offset) = html[start + 4..].find("-->") {
-            let comment = html[start + 4..start + 4 + end_offset].trim();
-            if comment.starts_with('{') {
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(comment) {
-                    if let Some(url) = value.get("url").and_then(|url| url.as_str()) {
-                        return url.to_string();
-                    }
-                }
-            }
+    if let Some(start) = html.find("<!--")
+        && let Some(end_offset) = html[start + 4..].find("-->")
+    {
+        let comment = html[start + 4..start + 4 + end_offset].trim();
+        if comment.starts_with('{')
+            && let Ok(value) = serde_json::from_str::<serde_json::Value>(comment)
+            && let Some(url) = value.get("url").and_then(|url| url.as_str())
+        {
+            return url.to_string();
         }
     }
 
@@ -204,9 +220,5 @@ fn comparable_markdown(result: &DefuddleResult) -> String {
         serde_json::to_string(&result.published).unwrap_or_default(),
     );
     let content_markdown = result.content_markdown.as_deref().unwrap_or("");
-    format!(
-        "```json\n{}\n```\n\n{}",
-        metadata,
-        content_markdown
-    )
+    format!("```json\n{}\n```\n\n{}", metadata, content_markdown)
 }

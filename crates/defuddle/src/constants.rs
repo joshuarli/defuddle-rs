@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+
+#[allow(dead_code)]
 pub const ENTRY_POINT_ELEMENTS: &[&str] = &[
     "#post",
     ".post-content",
@@ -21,11 +24,13 @@ pub const ENTRY_POINT_ELEMENTS: &[&str] = &[
     "body",
 ];
 
+#[allow(dead_code)]
 pub const BLOCK_ELEMENTS: &[&str] = &[
     "div", "section", "article", "main", "aside", "header", "footer", "nav", "content",
 ];
 
-pub const BLOCK_ELEMENTS_SELECTOR: &str = "div,section,article,main,aside,header,footer,nav,content";
+pub const BLOCK_ELEMENTS_SELECTOR: &str =
+    "div,section,article,main,aside,header,footer,nav,content";
 
 pub const HIDDEN_EXACT_SKIP_SELECTOR: &str = "[hidden],[aria-hidden=\"true\"],.hidden,.invisible";
 

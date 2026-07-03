@@ -81,25 +81,60 @@ pub fn decode_html_entities(text: &str) -> String {
             if let Some(semi) = chars[i..].iter().position(|&c| c == ';') {
                 let entity = &chars[i..i + semi + 1];
                 match entity.iter().collect::<String>().as_str() {
-                    "&amp;" => { result.push('&'); i += 5; continue; }
-                    "&lt;" => { result.push('<'); i += 4; continue; }
-                    "&gt;" => { result.push('>'); i += 4; continue; }
-                    "&quot;" => { result.push('"'); i += 6; continue; }
-                    "&apos;" => { result.push('\''); i += 6; continue; }
-                    "&nbsp;" => { result.push(' '); i += 6; continue; }
+                    "&amp;" => {
+                        result.push('&');
+                        i += 5;
+                        continue;
+                    }
+                    "&lt;" => {
+                        result.push('<');
+                        i += 4;
+                        continue;
+                    }
+                    "&gt;" => {
+                        result.push('>');
+                        i += 4;
+                        continue;
+                    }
+                    "&quot;" => {
+                        result.push('"');
+                        i += 6;
+                        continue;
+                    }
+                    "&apos;" => {
+                        result.push('\'');
+                        i += 6;
+                        continue;
+                    }
+                    "&nbsp;" => {
+                        result.push(' ');
+                        i += 6;
+                        continue;
+                    }
                     ent if ent.starts_with("&#x") => {
-                        if let Ok(codepoint) = u32::from_str_radix(&ent[3..ent.len()-1].to_lowercase(), 16) {
-                            if let Some(c) = char::from_u32(codepoint) { result.push(c); }
+                        if let Ok(codepoint) =
+                            u32::from_str_radix(&ent[3..ent.len() - 1].to_lowercase(), 16)
+                            && let Some(c) = char::from_u32(codepoint)
+                        {
+                            result.push(c);
                         }
-                        i += ent.len(); continue;
+                        i += ent.len();
+                        continue;
                     }
                     ent if ent.starts_with("&#") => {
-                        if let Ok(codepoint) = ent[2..ent.len()-1].parse::<u32>() {
-                            if let Some(c) = char::from_u32(codepoint) { result.push(c); }
+                        if let Ok(codepoint) = ent[2..ent.len() - 1].parse::<u32>()
+                            && let Some(c) = char::from_u32(codepoint)
+                        {
+                            result.push(c);
                         }
-                        i += ent.len(); continue;
+                        i += ent.len();
+                        continue;
                     }
-                    _ => { result.push('&'); i += 1; continue; }
+                    _ => {
+                        result.push('&');
+                        i += 1;
+                        continue;
+                    }
                 }
             } else {
                 result.push('&');

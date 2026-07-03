@@ -80,9 +80,18 @@ fn preserves_video_elements_that_use_source_children() {
     .expect("parse succeeds");
 
     let content = result.content.to_lowercase();
-    assert!(content.contains("<video"), "video element should be preserved");
-    assert!(content.contains("<source"), "source element should be preserved");
-    assert!(content.contains("video.mp4"), "video URL should be preserved");
+    assert!(
+        content.contains("<video"),
+        "video element should be preserved"
+    );
+    assert!(
+        content.contains("<source"),
+        "source element should be preserved"
+    );
+    assert!(
+        content.contains("video.mp4"),
+        "video URL should be preserved"
+    );
 }
 
 #[test]
@@ -112,9 +121,18 @@ fn strips_style_inside_svg() {
     )
     .expect("parse succeeds");
 
-    assert!(!result.content.contains("@import"), "@import should be stripped");
-    assert!(!result.content.contains("attacker.example"), "attacker URL should be stripped");
-    assert!(!result.content.to_lowercase().contains("<style"), "style elements should be stripped");
+    assert!(
+        !result.content.contains("@import"),
+        "@import should be stripped"
+    );
+    assert!(
+        !result.content.contains("attacker.example"),
+        "attacker URL should be stripped"
+    );
+    assert!(
+        !result.content.to_lowercase().contains("<style"),
+        "style elements should be stripped"
+    );
 }
 
 #[test]
@@ -142,7 +160,10 @@ fn markdown_true_converts_content() {
     .expect("parse succeeds");
 
     assert!(result.content.contains("<p>"), "content should be HTML");
-    assert!(result.content.contains("<strong>"), "content should contain strong");
+    assert!(
+        result.content.contains("<strong>"),
+        "content should contain strong"
+    );
 
     let md = result.content_markdown.unwrap_or_default();
     assert!(!md.is_empty(), "markdown should not be empty");
@@ -165,7 +186,10 @@ fn without_markdown_options_no_markdown_conversion() {
     .expect("parse succeeds");
 
     assert!(result.content.contains("<p>"), "content should be HTML");
-    assert!(result.content_markdown.is_none(), "content_markdown should be None");
+    assert!(
+        result.content_markdown.is_none(),
+        "content_markdown should be None"
+    );
 }
 
 #[test]
@@ -192,7 +216,7 @@ fn parse_does_not_mutate_input() {
 
     let original = html.to_string();
     let result = defuddle::parse_html(
-        &html,
+        html,
         defuddle::DefuddleOptions {
             url: Some("https://example.com".into()),
             ..Default::default()
@@ -201,7 +225,10 @@ fn parse_does_not_mutate_input() {
     .expect("parse succeeds");
 
     assert_eq!(html, original, "input HTML must not be mutated");
-    assert!(result.content.contains("second paragraph"), "content should be extracted");
+    assert!(
+        result.content.contains("second paragraph"),
+        "content should be extracted"
+    );
 }
 
 #[test]
@@ -224,7 +251,10 @@ fn debug_true_returns_debug_info() {
 
     assert!(result.debug.is_some(), "debug should be present");
     let debug = result.debug.unwrap();
-    assert!(!debug.content_selector.is_empty(), "content_selector should be set");
+    assert!(
+        !debug.content_selector.is_empty(),
+        "content_selector should be set"
+    );
 }
 
 #[test]
@@ -291,7 +321,10 @@ fn content_selector_falls_back_to_auto_detection() {
     )
     .expect("parse succeeds");
 
-    assert!(result.content.contains("Some content"), "should fall back to auto-detection");
+    assert!(
+        result.content.contains("Some content"),
+        "should fall back to auto-detection"
+    );
 }
 
 #[test]
@@ -323,7 +356,10 @@ fn remove_low_scoring_false_produces_more_content() {
     )
     .expect("parse");
 
-    assert!(all_off.word_count >= defaults.word_count, "all-off should produce >= content");
+    assert!(
+        all_off.word_count >= defaults.word_count,
+        "all-off should produce >= content"
+    );
 }
 
 #[test]
@@ -350,9 +386,18 @@ fn strips_script_tags_from_content() {
     )
     .expect("parse succeeds");
 
-    assert!(result.content.contains("Safe content"), "content should contain safe text");
-    assert!(!result.content.to_lowercase().contains("<script"), "script should be removed");
-    assert!(!result.content.contains("alert"), "script content should be removed");
+    assert!(
+        result.content.contains("Safe content"),
+        "content should contain safe text"
+    );
+    assert!(
+        !result.content.to_lowercase().contains("<script"),
+        "script should be removed"
+    );
+    assert!(
+        !result.content.contains("alert"),
+        "script content should be removed"
+    );
 }
 
 #[test]
@@ -378,8 +423,14 @@ fn strips_event_handlers() {
     )
     .expect("parse succeeds");
 
-    assert!(!result.content.contains("onerror"), "onerror should be stripped");
-    assert!(!result.content.contains("onclick"), "onclick should be stripped");
+    assert!(
+        !result.content.contains("onerror"),
+        "onerror should be stripped"
+    );
+    assert!(
+        !result.content.contains("onclick"),
+        "onclick should be stripped"
+    );
 }
 
 #[test]
@@ -405,7 +456,10 @@ fn strips_javascript_uris() {
     )
     .expect("parse succeeds");
 
-    assert!(!result.content.to_lowercase().contains("javascript:"), "javascript: URLs should be stripped");
+    assert!(
+        !result.content.to_lowercase().contains("javascript:"),
+        "javascript: URLs should be stripped"
+    );
 }
 
 #[test]
@@ -430,7 +484,10 @@ fn strips_data_text_html_uris() {
     )
     .expect("parse succeeds");
 
-    assert!(!result.content.to_lowercase().contains("data:text/html"), "data:text/html should be stripped");
+    assert!(
+        !result.content.to_lowercase().contains("data:text/html"),
+        "data:text/html should be stripped"
+    );
 }
 
 #[test]
@@ -483,8 +540,14 @@ fn strips_srcdoc_from_iframes() {
     )
     .expect("parse succeeds");
 
-    assert!(!result.content.contains("srcdoc"), "srcdoc should be stripped");
-    assert!(!result.content.contains("alert"), "script content should be stripped");
+    assert!(
+        !result.content.contains("srcdoc"),
+        "srcdoc should be stripped"
+    );
+    assert!(
+        !result.content.contains("alert"),
+        "script content should be stripped"
+    );
 }
 
 #[test]
@@ -510,7 +573,16 @@ fn strips_object_and_embed_elements() {
     )
     .expect("parse succeeds");
 
-    assert!(!result.content.to_lowercase().contains("<object"), "object should be stripped");
-    assert!(!result.content.to_lowercase().contains("<embed"), "embed should be stripped");
-    assert!(!result.content.contains("evil.com"), "evil URLs should be stripped");
+    assert!(
+        !result.content.to_lowercase().contains("<object"),
+        "object should be stripped"
+    );
+    assert!(
+        !result.content.to_lowercase().contains("<embed"),
+        "embed should be stripped"
+    );
+    assert!(
+        !result.content.contains("evil.com"),
+        "evil URLs should be stripped"
+    );
 }

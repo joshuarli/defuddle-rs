@@ -378,18 +378,17 @@ impl Document {
         let NodeKind::Element { name, attrs } = &self.node(node).kind else {
             return false;
         };
-        if let Some(tag) = &selector.tag {
-            if !name.eq_ignore_ascii_case(tag) {
-                return false;
-            }
+        if let Some(tag) = &selector.tag
+            && !name.eq_ignore_ascii_case(tag)
+        {
+            return false;
         }
-        if let Some(id) = &selector.id {
-            if !attrs
+        if let Some(id) = &selector.id
+            && !attrs
                 .iter()
                 .any(|(aname, aval)| aname.eq_ignore_ascii_case("id") && aval == id)
-            {
-                return false;
-            }
+        {
+            return false;
         }
         if !selector.classes.is_empty() {
             let class_values: Vec<&str> = attrs
@@ -403,71 +402,73 @@ impl Document {
                 }
             }
         }
-        if let Some(ref attr_presence) = selector.attr_presence {
-            if !attrs.iter().any(|(aname, _)| eq_ignore_case(aname, attr_presence)) {
-                return false;
-            }
+        if let Some(ref attr_presence) = selector.attr_presence
+            && !attrs
+                .iter()
+                .any(|(aname, _)| eq_ignore_case(aname, attr_presence))
+        {
+            return false;
         }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_equals {
-            if !attr_match(attrs, aname, |val| {
+        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_equals
+            && !attr_match(attrs, aname, |val| {
                 if case_insensitive {
                     val.eq_ignore_ascii_case(aval)
                 } else {
                     val == aval
                 }
-            }) {
-                return false;
-            }
+            })
+        {
+            return false;
         }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_contains {
-            if !attr_match(attrs, aname, |val| {
+        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_contains
+            && !attr_match(attrs, aname, |val| {
                 if case_insensitive {
                     val.to_lowercase().contains(&aval.to_lowercase())
                 } else {
                     val.contains(aval.as_str())
                 }
-            }) {
-                return false;
-            }
+            })
+        {
+            return false;
         }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_starts {
-            if !attr_match(attrs, aname, |val| {
+        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_starts
+            && !attr_match(attrs, aname, |val| {
                 if case_insensitive {
                     val.to_lowercase().starts_with(&aval.to_lowercase())
                 } else {
                     val.starts_with(aval.as_str())
                 }
-            }) {
-                return false;
-            }
+            })
+        {
+            return false;
         }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_ends {
-            if !attr_match(attrs, aname, |val| {
+        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_ends
+            && !attr_match(attrs, aname, |val| {
                 if case_insensitive {
                     val.to_lowercase().ends_with(&aval.to_lowercase())
                 } else {
                     val.ends_with(aval.as_str())
                 }
-            }) {
-                return false;
-            }
+            })
+        {
+            return false;
         }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_word {
-            if !attr_match(attrs, aname, |val| {
+        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_word
+            && !attr_match(attrs, aname, |val| {
                 let words: Vec<&str> = val.split_whitespace().collect();
                 if case_insensitive {
                     words.iter().any(|w| w.eq_ignore_ascii_case(aval))
                 } else {
                     words.contains(&aval.as_str())
                 }
-            }) {
-                return false;
-            }
+            })
+        {
+            return false;
         }
-        if let Some(ref negation) = selector.negation {
-            if self.matches_simple(node, negation) {
-                return false;
-            }
+        if let Some(ref negation) = selector.negation
+            && self.matches_simple(node, negation)
+        {
+            return false;
         }
         true
     }
@@ -564,24 +565,24 @@ impl SimpleSelector {
             return None;
         }
 
-        if input.contains(":not(") {
-            if let Some(inner_start) = input.find(":not(") {
-                let inner_start = inner_start + 5; // past ":not("
-                if let Some(paren_end) = input[inner_start..].find(')') {
-                    let inner = &input[inner_start..inner_start + paren_end];
-                    let rest = format!(
-                        "{}{}",
-                        &input[..inner_start - 5],
-                        &input[inner_start + paren_end + 1..]
-                    );
-                    if let Some(mut base) = Self::parse(&rest) {
-                        if let Some(neg) = Self::parse(inner) {
-                            base.negation = Some(Box::new(neg));
-                            return Some(base);
-                        }
-                    }
-                    return None;
+        if input.contains(":not(")
+            && let Some(inner_start) = input.find(":not(")
+        {
+            let inner_start = inner_start + 5; // past ":not("
+            if let Some(paren_end) = input[inner_start..].find(')') {
+                let inner = &input[inner_start..inner_start + paren_end];
+                let rest = format!(
+                    "{}{}",
+                    &input[..inner_start - 5],
+                    &input[inner_start + paren_end + 1..]
+                );
+                if let Some(mut base) = Self::parse(&rest)
+                    && let Some(neg) = Self::parse(inner)
+                {
+                    base.negation = Some(Box::new(neg));
+                    return Some(base);
                 }
+                return None;
             }
         }
 
@@ -839,7 +840,10 @@ enum AttrOp {
 }
 
 fn eq_ignore_case(a: &str, b: &str) -> bool {
-    a.len() == b.len() && a.chars().zip(b.chars()).all(|(ac, bc)| ac.to_ascii_lowercase() == bc.to_ascii_lowercase())
+    a.len() == b.len()
+        && a.chars()
+            .zip(b.chars())
+            .all(|(ac, bc)| ac.eq_ignore_ascii_case(&bc))
 }
 
 fn has_bare_combinator(input: &str) -> bool {
@@ -847,8 +851,12 @@ fn has_bare_combinator(input: &str) -> bool {
     let mut in_quote = None;
     for ch in input.chars() {
         match ch {
-            '[' => if in_quote.is_none() { in_bracket = true; },
-            ']' => if in_quote.is_none() { in_bracket = false; },
+            '[' if in_quote.is_none() => {
+                in_bracket = true;
+            }
+            ']' if in_quote.is_none() => {
+                in_bracket = false;
+            }
             '"' | '\'' => {
                 if !in_bracket {
                     return true;
@@ -859,10 +867,8 @@ fn has_bare_combinator(input: &str) -> bool {
                     _ => {}
                 }
             }
-            '>' | '+' | '~' => {
-                if in_quote.is_none() && !in_bracket {
-                    return true;
-                }
+            '>' | '+' | '~' if in_quote.is_none() && !in_bracket => {
+                return true;
             }
             _ => {}
         }
@@ -870,7 +876,11 @@ fn has_bare_combinator(input: &str) -> bool {
     false
 }
 
-fn attr_match<F: FnMut(&str) -> bool>(attrs: &[(String, String)], name: &str, mut predicate: F) -> bool {
+fn attr_match<F: FnMut(&str) -> bool>(
+    attrs: &[(String, String)],
+    name: &str,
+    mut predicate: F,
+) -> bool {
     attrs
         .iter()
         .any(|(aname, aval)| eq_ignore_case(aname, name) && predicate(aval))
@@ -958,17 +968,19 @@ mod tests {
     }
 }
 
-
-
-
 #[test]
 fn test_inner_html_after_removals() {
-    let mut doc = Document::parse(r#"<!DOCTYPE html><html><body><article><h1>Title</h1><p>Text with <strong>bold</strong> inside.</p></article></body></html>"#);
+    let doc = Document::parse(
+        r#"<!DOCTYPE html><html><body><article><h1>Title</h1><p>Text with <strong>bold</strong> inside.</p></article></body></html>"#,
+    );
     let articles = doc.query_selector_all("article");
     assert_eq!(articles.len(), 1);
 
     let article = articles[0];
-    eprintln!("article children after parse: {}", doc.children(article).len());
+    eprintln!(
+        "article children after parse: {}",
+        doc.children(article).len()
+    );
     let html = doc.inner_html(article);
     eprintln!("inner_html: '{}'", html);
     assert!(html.contains("<h1>Title</h1>"));

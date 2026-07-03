@@ -12,13 +12,7 @@ pub fn is_dangerous_url(url: &str) -> bool {
 /// Remove dangerous elements and attributes from the document.
 pub fn strip_unsafe_elements(doc: &mut crate::dom::Document) {
     let dangerous_selectors = [
-        "script",
-        "style",
-        "noscript",
-        "object",
-        "embed",
-        "applet",
-        "base",
+        "script", "style", "noscript", "object", "embed", "applet", "base",
     ];
 
     for selector in &dangerous_selectors {
@@ -37,10 +31,10 @@ pub fn strip_unsafe_elements(doc: &mut crate::dom::Document) {
 
         let attrs_to_check = ["href", "src", "action", "formaction", "xlink:href"];
         for attr_name in &attrs_to_check {
-            if let Some(value) = doc.get_attr(id, attr_name) {
-                if is_dangerous_url(value) {
-                    doc.remove_attr(id, attr_name);
-                }
+            if let Some(value) = doc.get_attr(id, attr_name)
+                && is_dangerous_url(value)
+            {
+                doc.remove_attr(id, attr_name);
             }
         }
 
@@ -49,18 +43,61 @@ pub fn strip_unsafe_elements(doc: &mut crate::dom::Document) {
         }
 
         let event_handlers = [
-            "onclick", "ondblclick", "onmousedown", "onmouseup", "onmouseover",
-            "onmousemove", "onmouseout", "onkeypress", "onkeydown", "onkeyup",
-            "onload", "onerror", "onfocus", "onblur", "onsubmit", "onreset",
-            "onchange", "onselect", "oninput", "onabort", "oncanplay",
-            "oncanplaythrough", "ondurationchange", "onemptied", "onended",
-            "onloadeddata", "onloadedmetadata", "onloadstart", "onpause",
-            "onplay", "onplaying", "onprogress", "onratechange", "onseeked",
-            "onseeking", "onstalled", "onsuspend", "ontimeupdate",
-            "onvolumechange", "onwaiting", "onwheel", "onscroll", "onresize",
-            "ontoggle", "oncopy", "oncut", "onpaste", "ondrag", "ondragend",
-            "ondragenter", "ondragleave", "ondragover", "ondragstart",
-            "ondrop", "oncontextmenu",
+            "onclick",
+            "ondblclick",
+            "onmousedown",
+            "onmouseup",
+            "onmouseover",
+            "onmousemove",
+            "onmouseout",
+            "onkeypress",
+            "onkeydown",
+            "onkeyup",
+            "onload",
+            "onerror",
+            "onfocus",
+            "onblur",
+            "onsubmit",
+            "onreset",
+            "onchange",
+            "onselect",
+            "oninput",
+            "onabort",
+            "oncanplay",
+            "oncanplaythrough",
+            "ondurationchange",
+            "onemptied",
+            "onended",
+            "onloadeddata",
+            "onloadedmetadata",
+            "onloadstart",
+            "onpause",
+            "onplay",
+            "onplaying",
+            "onprogress",
+            "onratechange",
+            "onseeked",
+            "onseeking",
+            "onstalled",
+            "onsuspend",
+            "ontimeupdate",
+            "onvolumechange",
+            "onwaiting",
+            "onwheel",
+            "onscroll",
+            "onresize",
+            "ontoggle",
+            "oncopy",
+            "oncut",
+            "onpaste",
+            "ondrag",
+            "ondragend",
+            "ondragenter",
+            "ondragleave",
+            "ondragover",
+            "ondragstart",
+            "ondrop",
+            "oncontextmenu",
         ];
 
         for event in &event_handlers {
@@ -73,8 +110,8 @@ pub fn strip_unsafe_elements(doc: &mut crate::dom::Document) {
 
 #[cfg(test)]
 mod tests {
-    use crate::dom::Document;
     use super::*;
+    use crate::dom::Document;
 
     #[test]
     fn test_is_dangerous_url() {
@@ -139,8 +176,14 @@ mod tests {
         strip_unsafe_elements(&mut doc);
 
         let html = doc.outer_html(doc.root());
-        assert!(!html.contains("javascript:"), "javascript: URLs should be removed");
-        assert!(!html.contains("data:text/html"), "data:text/html URLs should be removed");
+        assert!(
+            !html.contains("javascript:"),
+            "javascript: URLs should be removed"
+        );
+        assert!(
+            !html.contains("data:text/html"),
+            "data:text/html URLs should be removed"
+        );
         assert!(!html.contains("srcdoc"), "srcdoc should be removed");
         assert!(!html.contains("onclick"), "onclick should be removed");
         assert!(html.contains("https://safe.com"), "safe URLs should remain");

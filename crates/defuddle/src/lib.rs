@@ -182,23 +182,34 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
     let content_selector = options.content_selector.as_deref();
 
     let ext_registry = extractor::build_registry();
-    let (extractor_result, extractor_type): (Option<extractor::ExtractorResult>, Option<String>) = if let Some(ext) = ext_registry.find(url, &doc) {
-        let result = ext.extract(&doc);
-        (Some(result), Some(String::from("")))
-    } else {
-        (None, None)
-    };
+    let (extractor_result, extractor_type): (Option<extractor::ExtractorResult>, Option<String>) =
+        if let Some(ext) = ext_registry.find(url, &doc) {
+            let result = ext.extract(&doc);
+            (Some(result), Some(String::from("")))
+        } else {
+            (None, None)
+        };
 
     let result = if let Some(ext_result) = extractor_result {
         let content_html = ext_result.content_html;
         let word_count = pipeline::count_html_words(&content_html);
 
         let mut variables = ext_result.variables;
-        let title = variables.remove("title").unwrap_or_else(|| metadata.title.clone());
-        let author = variables.remove("author").unwrap_or_else(|| metadata.author.clone());
-        let site = variables.remove("site").unwrap_or_else(|| metadata.site.clone());
-        let published = variables.remove("published").unwrap_or_else(|| metadata.published.clone());
-        let description = variables.remove("description").unwrap_or_else(|| metadata.description.clone());
+        let title = variables
+            .remove("title")
+            .unwrap_or_else(|| metadata.title.clone());
+        let author = variables
+            .remove("author")
+            .unwrap_or_else(|| metadata.author.clone());
+        let site = variables
+            .remove("site")
+            .unwrap_or_else(|| metadata.site.clone());
+        let published = variables
+            .remove("published")
+            .unwrap_or_else(|| metadata.published.clone());
+        let description = variables
+            .remove("description")
+            .unwrap_or_else(|| metadata.description.clone());
 
         let content_markdown = if separate_markdown {
             Some(markdown::html_to_markdown(&content_html))
@@ -250,6 +261,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
     Ok(result)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_internal(
     mut doc: Document,
     remove_exact: bool,
@@ -363,7 +375,8 @@ fn element_selector(doc: &Document, node: NodeId) -> String {
             sel.push('#');
             sel.push_str(id_val);
         } else if let Some(class) = doc.get_attr(id, "class") {
-            let safe: Vec<&str> = class.split_whitespace()
+            let safe: Vec<&str> = class
+                .split_whitespace()
                 .filter(|c| !c.contains([':', '[', ']', '(', ')', '>', '~', '+', ',']))
                 .collect();
             if !safe.is_empty() {

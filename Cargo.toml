@@ -5,5 +5,23 @@ resolver = "3"
 [workspace.package]
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/kepano/defuddle-rs"
+repository = "https://github.com/joshuarli/defuddle-rs"
+
+[workspace.lints.clippy]
+nursery = { level = "allow", priority = -2 }
+pedantic = { level = "allow", priority = -2 }
+complexity = { level = "deny", priority = -2 }
+correctness = { level = "deny", priority = -2 }
+perf = { level = "deny", priority = -2 }
+restriction = { level = "allow", priority = -2 }
+suspicious = { level = "deny", priority = -2 }
+cargo = { level = "deny", priority = -1 }
+cargo_common_metadata = { level = "allow", priority = 1 }
+style = { level = "deny", priority = -1 }
+blanket_clippy_restriction_lints = { level = "allow", priority = 0 }
+wildcard_imports = { level = "deny", priority = 0 }
+disallowed_types = { level = "deny", priority = 1 }
+single_call_fn = { level = "allow", priority = 1 }
+multiple_crate_versions = { level = "allow", priority = 1 }
+result_large_err = { level = "allow", priority = 1 }
 

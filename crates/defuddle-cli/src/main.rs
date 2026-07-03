@@ -34,16 +34,40 @@ fn run() -> Result<(), String> {
                 frontmatter = true;
             }
             lexopt::Arg::Short('p') | lexopt::Arg::Long("property") => {
-                property = Some(parser.value().map_err(|e| e.to_string())?.into_string().map_err(|_| "invalid property value".to_string())?);
+                property = Some(
+                    parser
+                        .value()
+                        .map_err(|e| e.to_string())?
+                        .into_string()
+                        .map_err(|_| "invalid property value".to_string())?,
+                );
             }
             lexopt::Arg::Short('o') | lexopt::Arg::Long("output") => {
-                output = Some(PathBuf::from(parser.value().map_err(|e| e.to_string())?.to_str().ok_or("invalid output path")?));
+                output = Some(PathBuf::from(
+                    parser
+                        .value()
+                        .map_err(|e| e.to_string())?
+                        .to_str()
+                        .ok_or("invalid output path")?,
+                ));
             }
             lexopt::Arg::Long("url") => {
-                url = Some(parser.value().map_err(|e| e.to_string())?.into_string().map_err(|_| "invalid url value".to_string())?);
+                url = Some(
+                    parser
+                        .value()
+                        .map_err(|e| e.to_string())?
+                        .into_string()
+                        .map_err(|_| "invalid url value".to_string())?,
+                );
             }
             lexopt::Arg::Short('l') | lexopt::Arg::Long("lang") => {
-                lang = Some(parser.value().map_err(|e| e.to_string())?.into_string().map_err(|_| "invalid lang value".to_string())?);
+                lang = Some(
+                    parser
+                        .value()
+                        .map_err(|e| e.to_string())?
+                        .into_string()
+                        .map_err(|_| "invalid lang value".to_string())?,
+                );
             }
             lexopt::Arg::Long("debug") => {
                 debug = true;
@@ -53,7 +77,10 @@ fn run() -> Result<(), String> {
                 return Ok(());
             }
             lexopt::Arg::Value(val) => {
-                source = Some(val.into_string().map_err(|_| "invalid source argument".to_string())?);
+                source = Some(
+                    val.into_string()
+                        .map_err(|_| "invalid source argument".to_string())?,
+                );
             }
             _ => {
                 return Err(format!("unexpected argument: {arg:?}"));
@@ -61,14 +88,14 @@ fn run() -> Result<(), String> {
         }
     }
 
-    if let Some(ref src) = source {
-        if src.starts_with("https://") || src.starts_with("http://") {
-            return Err(
+    if let Some(ref src) = source
+        && (src.starts_with("https://") || src.starts_with("http://"))
+    {
+        return Err(
                 "The defuddle CLI does not fetch URLs. Pass a local HTML file path or pipe HTML via stdin.\n\
                  Use --url <url> to set the document URL for metadata and relative URL resolution."
                     .to_string(),
             );
-        }
     }
 
     let html = read_input(&source)?;
@@ -81,8 +108,7 @@ fn run() -> Result<(), String> {
         ..Default::default()
     };
 
-    let result = defuddle::parse_html(&html, options)
-        .map_err(|e| format!("Parse error: {e}"))?;
+    let result = defuddle::parse_html(&html, options).map_err(|e| format!("Parse error: {e}"))?;
 
     let out: Box<dyn Write> = if let Some(ref path) = output {
         Box::new(fs::File::create(path).map_err(|e| format!("Cannot open output file: {e}"))?)
@@ -131,10 +157,8 @@ fn run() -> Result<(), String> {
         writeln!(out, "language: {}", &result.language).map_err(|e| e.to_string())?;
         writeln!(out, "domain: {}", &result.domain).map_err(|e| e.to_string())?;
         writeln!(out, "---").map_err(|e| e.to_string())?;
-        if markdown {
-            if let Some(ref md) = result.content_markdown {
-                write!(out, "{md}").map_err(|e| e.to_string())?;
-            }
+        if markdown && let Some(ref md) = result.content_markdown {
+            write!(out, "{md}").map_err(|e| e.to_string())?;
         }
         return Ok(());
     }
@@ -160,10 +184,7 @@ fn read_input(source: &Option<String>) -> Result<String, String> {
                 .map_err(|e| format!("Cannot read stdin: {e}"))?;
             Ok(buf)
         }
-        Some(path) => {
-            fs::read_to_string(path)
-                .map_err(|e| format!("Cannot read file {path}: {e}"))
-        }
+        Some(path) => fs::read_to_string(path).map_err(|e| format!("Cannot read file {path}: {e}")),
         None => {
             if atty::is(atty::Stream::Stdin) {
                 return Err("No input provided. Pass an HTML file path, `-` for stdin, or pipe HTML to stdin.".to_string());

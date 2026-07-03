@@ -1,18 +1,16 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
 use defuddle::{DefuddleOptions, parse_html};
 
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/upstream/defuddle/fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/upstream/defuddle/fixtures")
 }
 
 fn expected_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/upstream/defuddle/expected")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/upstream/defuddle/expected")
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,7 +38,10 @@ fn metadata_extraction_on_simple_fixture() {
 
     assert!(!result.title.is_empty(), "title should be extracted");
     assert!(!result.domain.is_empty(), "domain should be extracted");
-    assert!(result.site.contains("stephango") || !result.site.is_empty(), "site should be extracted");
+    assert!(
+        result.site.contains("stephango") || !result.site.is_empty(),
+        "site should be extracted"
+    );
 }
 
 #[test]
@@ -139,8 +140,14 @@ fn metadata_extraction_schema_org() {
     .expect("parse succeeds");
 
     assert!(!result.author.is_empty(), "author should be found");
-    assert!(!result.published.is_empty(), "published date should be found");
-    assert!(!result.site.is_empty(), "site should be found from publisher");
+    assert!(
+        !result.published.is_empty(),
+        "published date should be found"
+    );
+    assert!(
+        !result.site.is_empty(),
+        "site should be found from publisher"
+    );
 }
 
 #[test]
@@ -187,7 +194,10 @@ fn metadata_favicon_detection() {
     )
     .expect("parse succeeds");
 
-    assert!(result.favicon.contains("favicon"), "favicon should reference a favicon resource");
+    assert!(
+        result.favicon.contains("favicon"),
+        "favicon should reference a favicon resource"
+    );
 }
 
 #[test]
@@ -218,10 +228,7 @@ fn metadata_date_published() {
 
 #[test]
 fn metadata_preamble_parity_for_sample_fixtures() {
-    let fixtures = &[
-        "general--stephango.com-buy-wisely",
-        "author-contact-block",
-    ];
+    let fixtures = &["general--stephango.com-buy-wisely", "author-contact-block"];
 
     let mut preamble_matches = 0;
 
@@ -270,17 +277,16 @@ fn metadata_preamble_parity_for_sample_fixtures() {
     );
 }
 
-fn fixture_url_from_path(html: &str, path: &PathBuf) -> String {
-    if let Some(start) = html.find("<!--") {
-        if let Some(end_offset) = html[start + 4..].find("-->") {
-            let comment = html[start + 4..start + 4 + end_offset].trim();
-            if comment.starts_with('{') {
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(comment) {
-                    if let Some(url) = value.get("url").and_then(|url| url.as_str()) {
-                        return url.to_string();
-                    }
-                }
-            }
+fn fixture_url_from_path(html: &str, path: &Path) -> String {
+    if let Some(start) = html.find("<!--")
+        && let Some(end_offset) = html[start + 4..].find("-->")
+    {
+        let comment = html[start + 4..start + 4 + end_offset].trim();
+        if comment.starts_with('{')
+            && let Ok(value) = serde_json::from_str::<serde_json::Value>(comment)
+            && let Some(url) = value.get("url").and_then(|url| url.as_str())
+        {
+            return url.to_string();
         }
     }
 

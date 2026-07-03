@@ -5,6 +5,7 @@ use crate::utils::count_words;
 
 type MetaTags = [(Option<String>, Option<String>, Option<String>)];
 
+#[derive(Default)]
 pub struct Metadata {
     pub title: String,
     pub description: String,
@@ -18,24 +19,12 @@ pub struct Metadata {
     pub word_count: usize,
 }
 
-impl Default for Metadata {
-    fn default() -> Self {
-        Self {
-            title: String::new(),
-            description: String::new(),
-            domain: String::new(),
-            favicon: String::new(),
-            image: String::new(),
-            language: String::new(),
-            published: String::new(),
-            author: String::new(),
-            site: String::new(),
-            word_count: 0,
-        }
-    }
-}
-
-pub fn extract_metadata(doc: &Document, schema_org_data: &[Value], meta_tags: &MetaTags, url: &str) -> Metadata {
+pub fn extract_metadata(
+    doc: &Document,
+    schema_org_data: &[Value],
+    meta_tags: &MetaTags,
+    url: &str,
+) -> Metadata {
     let (domain, resolved_url) = extract_domain_and_url(doc, meta_tags, schema_org_data, url);
     let site_name = get_site_name(schema_org_data, meta_tags);
     let (title, detected_site_name) = clean_title(
@@ -84,16 +73,17 @@ fn extract_domain_and_url(
         default_url.to_string()
     } else {
         get_meta_content(meta_tags, "property", "og:url")
-            .or_else(|| {
-                get_meta_content(meta_tags, "property", "twitter:url")
-            })
+            .or_else(|| get_meta_content(meta_tags, "property", "twitter:url"))
             .or_else(|| get_schema_property_str(schema_org_data, "url"))
             .or_else(|| get_schema_property_str(schema_org_data, "mainEntityOfPage.url"))
             .or_else(|| get_schema_property_str(schema_org_data, "mainEntity.url"))
             .or_else(|| get_schema_property_str(schema_org_data, "WebSite.url"))
             .or_else(|| {
                 let canonicals = doc.query_selector_all("link[rel=\"canonical\"]");
-                canonicals.first().and_then(|id| doc.get_attr(*id, "href")).map(|s| s.to_string())
+                canonicals
+                    .first()
+                    .and_then(|id| doc.get_attr(*id, "href"))
+                    .map(|s| s.to_string())
             })
             .unwrap_or_default()
     };
@@ -107,10 +97,10 @@ fn extract_domain_and_url(
     // Fall back to base tag
     if domain.is_empty() {
         let base_tags = doc.query_selector_all("base[href]");
-        if let Some(base_id) = base_tags.first() {
-            if let Some(base_href) = doc.get_attr(*base_id, "href") {
-                return (parse_domain(base_href), base_href.to_string());
-            }
+        if let Some(base_id) = base_tags.first()
+            && let Some(base_href) = doc.get_attr(*base_id, "href")
+        {
+            return (parse_domain(base_href), base_href.to_string());
         }
     }
 
@@ -126,16 +116,22 @@ fn parse_domain(url: &str) -> String {
     let hostname = stripped.split('/').next().unwrap_or(stripped);
     let hostname = hostname.split(':').next().unwrap_or(hostname);
 
-    hostname.strip_prefix("www.").unwrap_or(hostname).to_string()
+    hostname
+        .strip_prefix("www.")
+        .unwrap_or(hostname)
+        .to_string()
 }
 
 fn get_meta_content(meta_tags: &MetaTags, attr: &str, value: &str) -> Option<String> {
     meta_tags
         .iter()
         .find(|(name, property, content)| {
-            let attr_val = if attr == "name" { name.as_deref() } else { property.as_deref() };
-            attr_val.is_some_and(|av| av.eq_ignore_ascii_case(value))
-                && content.is_some()
+            let attr_val = if attr == "name" {
+                name.as_deref()
+            } else {
+                property.as_deref()
+            };
+            attr_val.is_some_and(|av| av.eq_ignore_ascii_case(value)) && content.is_some()
         })
         .and_then(|(_, _, content)| content.clone())
 }
@@ -144,7 +140,11 @@ fn get_meta_contents(meta_tags: &MetaTags, attr: &str, value: &str) -> Vec<Strin
     meta_tags
         .iter()
         .filter_map(|(name, property, content)| {
-            let attr_val = if attr == "name" { name.as_deref() } else { property.as_deref() };
+            let attr_val = if attr == "name" {
+                name.as_deref()
+            } else {
+                property.as_deref()
+            };
             if attr_val.is_some_and(|av| av.eq_ignore_ascii_case(value)) {
                 content.clone()
             } else {
@@ -162,12 +162,10 @@ fn is_placeholder_value(s: &str) -> bool {
 }
 
 fn first_valid<T: Into<String>>(results: Vec<Option<T>>) -> String {
-    for r in results {
-        if let Some(v) = r {
-            let s: String = v.into();
-            if !s.is_empty() && !is_placeholder_value(&s) {
-                return s;
-            }
+    for v in results.into_iter().flatten() {
+        let s: String = v.into();
+        if !s.is_empty() && !is_placeholder_value(&s) {
+            return s;
         }
     }
     String::new()
@@ -214,7 +212,7 @@ fn get_schema_property(data: &[Value], property: &str) -> Vec<String> {
         }
     }
     let mut seen = std::collections::BTreeSet::new();
-    results.retain(|r| r.len() > 0 && seen.insert(r.clone()));
+    results.retain(|r| !r.is_empty() && seen.insert(r.clone()));
     results
 }
 
@@ -241,20 +239,19 @@ fn search_schema(
     }
 
     match value {
-        Value::String(_) => {
-            if props.is_empty() {
-                results.push(value.as_str().unwrap_or("").to_string());
-            }
+        Value::String(_) if props.is_empty() => {
+            results.push(value.as_str().unwrap_or("").to_string());
         }
         Value::Array(arr) => {
             let current = props[0];
-            if current.starts_with('[') && current.ends_with(']') {
-                if let Ok(idx) = current[1..current.len() - 1].parse::<usize>() {
-                    if let Some(item) = arr.get(idx) {
-                        search_schema(item, &props[1..], _full_path, is_exact, results);
-                    }
-                    return;
+            if current.starts_with('[')
+                && current.ends_with(']')
+                && let Ok(idx) = current[1..current.len() - 1].parse::<usize>()
+            {
+                if let Some(item) = arr.get(idx) {
+                    search_schema(item, &props[1..], _full_path, is_exact, results);
                 }
+                return;
             }
             for item in arr {
                 search_schema(item, props, _full_path, is_exact, results);
@@ -291,10 +288,10 @@ fn get_best_title(
         get_meta_content(meta_tags, "name", "sailthru.title"),
         doc.query_selector_all("title")
             .first()
-            .and_then(|id| Some(doc.text_content(*id).trim().to_string())),
+            .map(|id| doc.text_content(*id).trim().to_string()),
         doc.query_selector_all("h1")
             .first()
-            .and_then(|id| Some(doc.text_content(*id).trim().to_string())),
+            .map(|id| doc.text_content(*id).trim().to_string()),
     ]
     .into_iter()
     .flatten()
@@ -312,8 +309,8 @@ fn get_best_title(
 
     let site_norm = site_name.trim().to_lowercase();
     let domain_norm: String = domain
-        .rsplitn(2, '.')
-        .nth(1)
+        .rsplit_once('.')
+        .map(|x| x.0)
         .unwrap_or(domain)
         .to_lowercase()
         .chars()
@@ -329,7 +326,12 @@ fn get_best_title(
     candidates.into_iter().next().unwrap_or_default()
 }
 
-fn is_site_identifier(candidate: &str, author_norm: &str, site_norm: &str, domain_norm: &str) -> bool {
+fn is_site_identifier(
+    candidate: &str,
+    author_norm: &str,
+    site_norm: &str,
+    domain_norm: &str,
+) -> bool {
     let norm = candidate.trim().to_lowercase();
 
     if !author_norm.is_empty() && norm == author_norm {
@@ -388,7 +390,11 @@ fn clean_title(title: &str, site_name: &str) -> (String, String) {
     (title.to_string(), String::new())
 }
 
-fn try_separator_split(title: &str, _separators: &str, _suffix_only: bool) -> (String, Option<String>) {
+fn try_separator_split(
+    title: &str,
+    _separators: &str,
+    _suffix_only: bool,
+) -> (String, Option<String>) {
     let sep_re = regex::Regex::new(r"\s+[-–—|/·]\s+").unwrap();
 
     let positions: Vec<(usize, usize)> = sep_re
@@ -410,15 +416,13 @@ fn try_separator_split(title: &str, _separators: &str, _suffix_only: bool) -> (S
         }
     }
 
-    if !_suffix_only {
-        if let Some(&(start, end)) = positions.first() {
-            let prefix_site = title[..start].trim();
-            let prefix_title = title[end..].trim();
-            let ptw = count_words(prefix_title);
-            let psw = count_words(prefix_site);
-            if psw <= 3 && ptw >= 2 && ptw >= psw * 2 {
-                return (prefix_title.to_string(), Some(prefix_site.to_string()));
-            }
+    if !_suffix_only && let Some(&(start, end)) = positions.first() {
+        let prefix_site = title[..start].trim();
+        let prefix_title = title[end..].trim();
+        let ptw = count_words(prefix_title);
+        let psw = count_words(prefix_site);
+        if psw <= 3 && ptw >= 2 && ptw >= psw * 2 {
+            return (prefix_title.to_string(), Some(prefix_site.to_string()));
         }
     }
 
@@ -458,12 +462,11 @@ fn get_image(schema_org_data: &[Value], meta_tags: &MetaTags) -> String {
 
 fn get_language(doc: &Document, schema_org_data: &[Value], meta_tags: &MetaTags) -> String {
     let html_ids = doc.query_selector_all("html");
-    if let Some(html_id) = html_ids.first() {
-        if let Some(lang) = doc.get_attr(*html_id, "lang") {
-            if !lang.trim().is_empty() {
-                return normalize_lang_code(lang.trim());
-            }
-        }
+    if let Some(html_id) = html_ids.first()
+        && let Some(lang) = doc.get_attr(*html_id, "lang")
+        && !lang.trim().is_empty()
+    {
+        return normalize_lang_code(lang.trim());
     }
 
     let content_lang = get_meta_content(meta_tags, "name", "content-language")
@@ -473,10 +476,10 @@ fn get_language(doc: &Document, schema_org_data: &[Value], meta_tags: &MetaTags)
     }
 
     let http_equiv = doc.query_selector_all("meta[http-equiv=\"Content-Language\" i]");
-    if let Some(meta_id) = http_equiv.first() {
-        if let Some(content) = doc.get_attr(*meta_id, "content") {
-            return normalize_lang_code(content.trim());
-        }
+    if let Some(meta_id) = http_equiv.first()
+        && let Some(content) = doc.get_attr(*meta_id, "content")
+    {
+        return normalize_lang_code(content.trim());
     }
 
     let schema_lang = get_schema_property_str(schema_org_data, "inLanguage");
@@ -497,32 +500,30 @@ fn get_favicon(doc: &Document, base_url: &str, meta_tags: &MetaTags) -> String {
     }
 
     let icon_links = doc.query_selector_all("link[rel='icon']");
-    if let Some(id) = icon_links.first() {
-        if let Some(href) = doc.get_attr(*id, "href") {
-            return href.to_string();
-        }
+    if let Some(id) = icon_links.first()
+        && let Some(href) = doc.get_attr(*id, "href")
+    {
+        return href.to_string();
     }
 
     let shortcut_links = doc.query_selector_all("link[rel='shortcut icon']");
-    if let Some(id) = shortcut_links.first() {
-        if let Some(href) = doc.get_attr(*id, "href") {
-            return href.to_string();
-        }
+    if let Some(id) = shortcut_links.first()
+        && let Some(href) = doc.get_attr(*id, "href")
+    {
+        return href.to_string();
     }
 
-    if base_url.starts_with("http") {
-        if !base_url.is_empty() {
-            let base = if base_url.starts_with("http://") || base_url.starts_with("https://") {
-                base_url.to_string()
-            } else {
-                format!("https://{}", base_url)
-            };
-            if let Some(slash) = base[8..].find('/') {
-                let origin = &base[..8 + slash];
-                return format!("{}/favicon.ico", origin);
-            }
-            return format!("{}/favicon.ico", base);
+    if base_url.starts_with("http") && !base_url.is_empty() {
+        let base = if base_url.starts_with("http://") || base_url.starts_with("https://") {
+            base_url.to_string()
+        } else {
+            format!("https://{}", base_url)
+        };
+        if let Some(slash) = base[8..].find('/') {
+            let origin = &base[..8 + slash];
+            return format!("{}/favicon.ico", origin);
         }
+        return format!("{}/favicon.ico", base);
     }
 
     String::new()
@@ -658,7 +659,10 @@ fn is_linked_to_other_page(doc: &Document, el: NodeId, page_url: &str) -> bool {
     }
     let anchor = anchor.unwrap();
 
-    let href = doc.get_attr(anchor, "href").map(|s| s.to_string()).unwrap_or_default();
+    let href = doc
+        .get_attr(anchor, "href")
+        .map(|s| s.to_string())
+        .unwrap_or_default();
     if href.is_empty() || href.starts_with('#') {
         return false;
     }
@@ -691,7 +695,10 @@ fn parse_url(url: &str) -> Result<ParsedUrl, ()> {
     let (host, _port) = host_port.split_once(':').unwrap_or((host_port, ""));
     let origin = format!("https://{}", host);
 
-    Ok(ParsedUrl { origin, path: format!("/{}", path_rest) })
+    Ok(ParsedUrl {
+        origin,
+        path: format!("/{}", path_rest),
+    })
 }
 
 struct ParsedUrl {
@@ -700,8 +707,12 @@ struct ParsedUrl {
 }
 
 impl ParsedUrl {
-    fn origin(&self) -> &str { &self.origin }
-    fn path(&self) -> &str { &self.path }
+    fn origin(&self) -> &str {
+        &self.origin
+    }
+    fn path(&self) -> &str {
+        &self.path
+    }
 }
 
 fn resolve_url(href: &str, base: &str) -> String {
@@ -711,9 +722,15 @@ fn resolve_url(href: &str, base: &str) -> String {
 
     let base = base.trim_end_matches('/');
     if href.starts_with('/') {
-        let origin_end = base.find("://").map(|i| {
-            base[i + 3..].find('/').map(|j| i + 3 + j).unwrap_or(base.len())
-        }).unwrap_or(base.len());
+        let origin_end = base
+            .find("://")
+            .map(|i| {
+                base[i + 3..]
+                    .find('/')
+                    .map(|j| i + 3 + j)
+                    .unwrap_or(base.len())
+            })
+            .unwrap_or(base.len());
         format!("{}{}", &base[..origin_end], href)
     } else {
         let base_dir = if let Some(slash) = base.rfind('/') {
@@ -726,9 +743,18 @@ fn resolve_url(href: &str, base: &str) -> String {
 }
 
 const MONTH_MAP: &[(&str, &str)] = &[
-    ("january", "01"), ("february", "02"), ("march", "03"), ("april", "04"),
-    ("may", "05"), ("june", "06"), ("july", "07"), ("august", "08"),
-    ("september", "09"), ("october", "10"), ("november", "11"), ("december", "12"),
+    ("january", "01"),
+    ("february", "02"),
+    ("march", "03"),
+    ("april", "04"),
+    ("may", "05"),
+    ("june", "06"),
+    ("july", "07"),
+    ("august", "08"),
+    ("september", "09"),
+    ("october", "10"),
+    ("november", "11"),
+    ("december", "12"),
 ];
 
 fn parse_date_text(text: &str) -> Option<String> {
@@ -789,10 +815,10 @@ fn get_author(doc: &Document, schema_org_data: &[Value], meta_tags: &MetaTags) -
         let formatted: Vec<String> = citation_authors
             .into_iter()
             .map(|s| {
-                if s.contains(',') {
-                    if let Some((last, first)) = s.split_once(',') {
-                        return format!("{} {}", first.trim(), last.trim());
-                    }
+                if s.contains(',')
+                    && let Some((last, first)) = s.split_once(',')
+                {
+                    return format!("{} {}", first.trim(), last.trim());
                 }
                 s
             })
@@ -943,13 +969,14 @@ fn find_author_near_h1(doc: &Document, h1_id: NodeId, _author_norm: &str) -> Opt
             let text = doc.text_content(id).trim().to_string();
             if parse_date_text(&text).is_some() {
                 let links = doc.query_selector_all("a");
-                let contained_links: Vec<_> = links
-                    .into_iter()
-                    .filter(|l| doc.contains(id, *l))
-                    .collect();
+                let contained_links: Vec<_> =
+                    links.into_iter().filter(|l| doc.contains(id, *l)).collect();
                 if contained_links.len() == 1 {
                     let link_text = doc.text_content(contained_links[0]).trim().to_string();
-                    if link_text.len() > 0 && link_text.len() < 100 && parse_date_text(&link_text).is_none() {
+                    if !link_text.is_empty()
+                        && link_text.len() < 100
+                        && parse_date_text(&link_text).is_none()
+                    {
                         return Some(link_text);
                     }
                 }
@@ -1000,7 +1027,7 @@ fn find_author_near_h1(doc: &Document, h1_id: NodeId, _author_norm: &str) -> Opt
 
 fn extract_byline(doc: &Document, el: NodeId) -> Option<String> {
     let text = doc.text_content(el).trim().to_string();
-    if text.len() > 0 && text.len() < 50 {
+    if !text.is_empty() && text.len() < 50 {
         if let Some(author) = text.strip_prefix("By ") {
             let author = author.trim();
             if !author.is_empty() && author.chars().next().unwrap().is_uppercase() {
@@ -1035,7 +1062,10 @@ fn clean_author_string(s: &str) -> String {
 }
 
 fn get_visible_text(doc: &Document, node: NodeId) -> String {
-    doc.text_content(node).replace(char::is_whitespace, " ").trim().to_string()
+    doc.text_content(node)
+        .replace(char::is_whitespace, " ")
+        .trim()
+        .to_string()
 }
 
 fn get_author_name(doc: &Document, node: NodeId) -> String {
@@ -1050,5 +1080,9 @@ fn get_author_name(doc: &Document, node: NodeId) -> String {
             return child_text;
         }
     }
-    if text.len() <= 100 { text } else { String::new() }
+    if text.len() <= 100 {
+        text
+    } else {
+        String::new()
+    }
 }

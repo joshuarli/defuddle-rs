@@ -86,7 +86,12 @@ fn cli_outputs_frontmatter() {
         .expect("command spawns");
 
     use std::io::Write;
-    child.stdin.take().unwrap().write_all(html.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(html.as_bytes())
+        .unwrap();
     let output = child.wait_with_output().expect("command completes");
 
     assert!(output.status.success());
@@ -110,7 +115,12 @@ fn cli_property_output() {
         .expect("command spawns");
 
     use std::io::Write;
-    child.stdin.take().unwrap().write_all(html.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(html.as_bytes())
+        .unwrap();
     let output = child.wait_with_output().expect("command completes");
 
     assert!(output.status.success());
@@ -141,7 +151,12 @@ fn cli_output_to_file() {
         .expect("command spawns");
 
     use std::io::Write;
-    child.stdin.take().unwrap().write_all(html.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(html.as_bytes())
+        .unwrap();
     let output = child.wait_with_output().expect("command completes");
 
     assert!(output.status.success());

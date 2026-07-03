@@ -62,16 +62,12 @@ fn clean_json_content(content: &str) -> String {
 fn decode_value_strings(value: Value) -> Value {
     match value {
         Value::String(s) => Value::String(decode_html_entities(&s)),
-        Value::Array(arr) => {
-            Value::Array(arr.into_iter().map(decode_value_strings).collect())
-        }
-        Value::Object(map) => {
-            Value::Object(
-                map.into_iter()
-                    .map(|(k, v)| (k, decode_value_strings(v)))
-                    .collect(),
-            )
-        }
+        Value::Array(arr) => Value::Array(arr.into_iter().map(decode_value_strings).collect()),
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(k, v)| (k, decode_value_strings(v)))
+                .collect(),
+        ),
         other => other,
     }
 }

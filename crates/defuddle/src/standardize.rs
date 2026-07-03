@@ -33,11 +33,9 @@ fn flatten_layout_tables(doc: &mut Document, node: NodeId) {
 
 fn remove_empty_elements(doc: &mut Document, node: NodeId) {
     let void_tags: &[&str] = &[
-        "area", "base", "br", "col", "embed", "hr", "img", "input",
-        "link", "meta", "param", "source", "track", "wbr",
-        "svg", "g", "defs", "use", "mask", "pattern",
-        "iframe", "video", "audio", "picture",
-        "td", "th",
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
+        "source", "track", "wbr", "svg", "g", "defs", "use", "mask", "pattern", "iframe", "video",
+        "audio", "picture", "td", "th",
     ];
 
     let all = doc.query_selector_all("*");

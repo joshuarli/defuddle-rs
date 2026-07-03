@@ -1,36 +1,100 @@
+#![allow(dead_code)]
+
 use crate::dom::{Document, NodeId};
 use crate::utils::count_words;
 
 const CONTENT_INDICATORS: &[&str] = &[
-    "admonition", "article", "content", "entry", "image",
-    "img", "font", "figure", "figcaption", "pre", "main",
-    "post", "story", "table",
+    "admonition",
+    "article",
+    "content",
+    "entry",
+    "image",
+    "img",
+    "font",
+    "figure",
+    "figcaption",
+    "pre",
+    "main",
+    "post",
+    "story",
+    "table",
 ];
 
 const NAVIGATION_INDICATORS: &[&str] = &[
-    "advertisement", "all rights reserved", "banner", "cookie",
-    "comments", "copyright", "follow me", "follow us", "footer",
-    "header", "homepage", "login", "menu", "more articles",
-    "more like this", "most read", "nav", "navigation",
-    "newsletter", "popular", "privacy", "recommended", "register",
-    "related", "responses", "share", "sidebar", "sign in",
-    "sign up", "signup", "social", "sponsored", "subscribe",
-    "terms", "trending",
+    "advertisement",
+    "all rights reserved",
+    "banner",
+    "cookie",
+    "comments",
+    "copyright",
+    "follow me",
+    "follow us",
+    "footer",
+    "header",
+    "homepage",
+    "login",
+    "menu",
+    "more articles",
+    "more like this",
+    "most read",
+    "nav",
+    "navigation",
+    "newsletter",
+    "popular",
+    "privacy",
+    "recommended",
+    "register",
+    "related",
+    "responses",
+    "share",
+    "sidebar",
+    "sign in",
+    "sign up",
+    "signup",
+    "social",
+    "sponsored",
+    "subscribe",
+    "terms",
+    "trending",
 ];
 
 const NON_CONTENT_PATTERNS: &[&str] = &[
-    "advert", "ad-", "ads", "banner", "cookie", "copyright",
-    "footer", "header", "homepage", "menu", "nav", "newsletter",
-    "popular", "privacy", "recommended", "related", "rights",
-    "share", "sidebar", "social", "sponsored", "subscribe",
-    "terms", "trending", "widget",
+    "advert",
+    "ad-",
+    "ads",
+    "banner",
+    "cookie",
+    "copyright",
+    "footer",
+    "header",
+    "homepage",
+    "menu",
+    "nav",
+    "newsletter",
+    "popular",
+    "privacy",
+    "recommended",
+    "related",
+    "rights",
+    "share",
+    "sidebar",
+    "social",
+    "sponsored",
+    "subscribe",
+    "terms",
+    "trending",
+    "widget",
 ];
 
 const SOCIAL_PROFILE_PATTERNS: &[&str] = &[
-    "linkedin.com/in/", "linkedin.com/company/",
-    "twitter.com/", "x.com/",
-    "facebook.com/", "instagram.com/",
-    "threads.net/", "mastodon.",
+    "linkedin.com/in/",
+    "linkedin.com/company/",
+    "twitter.com/",
+    "x.com/",
+    "facebook.com/",
+    "instagram.com/",
+    "threads.net/",
+    "mastodon.",
 ];
 
 pub fn score_element(doc: &Document, node: NodeId) -> f64 {
@@ -55,7 +119,8 @@ pub fn score_element(doc: &Document, node: NodeId) -> f64 {
     score -= image_density * 3.0;
 
     let class_val = doc.get_attr(node, "class").unwrap_or("").to_lowercase();
-    if class_val.contains("content") || class_val.contains("article") || class_val.contains("post") {
+    if class_val.contains("content") || class_val.contains("article") || class_val.contains("post")
+    {
         score += 15.0;
     }
 
@@ -119,7 +184,9 @@ pub fn is_likely_content(doc: &Document, node: NodeId) -> bool {
     let text = doc.text_content(node);
     let words = count_words(&text);
 
-    let heading_children: Vec<NodeId> = doc.children(node).iter()
+    let heading_children: Vec<NodeId> = doc
+        .children(node)
+        .iter()
         .copied()
         .filter(|&c| {
             let t = doc.tag_name(c).to_lowercase();
@@ -131,7 +198,9 @@ pub fn is_likely_content(doc: &Document, node: NodeId) -> bool {
         let heading_text = doc.text_content(*heading).trim().to_string();
         if heading_text == text.trim() {
             let heading_lower = heading_text.to_lowercase();
-            let is_nav_heading = NAVIGATION_INDICATORS.iter().any(|ind| heading_lower.contains(ind));
+            let is_nav_heading = NAVIGATION_INDICATORS
+                .iter()
+                .any(|ind| heading_lower.contains(ind));
             let is_toc = heading_lower == "contents"
                 || heading_lower == "table of contents"
                 || heading_lower.contains("on this page");
@@ -154,7 +223,8 @@ pub fn is_likely_content(doc: &Document, node: NodeId) -> bool {
     if words > 30 && content_blocks > 0 {
         return true;
     }
-    if words >= 10 && ["?", "!", "."].iter().any(|&p| text.contains(p))
+    if words >= 10
+        && ["?", "!", "."].iter().any(|&p| text.contains(p))
         && (count_descendant_tag(doc, node, "a") as f64) / (words as f64) < 0.1
     {
         return true;
@@ -212,7 +282,10 @@ pub fn score_non_content_block(doc: &Document, node: NodeId) -> f64 {
         for link_id in &link_ids {
             if let Some(href) = doc.get_attr(*link_id, "href") {
                 let href_lower = href.to_lowercase();
-                if SOCIAL_PROFILE_PATTERNS.iter().any(|p| href_lower.contains(p)) {
+                if SOCIAL_PROFILE_PATTERNS
+                    .iter()
+                    .any(|p| href_lower.contains(p))
+                {
                     score -= 15.0;
                     break;
                 }
@@ -237,8 +310,8 @@ pub fn find_main_content(doc: &Document, entry_point_selectors: &[&str]) -> Opti
     for (index, selector) in entry_point_selectors.iter().enumerate() {
         let elements = doc.query_selector_all(selector);
         for el in elements {
-            let score = (entry_point_selectors.len() - index) as f64 * 40.0
-                + score_element(doc, el);
+            let score =
+                (entry_point_selectors.len() - index) as f64 * 40.0 + score_element(doc, el);
             candidates.push((el, score, index));
         }
     }
@@ -262,10 +335,7 @@ pub fn find_main_content(doc: &Document, entry_point_selectors: &[&str]) -> Opti
     for i in 1..candidates.len() {
         let child = candidates[i];
         let child_words = count_words(&doc.text_content(child.0));
-        if child.2 < best.2
-            && doc.contains(best.0, child.0)
-            && child_words > 50
-        {
+        if child.2 < best.2 && doc.contains(best.0, child.0) && child_words > 50 {
             let tag = doc.tag_name(top.0).to_lowercase();
             if tag == "body" {
                 continue;
@@ -294,15 +364,16 @@ pub fn find_main_content(doc: &Document, entry_point_selectors: &[&str]) -> Opti
 fn find_table_based_content(doc: &Document) -> Option<NodeId> {
     let tables = doc.query_selector_all("table");
     let has_table_layout = tables.iter().any(|table_id| {
-        let width = doc.get_attr(*table_id, "width")
+        let width = doc
+            .get_attr(*table_id, "width")
             .and_then(|w| w.parse::<f64>().ok())
             .unwrap_or(0.0);
-        let class = doc.get_attr(*table_id, "class").unwrap_or("").to_lowercase();
+        let class = doc
+            .get_attr(*table_id, "class")
+            .unwrap_or("")
+            .to_lowercase();
         let align = doc.get_attr(*table_id, "align").unwrap_or("");
-        width > 400.0
-            || align == "center"
-            || class.contains("content")
-            || class.contains("article")
+        width > 400.0 || align == "center" || class.contains("content") || class.contains("article")
     });
 
     if !has_table_layout {

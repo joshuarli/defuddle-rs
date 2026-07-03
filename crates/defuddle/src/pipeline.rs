@@ -1,15 +1,9 @@
-use crate::constants::{
-    ENTRY_POINT_ELEMENTS, EXACT_SELECTORS, PARTIAL_SELECTORS,
-};
+use crate::constants::{ENTRY_POINT_ELEMENTS, EXACT_SELECTORS, PARTIAL_SELECTORS};
 use crate::dom::{Document, NodeId};
 use crate::scoring;
 use crate::utils::count_words;
 
-pub fn remove_by_selector(
-    doc: &mut Document,
-    remove_exact: bool,
-    remove_partial: bool,
-) {
+pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial: bool) {
     if remove_exact {
         // Remove dangerous elements and clutter
         for selector in EXACT_SELECTORS {
@@ -42,21 +36,26 @@ pub fn remove_by_selector(
         // Remove iframes without src, video/audio without src
         let iframes = doc.query_selector_all("iframe");
         for id in iframes {
-            if doc.get_attr(id, "src").is_none() || doc.get_attr(id, "src").unwrap_or("").is_empty() {
+            if doc.get_attr(id, "src").is_none() || doc.get_attr(id, "src").unwrap_or("").is_empty()
+            {
                 doc.remove(id);
             }
         }
 
         let videos = doc.query_selector_all("video");
         for id in videos {
-            if doc.get_attr(id, "src").is_none() && doc.query_selector_all_in_subtree(id, "source").is_empty() {
+            if doc.get_attr(id, "src").is_none()
+                && doc.query_selector_all_in_subtree(id, "source").is_empty()
+            {
                 doc.remove(id);
             }
         }
 
         let audios = doc.query_selector_all("audio");
         for id in audios {
-            if doc.get_attr(id, "src").is_none() && doc.query_selector_all_in_subtree(id, "source").is_empty() {
+            if doc.get_attr(id, "src").is_none()
+                && doc.query_selector_all_in_subtree(id, "source").is_empty()
+            {
                 doc.remove(id);
             }
         }
@@ -64,11 +63,18 @@ pub fn remove_by_selector(
 
     if remove_partial {
         let test_attrs = [
-            "class", "id", "data-component", "data-test", "data-testid",
-            "data-test-id", "data-qa", "data-cy",
+            "class",
+            "id",
+            "data-component",
+            "data-test",
+            "data-testid",
+            "data-test-id",
+            "data-qa",
+            "data-cy",
         ];
 
-        let elements: Vec<NodeId> = test_attrs.iter()
+        let elements: Vec<NodeId> = test_attrs
+            .iter()
             .flat_map(|attr| doc.query_selector_all(&format!("[{attr}]")))
             .collect();
 
@@ -92,8 +98,21 @@ pub fn remove_by_selector(
             let class_val = doc.get_attr(id, "class").unwrap_or("").to_lowercase();
 
             let mut attr_values = class_val.clone();
-            if tag != "h1" && tag != "h2" && tag != "h3" && tag != "h4" && tag != "h5" && tag != "h6" {
-                for attr_name in &["data-component", "data-test", "data-testid", "data-test-id", "data-qa", "data-cy"] {
+            if tag != "h1"
+                && tag != "h2"
+                && tag != "h3"
+                && tag != "h4"
+                && tag != "h5"
+                && tag != "h6"
+            {
+                for attr_name in &[
+                    "data-component",
+                    "data-test",
+                    "data-testid",
+                    "data-test-id",
+                    "data-qa",
+                    "data-cy",
+                ] {
                     if let Some(v) = doc.get_attr(id, attr_name) {
                         attr_values.push(' ');
                         attr_values.push_str(&v.to_lowercase());
@@ -101,7 +120,13 @@ pub fn remove_by_selector(
                 }
             }
 
-            let id_str = if tag == "h1" || tag == "h2" || tag == "h3" || tag == "h4" || tag == "h5" || tag == "h6" {
+            let id_str = if tag == "h1"
+                || tag == "h2"
+                || tag == "h3"
+                || tag == "h4"
+                || tag == "h5"
+                || tag == "h6"
+            {
                 String::new()
             } else {
                 doc.get_attr(id, "id").unwrap_or("").to_lowercase()
@@ -144,6 +169,7 @@ pub fn remove_by_selector(
 }
 
 /// Like remove_by_selector but skips ancestors of the content element.
+#[allow(dead_code)]
 pub fn remove_by_selector_protected(
     doc: &mut Document,
     content_id: NodeId,
@@ -171,11 +197,18 @@ pub fn remove_by_selector_protected(
 
     if remove_partial {
         let test_attrs = [
-            "class", "id", "data-component", "data-test", "data-testid",
-            "data-test-id", "data-qa", "data-cy",
+            "class",
+            "id",
+            "data-component",
+            "data-test",
+            "data-testid",
+            "data-test-id",
+            "data-qa",
+            "data-cy",
         ];
 
-        let elements: Vec<NodeId> = test_attrs.iter()
+        let elements: Vec<NodeId> = test_attrs
+            .iter()
             .flat_map(|attr| doc.query_selector_all(&format!("[{attr}]")))
             .collect();
 
@@ -202,8 +235,21 @@ pub fn remove_by_selector_protected(
             let class_val = doc.get_attr(id, "class").unwrap_or("").to_lowercase();
 
             let mut attr_values = class_val.clone();
-            if tag != "h1" && tag != "h2" && tag != "h3" && tag != "h4" && tag != "h5" && tag != "h6" {
-                for attr_name in &["data-component", "data-test", "data-testid", "data-test-id", "data-qa", "data-cy"] {
+            if tag != "h1"
+                && tag != "h2"
+                && tag != "h3"
+                && tag != "h4"
+                && tag != "h5"
+                && tag != "h6"
+            {
+                for attr_name in &[
+                    "data-component",
+                    "data-test",
+                    "data-testid",
+                    "data-test-id",
+                    "data-qa",
+                    "data-cy",
+                ] {
                     if let Some(v) = doc.get_attr(id, attr_name) {
                         attr_values.push(' ');
                         attr_values.push_str(&v.to_lowercase());
@@ -211,7 +257,13 @@ pub fn remove_by_selector_protected(
                 }
             }
 
-            let id_str = if tag == "h1" || tag == "h2" || tag == "h3" || tag == "h4" || tag == "h5" || tag == "h6" {
+            let id_str = if tag == "h1"
+                || tag == "h2"
+                || tag == "h3"
+                || tag == "h4"
+                || tag == "h5"
+                || tag == "h6"
+            {
                 String::new()
             } else {
                 doc.get_attr(id, "id").unwrap_or("").to_lowercase()
@@ -265,8 +317,7 @@ pub fn remove_hidden_elements(doc: &mut Document) {
 
         let style = doc.get_attr(id, "style").unwrap_or("");
         if !style.is_empty() {
-            let style_lower = style.to_lowercase()
-                .replace(' ', "");
+            let style_lower = style.to_lowercase().replace(' ', "");
             if style_lower.contains("display:none")
                 || style_lower.contains("visibility:hidden")
                 || style_lower.contains("opacity:0")
@@ -282,8 +333,10 @@ pub fn remove_hidden_elements(doc: &mut Document) {
         if !class_val.is_empty() {
             let tokens: Vec<&str> = class_val.split_whitespace().collect();
             for token in tokens {
-                if token == "hidden" || token == "invisible"
-                    || token.ends_with(":hidden") || token.ends_with(":invisible")
+                if token == "hidden"
+                    || token == "invisible"
+                    || token.ends_with(":hidden")
+                    || token.ends_with(":invisible")
                 {
                     if !to_remove.contains(&id) {
                         to_remove.push(id);
@@ -299,6 +352,7 @@ pub fn remove_hidden_elements(doc: &mut Document) {
     }
 }
 
+#[allow(dead_code)]
 pub fn remove_small_images(_doc: &mut Document) {
     // In static HTML parsing, we can't measure actual rendered sizes.
     // This is a best-effort implementation using explicit width/height attributes.
@@ -315,9 +369,7 @@ pub fn extract_content(
         scoring::find_main_content(doc, ENTRY_POINT_ELEMENTS)
     };
 
-    if main_content.is_none() {
-        return None;
-    }
+    main_content?;
 
     let main = main_content.unwrap();
 
@@ -337,14 +389,15 @@ pub fn extract_content(
 
 pub fn count_html_words(content: &str) -> usize {
     let text = content
-        .replace(|c: char| c == '<' || c == '>', " ")
+        .replace(['<', '>'], " ")
         .replace("&nbsp;", " ")
         .replace("&amp;", "&")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&quot;", "\"");
 
-    let text: String = text.chars()
+    let text: String = text
+        .chars()
         .filter(|&c| !c.is_ascii_digit() || c == ' ')
         .collect();
 
