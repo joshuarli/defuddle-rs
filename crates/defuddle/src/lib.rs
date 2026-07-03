@@ -1,8 +1,14 @@
+mod constants;
 mod dom;
+mod metadata;
+pub mod sanitize;
+mod schema;
+pub mod utils;
 
 use serde::{Deserialize, Serialize};
 
 pub use dom::{Document, NodeId};
+pub use metadata::Metadata;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DefuddleOptions {
@@ -44,7 +50,7 @@ pub struct DebugInfo {
     pub removals: Vec<DebugRemoval>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DefuddleResult {
     pub content: String,
     pub content_markdown: Option<String>,
@@ -66,16 +72,79 @@ pub struct DefuddleResult {
     pub variables: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
+impl Default for DefuddleResult {
+    fn default() -> Self {
+        Self {
+            content: String::new(),
+            content_markdown: None,
+            title: String::new(),
+            description: String::new(),
+            domain: String::new(),
+            favicon: String::new(),
+            image: String::new(),
+            language: String::new(),
+            meta_tags: Vec::new(),
+            parse_time: 0,
+            published: String::new(),
+            author: String::new(),
+            site: String::new(),
+            schema_org_data: serde_json::Value::Array(Vec::new()),
+            word_count: 0,
+            extractor_type: None,
+            debug: None,
+            variables: None,
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum DefuddleError {
     #[error("HTML parsing failed: {0}")]
     Parse(String),
 }
 
-pub fn parse_html(html: &str, _options: DefuddleOptions) -> Result<DefuddleResult, DefuddleError> {
-    let _doc = Document::parse(html);
+pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult, DefuddleError> {
+    let doc = Document::parse(html);
+
+    let url = options.url.as_deref().unwrap_or("");
+    let schema_org_data = schema::extract_schema_org_data(&doc);
+    let meta_tags_raw = schema::collect_meta_tags(&doc);
+
+    let meta: Vec<MetaTagItem> = meta_tags_raw
+        .iter()
+        .map(|(name, property, content)| MetaTagItem {
+            name: name.clone(),
+            property: property.clone(),
+            content: content.clone(),
+        })
+        .collect();
+
+    let metadata = metadata::extract_metadata(&doc, &schema_org_data, &meta_tags_raw, url);
+
+    let content = doc.outer_html(doc.root());
+
+    let schema_val = if schema_org_data.is_empty() {
+        serde_json::Value::Array(Vec::new())
+    } else {
+        serde_json::Value::Array(schema_org_data.clone())
+    };
+
+    let word_count = utils::count_words(&content);
+
     Ok(DefuddleResult {
-        schema_org_data: serde_json::Value::Array(Vec::new()),
+        content,
+        title: metadata.title,
+        description: metadata.description,
+        domain: metadata.domain,
+        favicon: metadata.favicon,
+        image: metadata.image,
+        language: metadata.language,
+        meta_tags: meta,
+        published: metadata.published,
+        author: metadata.author,
+        site: metadata.site,
+        schema_org_data: schema_val,
+        word_count,
         ..DefuddleResult::default()
     })
 }
