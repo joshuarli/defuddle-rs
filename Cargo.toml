@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/defuddle"]
+members = ["crates/defuddle", "crates/defuddle-cli"]
 resolver = "3"
 
 [workspace.package]
