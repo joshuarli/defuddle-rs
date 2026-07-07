@@ -3,6 +3,8 @@ use crate::constants::{
     INLINE_ELEMENTS, PRESERVE_ELEMENTS,
 };
 use crate::dom::{Document, NodeId};
+use crate::footnotes::standardize_footnotes;
+use crate::math::standardize_math;
 use std::collections::HashSet;
 
 // --- Public entry point ---
@@ -33,6 +35,8 @@ pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_titl
     remove_base64_placeholder_images(doc, content_id);
     remove_empty_video_elements(doc, content_id);
     dedup_images(doc, content_id);
+    standardize_footnotes(doc, content_id);
+    standardize_math(doc, content_id);
     remove_obsolete_elements(doc, content_id);
     remove_empty_elements(doc, content_id);
     remove_trailing_headings(doc, content_id);

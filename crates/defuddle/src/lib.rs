@@ -48,7 +48,9 @@
 mod constants;
 mod dom;
 mod extractor;
+mod footnotes;
 pub mod markdown;
+mod math;
 mod metadata;
 mod pipeline;
 pub mod sanitize;

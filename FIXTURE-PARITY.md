@@ -341,6 +341,9 @@ Acceptance:
 - Gate fixtures match.
 - Footnote logic does not convert ordinary superscript content into footnotes.
 
+Status:
+- Complete. Math module: KaTeX (annotation extraction), MathJax tex scripts, MathJax SVG/CHTML (data-tex/latex), raw LaTeX delimiters (\(...\) → $...$). Footnote module: WordPress block footnotes, pulldown-cmark/mdBook, Hugo, Easy Footnotes WP, HR-separated sup-numbered, heading-separated, p.footnote class. Both wired into standardize_content() before remove_obsolete_elements.
+
 ## Tranche 6: Existing Extractors
 
 Goal: bring already-ported extractors to fixture parity before adding more.
