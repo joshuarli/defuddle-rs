@@ -435,6 +435,18 @@ pub mod reddit {
                 .unwrap_or("")
                 .to_string();
 
+            let published = doc
+                .query_selector_all("time[datetime]")
+                .first()
+                .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string()))
+                .unwrap_or_else(|| {
+                    // Fallback: use date from first comment
+                    doc.query_selector_all("time")
+                        .first()
+                        .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string()))
+                        .unwrap_or_default()
+                });
+
             let post_body = doc
                 .query_selector_all(".usertext-body .md")
                 .first()
@@ -465,6 +477,7 @@ pub mod reddit {
                     ("title".into(), post_title),
                     ("author".into(), post_author),
                     ("site".into(), format!("r/{subreddit}")),
+                    ("published".into(), published),
                 ]),
             }
         }
@@ -489,9 +502,15 @@ pub mod reddit {
             return;
         }
         let thing_comments: Vec<_> = doc
-            .query_selector_all(".thing.comment")
+            .children(container)
             .into_iter()
-            .filter(|&c| doc.contains(container, c))
+            .filter(|&c| {
+                doc.is_element(*c)
+                    && doc.tag_name(*c).eq_ignore_ascii_case("div")
+                    && doc.get_attr(*c, "class").map_or(false, |cls| {
+                        cls.split_whitespace().any(|w| w == "thing" || w == "comment")
+                    })
+            })
             .collect();
         let mut seen_children = std::collections::BTreeSet::new();
         for comment in thing_comments {
@@ -499,20 +518,20 @@ pub mod reddit {
                 continue;
             }
             let author = doc
-                .get_attr(comment, "data-author")
+                .get_attr(*comment, "data-author")
                 .unwrap_or("")
                 .to_string();
             let permalink = doc
-                .get_attr(comment, "data-permalink")
+                .get_attr(*comment, "data-permalink")
                 .unwrap_or("")
                 .to_string();
             let score_text = doc
-                .query_selector_all(".entry .tagline .score.unvoted")
+                .query_selector_all_in_subtree(*comment, ".entry .tagline .score.unvoted")
                 .first()
                 .map(|id| doc.text_content(*id).trim().to_string())
                 .unwrap_or_default();
             let time_el = doc
-                .query_selector_all(".entry .tagline time[datetime]")
+                .query_selector_all_in_subtree(*comment, "time")
                 .first()
                 .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string()))
                 .unwrap_or_default();
@@ -520,7 +539,7 @@ pub mod reddit {
             let body_html = doc
                 .query_selector_all(".entry .usertext-body .md")
                 .iter()
-                .find(|&&el| doc.contains(comment, el))
+                .find(|&&el| doc.contains(*comment, el))
                 .map(|&el| doc.inner_html(el))
                 .unwrap_or_default();
 
@@ -542,7 +561,7 @@ pub mod reddit {
             let children: Vec<_> = doc
                 .query_selector_all(".child > .sitetable")
                 .into_iter()
-                .filter(|&c| doc.contains(comment, c))
+                .filter(|&c| doc.contains(*comment, c))
                 .collect();
             for child in children {
                 collect_comments_recursive(doc, child, depth + 1, result);
@@ -621,14 +640,28 @@ pub mod github {
 
             let content_html = super::comments::build_content_html("github", &post_content, "");
 
+            // Extract author from the timeline comment header
+            let author = doc
+                .query_selector_all(".author.Link--primary, .timeline-comment-header .author")
+                .first()
+                .map(|id| doc.text_content(*id).trim().to_string())
+                .unwrap_or_default();
+
+            // Extract published date from relative-time element
+            let published = doc
+                .query_selector_all("[datetime]")
+                .first()
+                .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string()))
+                .unwrap_or_default();
+
             ExtractorResult {
                 content_html,
                 content_selector: None,
                 variables: BTreeMap::from([
                     ("title".into(), title),
                     ("site".into(), format!("GitHub - {owner}/{repo}")),
-                    ("author".into(), String::new()),
-                    ("published".into(), String::new()),
+                    ("author".into(), author),
+                    ("published".into(), published),
                     ("description".into(), String::new()),
                 ]),
             }
