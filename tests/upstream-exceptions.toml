@@ -12,7 +12,6 @@ exceptions = [
     { name = "codeblocks--stripe", category = "site_extractor_out_of_scope", reason = "Stripe custom blog format", required_capability = "Site-specific rules", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "elementor--archive-page", category = "site_extractor_out_of_scope", reason = "Elementor CMS page builder", required_capability = "Site-specific extractor", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "comments--mastodon.social-@user-12345678", category = "site_extractor_out_of_scope", reason = "Single Mastodon instance", required_capability = "Mastodon extractor", target = "out_of_scope", date_added = "2026-07-06" },
-    { name = "issues--272-x-localized-conversation-timeline", category = "site_extractor_out_of_scope", reason = "Twitter/X — no extractor", required_capability = "X/Twitter extractor", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "issues--296-oreilly-noteref-footnotes", category = "site_extractor_out_of_scope", reason = "O'Reilly platform footnotes", required_capability = "Site-specific footnote rules", target = "out_of_scope", date_added = "2026-07-06" },
 
     # Tier B: Niche rendering engines
@@ -34,9 +33,6 @@ exceptions = [
     { name = "codeblocks--flex-row-gutter", category = "intentional_api_difference", reason = "Flex-row gutter — rare layout", required_capability = "Flex gutter detection", target = "post_v1", date_added = "2026-07-06" },
     { name = "codeblocks--hljs-header", category = "intentional_api_difference", reason = "highlight.js header edge case", required_capability = "hljs header detection", target = "post_v1", date_added = "2026-07-06" },
 
-    # Tier D: X/Twitter
-    { name = "general--x.com-article", category = "site_extractor_out_of_scope", reason = "Twitter/X article — no extractor", required_capability = "X/Twitter extractor", target = "out_of_scope", date_added = "2026-07-06" },
-    { name = "general--x.com-article-2026-02-13", category = "site_extractor_out_of_scope", reason = "Twitter/X article — no extractor", required_capability = "X/Twitter extractor", target = "out_of_scope", date_added = "2026-07-06" },
     # Tier E: Additional niche single-site fixtures
     { name = "general--scp-wiki.wikidot.com-scp-9935", category = "site_extractor_out_of_scope", reason = "SCP wiki fandom site", required_capability = "Site-specific extractor", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "general--cp4space-jordan-algebra", category = "site_extractor_out_of_scope", reason = "Specific math blog", required_capability = "Site-specific rules", target = "out_of_scope", date_added = "2026-07-06" },
@@ -61,7 +57,6 @@ exceptions = [
     { name = "table-layout--paulgraham.com-makersschedule", category = "site_extractor_out_of_scope", reason = "Paul Graham's blog layout", required_capability = "Site-specific rules", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "issues--120-dhammatalks-footnotes", category = "site_extractor_out_of_scope", reason = "Dhammatalks Buddhist site", required_capability = "Site-specific footnote rules", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "issues--159-lean-heading-permalink-emoji", category = "site_extractor_out_of_scope", reason = "Lean game engine heading emoji", required_capability = "Lean/Verso extractor", target = "out_of_scope", date_added = "2026-07-06" },
-    { name = "issues--161-x-status-url-author", category = "site_extractor_out_of_scope", reason = "Twitter/X — no extractor", required_capability = "X/Twitter extractor", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "issues--217-writerside-docs", category = "site_extractor_out_of_scope", reason = "JetBrains Writerside docs", required_capability = "Writerside extractor", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "issues--280-texinfo-footnotes", category = "site_extractor_out_of_scope", reason = "Texinfo footnotes — very niche", required_capability = "Texinfo support", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "footnotes--google-docs-ftnt", category = "site_extractor_out_of_scope", reason = "Google Docs export footnotes", required_capability = "Google Docs footnote parsing", target = "out_of_scope", date_added = "2026-07-06" },

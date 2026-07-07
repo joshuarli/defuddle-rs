@@ -152,6 +152,8 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
             || name.contains("reddit")
             || name.contains("mastodon")
             || name.contains("github")
+            || name.contains("x.com")
+            || name.contains("twitter")
         {
             eprintln!("=== EXTRACTOR {name} ===");
             eprintln!(
@@ -282,6 +284,8 @@ fn fixture_url(html: &str, path: &Path) -> String {
         || url_name.contains("wikipedia")
         || url_name.contains("figma.com")
         || url_name.contains("mozilla.org")
+        || url_name.contains("x.com")
+        || url_name.contains("twitter.com")
         || url_name.contains("131-category-links")
         || url_name.contains("168-links")
     {
