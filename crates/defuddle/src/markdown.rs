@@ -669,23 +669,6 @@ fn convert_code_block_language(html: &str) -> String {
 }
 
 fn convert_embeds_to_links(html: &str) -> String {
-    let re_yt = regex_lite::Regex::new(r#"<iframe[^>]*src="https?://(?:www\.)?youtube(?:-nocookie)?\.com/embed/([^"?]+)[^"]*"[^>]*></iframe>"#).unwrap();
-    let html = re_yt.replace_all(&html, "![](https://www.youtube.com/watch?v=$1)").to_string();
-    let re_tw = regex_lite::Regex::new(r#"<iframe[^>]*src="https?://platform\.twitter\.com/embed/Tweet\.html\?id=([^"&]+)[^"]*"[^>]*></iframe>"#).unwrap();
-    let html = re_tw.replace_all(&html, "![](https://x.com/i/status/$1)").to_string();
-    let re_x = regex_lite::Regex::new(r#"<iframe[^>]*src="(https?://x\.com/[^"]+)"[^>]*></iframe>"#).unwrap();
-    re_x.replace_all(&html, "![]($1)").to_string()
-}
-
-/// Extract data-latex attribute from <math> elements and render as LaTeX block.
-fn extract_math_latex(html: &str) -> String {
-    let re = regex_lite::Regex::new(r#"<math[^>]*data-latex="([^"]*)"[^>]*>.*?</math>"#).unwrap();
-    re.replace_all(html, |caps: &regex_lite::Captures| {
-        let latex = caps.get(1).unwrap().as_str();
-        if latex.contains("\\begin{") { format!("\n$\n{}\n$\n", latex) } else { format!("${}$", latex) }
-    }).to_string()
-}
-fn convert_embeds_to_links(html: &str) -> String {
     let re_yt = regex_lite::Regex::new(
         r#"<iframe[^>]*src="https?://(?:www\.)?youtube\.com/embed/([^"?]+)[^"]*"[^>]*></iframe>"#,
     )
@@ -700,19 +683,6 @@ fn convert_embeds_to_links(html: &str) -> String {
     re_tw.replace_all(&html, "[Twitter/X Embed]").to_string()
 }
 
-/// Extract data-latex attribute from <math> elements.
-fn extract_math_latex(html: &str) -> String {
-    let re = regex_lite::Regex::new(r#\"<math[^>]*data-latex=\"([^\"]*)\"[^>]*>.*?</math>\"#).unwrap(); = regex_lite::Regex::new(r###"<iframe[^>]*src="https?://(?:www\\.)?youtube(?:-nocookie)?\\.com/embed/([^"?]+)[^"]*"[^>]*></iframe>"###).unwrap();
-
-
-    let re_tw = regex_lite::Regex::new(r###"<iframe[^>]*src="https?://platform\\.twitter\\.com/embed/Tweet\\.html\\?id=([^"&]+)[^"]*"[^>]*></iframe>"###).unwrap();
-    let html = re_tw.replace_all(&html, "![](https://x.com/i/status/$1)").to_string();
-
-    // X.com embed
-    let re_x = regex_lite::Regex::new(r###"<iframe[^>]*src="(https?://x\\.com/[^"]+)"[^>]*></iframe>"###).unwrap();
-    re_x.replace_all(&html, "![]($1)").to_string()
-}
-/* END_DELETE */
 
 /// Extract data-latex attribute from <math> elements and render as LaTeX block.
 fn extract_math_latex(html: &str) -> String {

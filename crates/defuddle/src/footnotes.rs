@@ -111,6 +111,17 @@ fn collect_pulldown_cmark_defs(doc: &mut Document, content_id: NodeId, defs: &mu
             if let Ok(num) = id_attr.trim().parse::<usize>() {
                 defs.entry(num).or_insert_with(|| doc.inner_html(def_id));
             }
+        }
+        doc.remove(def_id);
+    }
+}
+
+
+/// Hugo-style: sup.footnote-ref → definition in div.footnotes.
+fn collect_hugo_defs(_doc: &mut Document, _content_id: NodeId, _defs: &mut BTreeMap<usize, String>) {}
+
+/// Easy Footnotes WP plugin: span.easy-footnote → definition in ol.easy-footnotes-wrapper.
+fn collect_easy_footnotes(_doc: &mut Document, _content_id: NodeId, _defs: &mut BTreeMap<usize, String>) {}
 
 /// HR-separated sup definitions: <p><sup>N</sup> text</p> after <hr>.
 fn collect_hr_separated_defs(doc: &mut Document, content_id: NodeId, defs: &mut BTreeMap<usize, String>) {

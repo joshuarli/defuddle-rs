@@ -722,7 +722,6 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
                             if word_count < 30 {
                                 doc.remove(next_id);
                             }
-                            continue;
                         }
                         // Also check for date patterns in text content
                         let date_check_re = regex_lite::Regex::new(
@@ -848,6 +847,8 @@ fn remove_table_of_contents(doc: &mut Document, content_id: NodeId) {
                 }
             }
         }
+    }
+}
 
 /// Remove newsletter/subscribe call-to-action blocks.
 fn remove_newsletter_blocks(doc: &mut Document, content_id: NodeId) {
@@ -922,6 +923,7 @@ fn remove_social_counter_links(doc: &mut Document, content_id: NodeId) {
             }
         }
     }
+}
 
 /// Remove cookie consent banners and overlays.
 fn remove_cookie_consent(doc: &mut Document, content_id: NodeId) {
@@ -940,7 +942,6 @@ fn remove_cookie_consent(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-}
 
 /// Remove trailing CTA / appendix sections: thin heading-introduced blocks at end.
 fn remove_trailing_cta_sections(doc: &mut Document, content_id: NodeId) {

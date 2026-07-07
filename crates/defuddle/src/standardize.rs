@@ -153,7 +153,7 @@ fn convert_hugo_admonitions(doc: &mut Document) {
                 let new_class: String = class
                     .split_whitespace()
                     .filter(|c| {
-                        *c != "admonition" && *c != "details" && *c != ad_type && *c != "open"
+                        *c != "admonition" && *c != "details" && *c != *ad_type && *c != "open"
                     })
                     .chain(std::iter::once("callout"))
                     .collect::<Vec<_>>()
@@ -262,7 +262,8 @@ fn recover_lazy_images(doc: &mut Document, content_id: NodeId) {
         for attr in &lazy_attrs {
             if let Some(real_url) = doc.get_attr(id, attr) {
                 if !real_url.is_empty() && !real_url.starts_with("data:") {
-                    doc.set_attr(id, "src", &real_url);
+                    let url = real_url.to_string();
+                    doc.set_attr(id, "src", &url);
                     break;
                 }
             }
