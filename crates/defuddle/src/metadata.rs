@@ -43,8 +43,6 @@ pub fn extract_metadata(
         detected_site_name
     } else if !author_as_site.is_empty() {
         author_as_site.to_string()
-    } else if !domain.is_empty() {
-        domain.clone()
     } else {
         String::new()
     };
@@ -363,14 +361,14 @@ fn clean_title(title: &str, site_name: &str) -> (String, String) {
     {
         let _site_name_lower = site_name.to_lowercase();
 
-        let escaped = regex::escape(site_name);
+        let escaped = regex_lite::escape(site_name);
         let patterns = [
             format!(r"\s*[{}]\s*{}\s*$", separators, escaped),
             format!(r"^\s*{}\s*[{}]\s*", escaped, separators),
         ];
 
         for pattern in &patterns {
-            let re = regex::RegexBuilder::new(pattern)
+            let re = regex_lite::RegexBuilder::new(pattern)
                 .case_insensitive(true)
                 .build()
                 .unwrap();
@@ -395,7 +393,7 @@ fn try_separator_split(
     _separators: &str,
     _suffix_only: bool,
 ) -> (String, Option<String>) {
-    let sep_re = regex::Regex::new(r"\s+[-–—|/·]\s+").unwrap();
+    let sep_re = regex_lite::Regex::new(r"\s+[-–—|/·]\s+").unwrap();
 
     let positions: Vec<(usize, usize)> = sep_re
         .find_iter(title)
@@ -427,7 +425,7 @@ fn try_separator_split(
     }
 
     // Dash-only suffix check with stricter guards
-    let dash_re = regex::Regex::new(r"\s+[-–—]\s+").unwrap();
+    let dash_re = regex_lite::Regex::new(r"\s+[-–—]\s+").unwrap();
     if let Some(m) = dash_re.find_iter(title).last() {
         let suffix_title = title[..m.start()].trim();
         let suffix_site = title[m.end()..].trim();
@@ -759,7 +757,7 @@ const MONTH_MAP: &[(&str, &str)] = &[
 
 fn parse_date_text(text: &str) -> Option<String> {
     // "26 February 2025" or "Wednesday, 26 February 2025"
-    let re1 = regex::Regex::new(
+    let re1 = regex_lite::Regex::new(
         r"(?i)\b(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b"
     ).ok()?;
     if let Some(caps) = re1.captures(text) {
@@ -769,7 +767,7 @@ fn parse_date_text(text: &str) -> Option<String> {
     }
 
     // "February 26, 2025"
-    let re2 = regex::Regex::new(
+    let re2 = regex_lite::Regex::new(
         r"(?i)\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})\b"
     ).ok()?;
     if let Some(caps) = re2.captures(text) {
@@ -1050,6 +1048,10 @@ fn clean_author_string(s: &str) -> String {
     let s = s.strip_prefix("By ").unwrap_or(s);
     let s = s.strip_prefix("by ").unwrap_or(s);
     let s = s.trim();
+
+    // Remove URLs (including surrounding parentheses) — ported from upstream
+    let url_re = regex_lite::Regex::new(r"\(?\s*https?://\S+\s*\)?").unwrap();
+    let s = url_re.replace_all(s, "").to_string();
 
     if s.starts_with("https://") || s.starts_with("http://") {
         return s.to_string();

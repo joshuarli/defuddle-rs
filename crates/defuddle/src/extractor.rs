@@ -1096,91 +1096,91 @@ pub mod bbcode_data {
     fn bbcode_to_html(bbcode: &str) -> String {
         let mut html = bbcode.to_string();
 
-        html = regex::Regex::new(r"(?i)\[h1\]([\s\S]*?)\[/h1\]")
+        html = regex_lite::Regex::new(r"(?i)\[h1\]([\s\S]*?)\[/h1\]")
             .unwrap()
             .replace_all(&html, "<h1>$1</h1>")
             .to_string();
-        html = regex::Regex::new(r"(?i)\[h2\]([\s\S]*?)\[/h2\]")
+        html = regex_lite::Regex::new(r"(?i)\[h2\]([\s\S]*?)\[/h2\]")
             .unwrap()
             .replace_all(&html, "<h2>$1</h2>")
             .to_string();
-        html = regex::Regex::new(r"(?i)\[h3\]([\s\S]*?)\[/h3\]")
+        html = regex_lite::Regex::new(r"(?i)\[h3\]([\s\S]*?)\[/h3\]")
             .unwrap()
             .replace_all(&html, "<h3>$1</h3>")
             .to_string();
 
-        html = regex::Regex::new(r"(?i)\[b\]([\s\S]*?)\[/b\]")
+        html = regex_lite::Regex::new(r"(?i)\[b\]([\s\S]*?)\[/b\]")
             .unwrap()
             .replace_all(&html, "<strong>$1</strong>")
             .to_string();
-        html = regex::Regex::new(r"(?i)\[i\]([\s\S]*?)\[/i\]")
+        html = regex_lite::Regex::new(r"(?i)\[i\]([\s\S]*?)\[/i\]")
             .unwrap()
             .replace_all(&html, "<em>$1</em>")
             .to_string();
-        html = regex::Regex::new(r"(?i)\[u\]([\s\S]*?)\[/u\]")
+        html = regex_lite::Regex::new(r"(?i)\[u\]([\s\S]*?)\[/u\]")
             .unwrap()
             .replace_all(&html, "<u>$1</u>")
             .to_string();
-        html = regex::Regex::new(r"(?i)\[s\]([\s\S]*?)\[/s\]")
+        html = regex_lite::Regex::new(r"(?i)\[s\]([\s\S]*?)\[/s\]")
             .unwrap()
             .replace_all(&html, "<s>$1</s>")
             .to_string();
 
         // [url="..."] or [url=...]
-        html = regex::Regex::new(r#"(?i)\[url=["']?([^"'\]]+)["']?\]([\s\S]*?)\[/url\]"#)
+        html = regex_lite::Regex::new(r#"(?i)\[url=["']?([^"'\]]+)["']?\]([\s\S]*?)\[/url\]"#)
             .unwrap()
             .replace_all(&html, r#"<a href="$1">$2</a>"#)
             .to_string();
 
-        html = regex::Regex::new(r"(?i)\[img\]([\s\S]*?)\[/img\]")
+        html = regex_lite::Regex::new(r"(?i)\[img\]([\s\S]*?)\[/img\]")
             .unwrap()
             .replace_all(&html, r#"<img src="$1">"#)
             .to_string();
 
-        html = regex::Regex::new(
+        html = regex_lite::Regex::new(
             r#"(?i)\[previewyoutube=["']?([^;'"]+)[^"'\]]*["']?\]\[\/previewyoutube\]"#,
         )
         .unwrap()
         .replace_all(&html, r#"<img src="https://www.youtube.com/watch?v=$1">"#)
         .to_string();
 
-        html = regex::Regex::new(r"(?i)\[list\]([\s\S]*?)\[/list\]")
+        html = regex_lite::Regex::new(r"(?i)\[list\]([\s\S]*?)\[/list\]")
             .unwrap()
-            .replace_all(&html, |caps: &regex::Captures| {
+            .replace_all(&html, |caps: &regex_lite::Captures| {
                 let inner = caps[1].replace("[*]", "<li>");
-                let inner = regex::Regex::new(r"</li>\s*")
+                let inner = regex_lite::Regex::new(r"</li>\s*")
                     .unwrap()
                     .replace_all(&inner, "</li>");
                 format!("<ul>{inner}</li></ul>")
             })
             .to_string();
 
-        html = regex::Regex::new(r"(?i)\[olist\]([\s\S]*?)\[/olist\]")
+        html = regex_lite::Regex::new(r"(?i)\[olist\]([\s\S]*?)\[/olist\]")
             .unwrap()
-            .replace_all(&html, |caps: &regex::Captures| {
+            .replace_all(&html, |caps: &regex_lite::Captures| {
                 let inner = caps[1].replace("[*]", "<li>");
                 format!("<ol>{inner}</li></ol>")
             })
             .to_string();
 
-        html = regex::Regex::new(r"(?i)\[quote(?:=[^\]]+)?\]([\s\S]*?)\[/quote\]")
+        html = regex_lite::Regex::new(r"(?i)\[quote(?:=[^\]]+)?\]([\s\S]*?)\[/quote\]")
             .unwrap()
             .replace_all(&html, "<blockquote>$1</blockquote>")
             .to_string();
 
-        html = regex::Regex::new(r"(?i)\[code\]([\s\S]*?)\[/code\]")
+        html = regex_lite::Regex::new(r"(?i)\[code\]([\s\S]*?)\[/code\]")
             .unwrap()
             .replace_all(&html, "<pre><code>$1</code></pre>")
             .to_string();
 
-        html = regex::Regex::new(r"(?i)\[spoiler\]([\s\S]*?)\[/spoiler\]")
+        html = regex_lite::Regex::new(r"(?i)\[spoiler\]([\s\S]*?)\[/spoiler\]")
             .unwrap()
             .replace_all(&html, "<details><summary>Spoiler</summary>$1</details>")
             .to_string();
 
-        html = regex::Regex::new(r"(?i)\[p\]([\s\S]*?)\[/p\]")
+        html = regex_lite::Regex::new(r"(?i)\[p\]([\s\S]*?)\[/p\]")
             .unwrap()
-            .replace_all(&html, |caps: &regex::Captures| {
+            .replace_all(&html, |caps: &regex_lite::Captures| {
                 let inner = caps[1].replace('\n', "<br>");
                 format!("<p>{inner}</p>")
             })
@@ -1188,7 +1188,7 @@ pub mod bbcode_data {
 
         html = html.replace('\n', "<br>");
 
-        html = regex::Regex::new(r"\[[^\]]+\]")
+        html = regex_lite::Regex::new(r"\[[^\]]+\]")
             .unwrap()
             .replace_all(&html, "")
             .to_string();

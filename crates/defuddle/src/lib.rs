@@ -274,7 +274,89 @@ fn parse_internal(
     metadata: &Metadata,
     meta: &[MetaTagItem],
     schema_org_data: &[serde_json::Value],
-    _url: &str,
+    url: &str,
+) -> DefuddleResult {
+    // First attempt with full aggressiveness
+    let mut result = parse_internal_once(
+        doc.clone(),
+        remove_exact,
+        remove_partial,
+        remove_hidden,
+        do_standardize,
+        separate_markdown,
+        content_selector,
+        debug,
+        metadata,
+        meta,
+        schema_org_data,
+        url,
+    );
+
+    // Retry with reduced aggressiveness if word count is low
+    if result.word_count < 200 {
+        // Retry with removePartialSelectors: false
+        let retry1 = parse_internal_once(
+            doc.clone(),
+            remove_exact,
+            false, // remove_partial disabled
+            remove_hidden,
+            do_standardize,
+            separate_markdown,
+            content_selector,
+            debug,
+            metadata,
+            meta,
+            schema_org_data,
+            url,
+        );
+        if retry1.word_count > result.word_count {
+            result = retry1;
+        }
+    }
+
+    if result.word_count < 50 {
+        // Retry with removeHiddenElements: false
+        let retry2 = parse_internal_once(
+            doc.clone(),
+            remove_exact,
+            false,
+            false, // remove_hidden disabled
+            do_standardize,
+            separate_markdown,
+            content_selector,
+            debug,
+            metadata,
+            meta,
+            schema_org_data,
+            url,
+        );
+        if retry2.word_count > result.word_count {
+            result = retry2;
+        }
+    }
+
+    if result.word_count < 50 {
+        // Retry with removeLowScoring and removeContentPatterns disabled (not implemented)
+        // For now just use the best result we have
+    }
+
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn parse_internal_once(
+    mut doc: Document,
+    remove_exact: bool,
+    remove_partial: bool,
+    remove_hidden: bool,
+    do_standardize: bool,
+    separate_markdown: bool,
+    content_selector: Option<&str>,
+    debug: bool,
+    metadata: &Metadata,
+    meta: &[MetaTagItem],
+    schema_org_data: &[serde_json::Value],
+    url: &str,
 ) -> DefuddleResult {
     // Find main content first
     let main_content = pipeline::extract_content(&mut doc, content_selector, debug);
@@ -291,8 +373,20 @@ fn parse_internal(
     }
 
     if let Some(content) = content_id {
+        // Remove low-scoring blocks based on link density
+        pipeline::score_and_remove(&mut doc, content);
+
+        // Remove common boilerplate patterns
+        pipeline::remove_content_patterns(&mut doc, content);
+
+        // Remove metadata blocks adjacent to the first heading
+        pipeline::remove_metadata_blocks(&mut doc, content);
+
+        // Resolve relative URLs before standardization
+        standardize::resolve_urls(&mut doc, content, url);
+
         if do_standardize {
-            standardize::standardize_content(&mut doc, content);
+            standardize::standardize_content(&mut doc, content, &metadata.title);
         }
 
         sanitize::strip_unsafe_elements(&mut doc);
@@ -321,9 +415,26 @@ fn parse_internal(
             serde_json::Value::Array(schema_org_data.to_vec())
         };
 
+        // Schema text fallback: if schema.org has significantly longer text
+        let content_md = if word_count < 50 {
+            let mut best_md = md.clone();
+            for item in schema_org_data {
+                if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                    let schema_words = text.split_whitespace().count();
+                    if (schema_words as f64) > (word_count as f64) * 1.5 {
+                        best_md = Some(markdown::html_to_markdown(text));
+                        break;
+                    }
+                }
+            }
+            best_md
+        } else {
+            md
+        };
+
         DefuddleResult {
             content: html,
-            content_markdown: md,
+            content_markdown: content_md,
             title: metadata.title.clone(),
             description: metadata.description.clone(),
             domain: metadata.domain.clone(),

@@ -74,6 +74,10 @@ impl Document {
         matches!(&self.node(node).kind, NodeKind::Element { .. })
     }
 
+    pub fn is_removed(&self, node: NodeId) -> bool {
+        self.node(node).removed
+    }
+
     pub fn query_selector_all(&self, selector: &str) -> Vec<NodeId> {
         let parts: Vec<SimpleSelector> = selector
             .split_whitespace()
@@ -161,6 +165,60 @@ impl Document {
         }
     }
 
+    /// Get all attribute names on an element.
+    pub fn attr_names(&self, node: NodeId) -> Vec<String> {
+        match &self.node(node).kind {
+            NodeKind::Element { attrs, .. } => attrs.iter().map(|(name, _)| name.clone()).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Set the tag name of an element.
+    pub fn set_tag_name(&mut self, node: NodeId, new_name: &str) {
+        if let NodeKind::Element { name, .. } = &mut self.node_mut(node).kind {
+            *name = new_name.to_string();
+        }
+    }
+
+    /// Set the text content of a text node.
+    pub fn set_text(&mut self, node: NodeId, text: &str) {
+        if let NodeKind::Text(content) = &mut self.node_mut(node).kind {
+            *content = text.to_string();
+        }
+    }
+
+    /// Get mutable text content of a text node.
+    pub fn text_content_mut(&mut self, node: NodeId) -> Option<&mut String> {
+        match &mut self.node_mut(node).kind {
+            NodeKind::Text(content) => Some(content),
+            _ => None,
+        }
+    }
+
+    /// Check if an element is an SVG element (or nested within one).
+    pub fn is_svg_element(&self, node: NodeId) -> bool {
+        let name = self.tag_name(node);
+        name.eq_ignore_ascii_case("svg")
+            || name.eq_ignore_ascii_case("g")
+            || name.eq_ignore_ascii_case("path")
+            || name.eq_ignore_ascii_case("circle")
+            || name.eq_ignore_ascii_case("rect")
+            || name.eq_ignore_ascii_case("line")
+            || name.eq_ignore_ascii_case("polygon")
+            || name.eq_ignore_ascii_case("polyline")
+            || name.eq_ignore_ascii_case("ellipse")
+            || name.eq_ignore_ascii_case("defs")
+            || name.eq_ignore_ascii_case("use")
+            || name.eq_ignore_ascii_case("mask")
+            || name.eq_ignore_ascii_case("pattern")
+            || name.eq_ignore_ascii_case("clipPath")
+            || name.eq_ignore_ascii_case("text")
+            || name.eq_ignore_ascii_case("tspan")
+            || name.eq_ignore_ascii_case("stop")
+            || name.eq_ignore_ascii_case("linearGradient")
+            || name.eq_ignore_ascii_case("radialGradient")
+    }
+
     pub fn remove(&mut self, node: NodeId) {
         if node == self.root || self.node(node).removed {
             return;
@@ -231,7 +289,9 @@ impl Document {
         let fragment_children = fragment.body_children_or_root_children();
         let mut new_children = Vec::new();
         for child in fragment_children {
-            new_children.push(self.clone_subtree_from(&fragment, child, Some(parent)));
+            let new_child = self.clone_subtree_from(&fragment, child, None);
+            self.node_mut(new_child).parent = Some(parent);
+            new_children.push(new_child);
         }
 
         {

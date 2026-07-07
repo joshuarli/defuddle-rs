@@ -18,6 +18,14 @@ pub fn strip_unsafe_elements(doc: &mut crate::dom::Document) {
     for selector in &dangerous_selectors {
         let matches = doc.query_selector_all(selector);
         for id in matches {
+            // Preserve math scripts: <script type="math/tex"> etc.
+            if *selector == "script" {
+                if let Some(type_attr) = doc.get_attr(id, "type") {
+                    if type_attr.starts_with("math/") {
+                        continue;
+                    }
+                }
+            }
             doc.remove(id);
         }
     }

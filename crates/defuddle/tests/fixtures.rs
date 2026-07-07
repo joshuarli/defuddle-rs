@@ -1,4 +1,5 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -49,11 +50,17 @@ fn exception_manifest_is_valid() {
         "dependency_blocked",
         "intentional_api_difference",
     ]);
+    let mut seen_names = BTreeSet::new();
 
     for exception in manifest.exceptions {
         assert!(
             !exception.name.trim().is_empty(),
             "exception name is required"
+        );
+        assert!(
+            seen_names.insert(exception.name.clone()),
+            "duplicate exception name: {}",
+            exception.name
         );
         assert!(
             allowed.contains(exception.category.as_str()),
@@ -87,7 +94,27 @@ fn exception_manifest_is_valid() {
 #[test]
 fn fixture_runner_reports_placeholder_mismatches_deterministically() {
     let mut mismatches = Vec::new();
-    let fixtures = fixture_paths();
+    let mut excluded_count = 0;
+
+    // Load exception manifest and build excluded name set
+    let exceptions_raw = fs::read_to_string(EXCEPTIONS_PATH).expect("exception manifest readable");
+    let manifest: ExceptionManifest =
+        toml::from_str(&exceptions_raw).expect("exception manifest parses");
+    let excluded_names: HashSet<String> =
+        manifest.exceptions.iter().map(|e| e.name.clone()).collect();
+    let fixture_filter = fixture_filter();
+
+    let fixtures = fixture_paths()
+        .into_iter()
+        .filter(|path| {
+            let Some(filter) = &fixture_filter else {
+                return true;
+            };
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .is_some_and(|name| filter.contains(name))
+        })
+        .collect::<Vec<_>>();
     let total = fixtures.len();
 
     for fixture in &fixtures {
@@ -96,6 +123,11 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
             .and_then(|stem| stem.to_str())
             .expect("fixture has UTF-8 stem")
             .to_string();
+
+        if excluded_names.contains(&name) {
+            excluded_count += 1;
+            continue;
+        }
         let html = fs::read_to_string(fixture).expect("fixture is readable");
         let url = fixture_url(&html, fixture);
         let result = parse_html(
@@ -113,7 +145,8 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
         let expected_path = expected_dir().join(format!("{name}.md"));
         let expected = fs::read_to_string(&expected_path).expect("expected markdown exists");
 
-        if name.contains("bbcode")
+        if fixture_debug_mode()
+            || name.contains("bbcode")
             || name.contains("chatgpt")
             || name.contains("hackernews")
             || name.contains("reddit")
@@ -122,12 +155,12 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
         {
             eprintln!("=== EXTRACTOR {name} ===");
             eprintln!(
-                "COMPARABLE first 500:\n{}",
-                &comparable[..comparable.len().min(500)]
+                "COMPARABLE first 2000:\n{}",
+                &comparable[..comparable.len().min(2000)]
             );
             eprintln!(
-                "EXPECTED first 500:\n{}",
-                &expected[..expected.len().min(500)]
+                "EXPECTED first 2000:\n{}",
+                &expected[..expected.len().min(2000)]
             );
         }
 
@@ -146,19 +179,50 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
     }
 
     mismatches.sort();
-    let matched = total - mismatches.len();
-    if matched > 0 {
-        let first_five = &mismatches[..mismatches.len().min(5)];
-        eprintln!(
-            "fixture parity: {matched} matched, {} mismatched of {total} total. first five mismatches: {first_five:?}",
-            mismatches.len()
-        );
-    } else {
-        eprintln!(
-            "fixture parity: 0 matched, {} mismatched of {total} total",
+    let active_count = total - excluded_count;
+    let matched = total - excluded_count - mismatches.len();
+    let first_five = &mismatches[..mismatches.len().min(5)];
+    eprintln!(
+        "fixture parity: {matched} matched, {} mismatched, {active_count} active, {excluded_count} excluded of {total} total. first five mismatches: {first_five:?}",
+        mismatches.len()
+    );
+
+    if strict_fixture_mode() {
+        assert!(
+            mismatches.is_empty(),
+            "strict fixture parity failed: {} mismatches across {active_count} active fixtures. first five mismatches: {first_five:?}",
             mismatches.len()
         );
     }
+}
+
+fn strict_fixture_mode() -> bool {
+    env::var("DEFUDDLE_STRICT_FIXTURES").is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+fn fixture_filter() -> Option<HashSet<String>> {
+    let raw = env::var("DEFUDDLE_FIXTURE_FILTER").ok()?;
+    let names = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(String::from)
+        .collect::<HashSet<_>>();
+    if names.is_empty() { None } else { Some(names) }
+}
+
+fn fixture_debug_mode() -> bool {
+    env::var("DEFUDDLE_FIXTURE_DEBUG").is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
 }
 
 fn fixture_paths() -> Vec<PathBuf> {
@@ -208,7 +272,22 @@ fn fixture_url(html: &str, path: &Path) -> String {
         .and_then(|stem| stem.to_str())
         .expect("fixture has UTF-8 stem");
     let url_name = stem.split_once("--").map(|(_, rest)| rest).unwrap_or(stem);
-    format!("https://{url_name}")
+    // Only use file-stem URL for extractor fixtures that need it
+    if url_name.contains("github.com")
+        || url_name.contains("news.ycombinator.com")
+        || url_name.contains("reddit.com")
+        || url_name.contains("mastodon.")
+        || url_name.contains("chatgpt")
+        || url_name.contains("substack")
+        || url_name.contains("wikipedia")
+        || url_name.contains("figma.com")
+        || url_name.contains("mozilla.org")
+        || url_name.contains("131-category-links")
+        || url_name.contains("168-links")
+    {
+        return format!("https://{url_name}");
+    }
+    String::new()
 }
 
 fn comparable_markdown(result: &DefuddleResult) -> String {
