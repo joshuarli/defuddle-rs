@@ -336,8 +336,24 @@ fn parse_internal(
     }
 
     if result.word_count < 50 {
-        // Retry with removeLowScoring and removeContentPatterns disabled (not implemented)
-        // For now just use the best result we have
+        // Retry with removeLowScoring and removeContentPatterns disabled
+        let retry3 = parse_internal_once(
+            doc.clone(),
+            remove_exact,
+            false,
+            false, // remove_hidden and remove_partial disabled
+            do_standardize,
+            separate_markdown,
+            content_selector,
+            debug,
+            metadata,
+            meta,
+            schema_org_data,
+            url,
+        );
+        if retry3.word_count > result.word_count {
+            result = retry3;
+        }
     }
 
     result

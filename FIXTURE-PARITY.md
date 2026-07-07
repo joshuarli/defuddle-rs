@@ -228,6 +228,9 @@ Acceptance:
 - Gate fixtures match.
 - No HTTP, browser automation, JavaScript runtime, or async runtime is added to `defuddle`.
 
+Status:
+- Complete. All Tranche 3 functions (recover_noscript_images, recover_lazy_images, normalize_srcset_attributes, remove_base64_placeholder_images, dedup_images, lightbox_image_dedup, unwrap_figure_content_wrappers, remove_empty_video_elements, unwrap_special_links, convert_embedded_elements, strip_extra_br_elements, remove_empty_lines) are implemented and wired into standardize_content().
+
 ## Tranche 4: Content Pipeline Recovery
 
 Goal: wire the missing upstream pipeline behaviors that affect extraction boundaries.
@@ -296,6 +299,9 @@ Gate fixtures:
 Acceptance:
 - Gate fixtures match.
 - Retry behavior is deterministic and does not mutate the original caller-visible document state.
+
+Status:
+- Complete. Third retry (removeLowScoring + removeContentPatterns) wired. Content pattern removals: related posts heading+list detection, table-of-contents, newsletter/subscribe blocks, social engagement counters, social counter links, cookie consent, trailing CTA/appendix sections (with link-dense detection), card-grid blocks (threshold ≥ 3). Aria-hidden support in remove_hidden_elements. Scoring enhanced for related posts and table-with-links. Metadata block removal enhanced for before+after headings, including named date patterns (e.g. "May 22, 2026"). ISO + named date removal, min-read removal. Breadcrumb/eyebrow label removal.
 
 ## Tranche 5: Math And Footnotes
 

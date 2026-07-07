@@ -301,6 +301,41 @@ pub fn score_non_content_block(doc: &Document, node: NodeId) -> f64 {
         }
     }
 
+    // Penalize blocks whose heading text matches related-posts patterns
+    let headings = doc.query_selector_all_in_subtree(node, "h1,h2,h3,h4");
+    for h_id in headings {
+        let ht = doc.text_content(h_id).to_lowercase();
+        if ht.contains("related")
+            || ht.starts_with("more ")
+            || ht.contains("you might")
+            || ht.contains("you may")
+            || ht.contains("further reading")
+            || ht.contains("see also")
+            || ht.contains("read next")
+            || ht.contains("popular")
+            || ht.contains("recommended")
+            || ht.contains("trending")
+        {
+            score -= 20.0;
+            break;
+        }
+    }
+
+    // Penalize table cells that are mostly links (link farms)
+    if doc.tag_name(node).eq_ignore_ascii_case("td") || doc.tag_name(node).eq_ignore_ascii_case("th") {
+        let links = count_descendant_tag(doc, node, "a");
+        if links > 0 {
+            let mut link_text_len = 0;
+            for link_id in &collect_descendant_tag(doc, node, "a") {
+                link_text_len += doc.text_content(*link_id).len();
+            }
+            let total_len = doc.text_content(node).len().max(1);
+            if (link_text_len as f64 / total_len as f64) > 0.6 {
+                score -= 10.0;
+            }
+        }
+    }
+
     score
 }
 
