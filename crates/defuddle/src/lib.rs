@@ -363,6 +363,10 @@ fn parse_internal_once(
     let body_ids = doc.query_selector_all("body");
     let content_id = main_content.or_else(|| body_ids.first().copied());
 
+    // Convert Bootstrap alerts and Hugo admonitions to callout format
+    // BEFORE remove_by_selector strips .alert elements
+    standardize::convert_alert_elements(&mut doc);
+
     // Then apply removals
     if remove_exact || remove_partial {
         pipeline::remove_by_selector(&mut doc, remove_exact, remove_partial);

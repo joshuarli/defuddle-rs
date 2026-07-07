@@ -26,6 +26,13 @@ pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_titl
     strip_unwanted_attributes(doc, content_id);
     unwrap_bare_spans(doc, content_id);
     unwrap_special_links(doc, content_id);
+    unwrap_figure_content_wrappers(doc, content_id);
+    recover_noscript_images(doc, content_id);
+    recover_lazy_images(doc, content_id);
+    normalize_srcset_attributes(doc, content_id);
+    remove_base64_placeholder_images(doc, content_id);
+    remove_empty_video_elements(doc, content_id);
+    dedup_images(doc, content_id);
     remove_obsolete_elements(doc, content_id);
     remove_empty_elements(doc, content_id);
     remove_trailing_headings(doc, content_id);
@@ -35,6 +42,368 @@ pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_titl
     convert_embedded_elements(doc, content_id);
     strip_extra_br_elements(doc, content_id);
     remove_empty_lines(doc, content_id);
+}
+
+/// Convert Bootstrap alerts and Hugo admonitions to callout format BEFORE
+/// element removal runs (which would strip .alert elements).
+/// Call this early in the pipeline, before `remove_by_selector`.
+pub fn convert_alert_elements(doc: &mut Document) {
+    convert_bootstrap_alerts(doc);
+    convert_hugo_admonitions(doc);
+}
+
+/// Convert Bootstrap-style alert divs to callout format.
+fn convert_bootstrap_alerts(doc: &mut Document) {
+    let alert_classes = ["info", "warning", "danger", "success"];
+    for alert_type in &alert_classes {
+        let selector = format!("div.alert.alert-{alert_type}");
+        for id in doc.query_selector_all(&selector) {
+            // Remove roles that make it look interactive
+            doc.remove_attr(id, "role");
+
+            // Remove the alert-* classes, keep callout
+            if let Some(class) = doc.get_attr(id, "class") {
+                let new_class: String = class
+                    .split_whitespace()
+                    .filter(|c| *c != "alert" && !c.starts_with("alert-"))
+                    .chain(std::iter::once("callout"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                doc.set_attr(id, "class", &new_class);
+            }
+            doc.set_attr(id, "data-callout", alert_type);
+
+            // Build callout structure
+            let children = doc.children(id).to_vec();
+            let mut heading_text = String::new();
+            for &child in &children {
+                let child_class = doc.get_attr(child, "class").unwrap_or("").to_lowercase();
+                if child_class.contains("alert-heading") || child_class.contains("alert-title") {
+                    heading_text = doc.text_content(child).trim().to_string();
+                    doc.remove(child);
+                }
+            }
+            // Build new inner HTML with callout structure
+            let title_div = if heading_text.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "<div class=\"callout-title\"><div class=\"callout-title-inner\">{heading_text}</div></div>"
+                )
+            };
+            let remaining = doc.children(id).to_vec();
+            let body = remaining
+                .iter()
+                .map(|&c| doc.outer_html(c))
+                .collect::<Vec<_>>()
+                .join("");
+            for &child in &remaining {
+                doc.remove(child);
+            }
+            doc.append_html(
+                id,
+                &format!("{title_div}<div class=\"callout-content\">{body}</div>"),
+            );
+        }
+    }
+}
+
+/// Convert Hugo admonitions to callout format.
+fn convert_hugo_admonitions(doc: &mut Document) {
+    let admonition_types = ["info", "warning", "danger", "tip", "note", "success"];
+    for ad_type in &admonition_types {
+        // Match .admonition.{type} but not inside .callout
+        let selector = format!("div.admonition.{ad_type}");
+        for id in doc.query_selector_all(&selector) {
+            // Skip if already inside a callout
+            if doc.closest(id, ".callout").is_some() {
+                continue;
+            }
+            // Extract title from .admonition-title
+            let mut title = String::new();
+            let title_els = doc.query_selector_all_in_subtree(id, ".admonition-title");
+            if let Some(&title_id) = title_els.first() {
+                title = doc.text_content(title_id).trim().to_string();
+            }
+            // Extract content from .admonition-content
+            let content_els = doc.query_selector_all_in_subtree(id, ".admonition-content");
+            let content_html = if let Some(&content_id) = content_els.first() {
+                doc.inner_html(content_id)
+            } else {
+                // fallback: everything except the title element
+                let children = doc.children(id).to_vec();
+                children
+                    .iter()
+                    .filter(|&&c| {
+                        let cclass = doc.get_attr(c, "class").unwrap_or("");
+                        !cclass.contains("admonition-title")
+                            && !cclass.contains("details-summary")
+                    })
+                    .map(|&c| doc.outer_html(c))
+                    .collect::<Vec<_>>()
+                    .join("")
+            };
+
+            // Rebuild as callout
+            if let Some(class) = doc.get_attr(id, "class") {
+                let new_class: String = class
+                    .split_whitespace()
+                    .filter(|c| {
+                        *c != "admonition" && *c != "details" && *c != ad_type && *c != "open"
+                    })
+                    .chain(std::iter::once("callout"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                doc.set_attr(id, "class", &new_class);
+            }
+            doc.set_attr(id, "data-callout", ad_type);
+
+            let title_div = if title.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "<div class=\"callout-title\"><div class=\"callout-title-inner\">{title}</div></div>"
+                )
+            };
+            // Remove all children, set new content
+            let children = doc.children(id).to_vec();
+            for child in children {
+                doc.remove(child);
+            }
+            doc.append_html(
+                id,
+                &format!("{title_div}<div class=\"callout-content\">{content_html}</div>"),
+            );
+        }
+    }
+}
+
+/// Unwrap <figure> elements that contain block-level content (paragraphs, headings),
+/// not just standalone images with captions.
+fn unwrap_figure_content_wrappers(doc: &mut Document, content_id: NodeId) {
+    let figures = doc.query_selector_all_in_subtree(content_id, "figure");
+    for id in figures {
+        let children = doc.children(id).to_vec();
+        let has_block = children.iter().any(|&c| {
+            if !doc.is_element(c) {
+                return false;
+            }
+            let t = doc.tag_name(c).to_lowercase();
+            matches!(t.as_str(), "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "ul" | "ol" | "blockquote" | "pre")
+        });
+        if has_block {
+            doc.unwrap(id);
+        }
+    }
+}
+
+/// When an <img> has a base64/SVG placeholder src and a sibling <noscript> contains
+/// a real <img>, use the noscript image's URL and remove the placeholder.
+fn recover_noscript_images(doc: &mut Document, content_id: NodeId) {
+    let noscripts = doc.query_selector_all_in_subtree(content_id, "noscript");
+    for ns_id in noscripts {
+        let imgs = doc.query_selector_all_in_subtree(ns_id, "img");
+        if imgs.is_empty() {
+            continue;
+        }
+        let ns_img = imgs[0];
+        let ns_src = doc.get_attr(ns_img, "src").unwrap_or("").to_string();
+        let ns_alt = doc.get_attr(ns_img, "alt").unwrap_or("").to_string();
+        if ns_src.is_empty() || ns_src.starts_with("data:") {
+            continue;
+        }
+        let parent = doc.parent(ns_id);
+        if let Some(pid) = parent {
+            let siblings = doc.children(pid).to_vec();
+            for sib in siblings {
+                if sib == ns_id || !doc.is_element(sib) {
+                    continue;
+                }
+                let tag = doc.tag_name(sib).to_lowercase();
+                if tag != "img" {
+                    for img_id in doc.query_selector_all_in_subtree(sib, "img") {
+                        replace_if_placeholder(doc, img_id, &ns_src, &ns_alt);
+                    }
+                    continue;
+                }
+                replace_if_placeholder(doc, sib, &ns_src, &ns_alt);
+            }
+        }
+        doc.remove(ns_id);
+    }
+}
+
+fn replace_if_placeholder(doc: &mut Document, img_id: NodeId, new_src: &str, new_alt: &str) {
+    let src = doc.get_attr(img_id, "src").unwrap_or("");
+    let is_placeholder = src.is_empty() || src.starts_with("data:image/");
+    if !is_placeholder {
+        return;
+    }
+    doc.set_attr(img_id, "src", new_src);
+    if !new_alt.is_empty() {
+        doc.set_attr(img_id, "alt", new_alt);
+    }
+    doc.remove_attr(img_id, "data-nimg");
+}
+
+/// Recover lazy-loaded image URLs from data-image-loader, data-src, data-original-src.
+fn recover_lazy_images(doc: &mut Document, content_id: NodeId) {
+    let lazy_attrs = ["data-image-loader", "data-src", "data-original-src"];
+    let imgs = doc.query_selector_all_in_subtree(content_id, "img");
+    for id in imgs {
+        let src = doc.get_attr(id, "src").unwrap_or("").to_string();
+        if src.is_empty() || !src.starts_with("data:image/") {
+            continue;
+        }
+        for attr in &lazy_attrs {
+            if let Some(real_url) = doc.get_attr(id, attr) {
+                if !real_url.is_empty() && !real_url.starts_with("data:") {
+                    doc.set_attr(id, "src", &real_url);
+                    break;
+                }
+            }
+        }
+        if doc.get_attr(id, "src").map_or(true, |s| s.starts_with("data:")) {
+            if let Some(pid) = doc.parent(id) {
+                if doc.tag_name(pid).eq_ignore_ascii_case("picture") {
+                    for &source_id in &doc.query_selector_all_in_subtree(pid, "source") {
+                        let srcset = doc.get_attr(source_id, "srcSet")
+                            .or_else(|| doc.get_attr(source_id, "srcset"))
+                            .unwrap_or("");
+                        if !srcset.is_empty() {
+                            if let Some(best) = get_best_src_url(&srcset) {
+                                doc.set_attr(id, "src", &best);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Normalize React SSR camelCase `srcSet` attributes to lowercase `srcset`.
+fn normalize_srcset_attributes(doc: &mut Document, content_id: NodeId) {
+    let elements = doc.query_selector_all_in_subtree(content_id, "source,img");
+    for id in elements {
+        if let Some(srcset) = doc.get_attr(id, "srcSet") {
+            let val = srcset.to_string();
+            doc.remove_attr(id, "srcSet");
+            doc.set_attr(id, "srcset", &val);
+        }
+    }
+}
+
+fn get_best_src_url(srcset: &str) -> Option<String> {
+    crate::markdown::get_best_image_src(srcset)
+}
+
+/// Remove <img> with only base64 data URIs and no alternative source.
+fn remove_base64_placeholder_images(doc: &mut Document, content_id: NodeId) {
+    let lazy_attrs = ["data-src", "data-image-loader", "data-original-src"];
+    let imgs = doc.query_selector_all_in_subtree(content_id, "img");
+    for id in imgs {
+        let src = doc.get_attr(id, "src").unwrap_or("");
+        if !src.starts_with("data:image/") {
+            continue;
+        }
+        // Don't remove if has a picture parent with sources
+        let mut has_fallback = false;
+        if let Some(pid) = doc.parent(id) {
+            if doc.tag_name(pid).eq_ignore_ascii_case("picture")
+                && !doc.query_selector_all_in_subtree(pid, "source").is_empty()
+            {
+                has_fallback = true;
+            }
+        }
+        if has_fallback {
+            continue;
+        }
+        let has_lazy = lazy_attrs.iter().any(|attr| {
+            doc.get_attr(id, attr)
+                .map_or(false, |v| !v.is_empty() && !v.starts_with("data:"))
+        });
+        if has_lazy {
+            continue;
+        }
+        doc.remove(id);
+    }
+}
+
+/// Remove <video> elements without src and source children.
+fn remove_empty_video_elements(doc: &mut Document, content_id: NodeId) {
+    for id in doc.query_selector_all_in_subtree(content_id, "video") {
+        let has_src = doc.get_attr(id, "src").map_or(false, |s| !s.is_empty());
+        let has_source = !doc.query_selector_all_in_subtree(id, "source").is_empty();
+        if !has_src && !has_source {
+            doc.remove(id);
+        }
+    }
+}
+
+/// Deduplicate images within the same parent: same alt (non-generic) or same URL.
+fn dedup_images(doc: &mut Document, content_id: NodeId) {
+    for parent_id in doc.query_selector_all_in_subtree(content_id, "figure,div,p") {
+        let imgs = doc.query_selector_all_in_subtree(parent_id, "img");
+        if imgs.len() < 2 {
+            continue;
+        }
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut to_remove: Vec<NodeId> = Vec::new();
+        for &img_id in &imgs {
+            let src = doc.get_attr(img_id, "src").unwrap_or("").to_string();
+            let alt = doc.get_attr(img_id, "alt").unwrap_or("").to_string();
+            let key = if !alt.is_empty() && !is_generic_alt(&alt) {
+                format!("A:{alt}")
+            } else {
+                format!("U:{src}")
+            };
+            if seen.contains(&key) {
+                to_remove.push(img_id);
+            } else {
+                seen.insert(key);
+            }
+        }
+        for img_id in to_remove {
+            doc.remove(img_id);
+        }
+    }
+    lightbox_image_dedup(doc, content_id);
+}
+
+fn lightbox_image_dedup(doc: &mut Document, content_id: NodeId) {
+    let all_imgs = doc.query_selector_all_in_subtree(content_id, "img");
+    let mut linked_urls: HashSet<String> = HashSet::new();
+    for &img_id in &all_imgs {
+        if let Some(pid) = doc.parent(img_id) {
+            if doc.tag_name(pid).eq_ignore_ascii_case("a") {
+                if let Some(href) = doc.get_attr(pid, "href") {
+                    if !href.is_empty() && !href.starts_with("javascript:") {
+                        linked_urls.insert(href.to_string());
+                    }
+                }
+            }
+        }
+    }
+    let mut to_remove: Vec<NodeId> = Vec::new();
+    for &img_id in &all_imgs {
+        let src = doc.get_attr(img_id, "src").unwrap_or("").to_string();
+        if src.is_empty() || doc.closest(img_id, "a").is_some() {
+            continue;
+        }
+        if linked_urls.contains(&src) {
+            to_remove.push(img_id);
+        }
+    }
+    for img_id in to_remove {
+        doc.remove(img_id);
+    }
+}
+
+fn is_generic_alt(alt: &str) -> bool {
+    let a = alt.trim().to_lowercase();
+    a.is_empty() || a == "image" || a == "picture" || a == "photo"
 }
 
 /// Resolve relative URLs in element attributes to absolute URLs using the page URL.
@@ -71,13 +440,28 @@ pub fn resolve_urls(doc: &mut Document, content_id: NodeId, page_url: &str) {
 
 // --- Individual standardization steps ---
 
-/// Replace &nbsp; with regular spaces in text nodes.
+/// Replace &nbsp; with regular spaces, collapse multiple spaces in text nodes.
 fn standardize_spaces(doc: &mut Document, node: NodeId) {
     let children = doc.children(node).to_vec();
     for child in children {
         if doc.is_text(child) {
             if let Some(text) = doc.text_content_mut(child) {
                 *text = text.replace('\u{00A0}', " ");
+                // Collapse 2+ consecutive spaces to a single space
+                let mut result = String::with_capacity(text.len());
+                let mut in_space = false;
+                for c in text.chars() {
+                    if c == ' ' || c == '\t' {
+                        if !in_space {
+                            result.push(' ');
+                            in_space = true;
+                        }
+                    } else {
+                        result.push(c);
+                        in_space = false;
+                    }
+                }
+                *text = result;
             }
         } else if doc.is_element(child) {
             standardize_spaces(doc, child);
@@ -157,7 +541,8 @@ fn remove_obsolete_elements(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-/// Remove empty elements (no text, no children, not in ALLOWED_EMPTY_ELEMENTS).
+/// Remove empty elements (no text, no children, not in ALLOWED_EMPTY_ELEMENTS)
+/// and tables with no visible text content.
 fn remove_empty_elements(doc: &mut Document, content_id: NodeId) {
     let allowed_empty: HashSet<&str> = ALLOWED_EMPTY_ELEMENTS.iter().copied().collect();
     loop {
@@ -177,6 +562,14 @@ fn remove_empty_elements(doc: &mut Document, content_id: NodeId) {
             if doc.children(id).is_empty() && doc.text_content(id).trim().is_empty() {
                 doc.remove(id);
                 removed = true;
+            }
+            // Remove empty tables (no visible text content in any cell)
+            if tag == "table" {
+                let text = doc.text_content(id).trim().to_string();
+                if text.is_empty() {
+                    doc.remove(id);
+                    removed = true;
+                }
             }
         }
         if !removed {
@@ -336,8 +729,10 @@ fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-/// Normalize consecutive <br> tags.
+/// Normalize <br> tags: remove standalone brs between blocks, collapse consecutive brs,
+/// and remove empty <p><br/></p> elements.
 fn strip_extra_br_elements(doc: &mut Document, content_id: NodeId) {
+    let block_tags: HashSet<&str> = BLOCK_ELEMENTS.iter().copied().collect();
     let brs = doc.query_selector_all_in_subtree(content_id, "br");
     let mut groups: std::collections::HashMap<NodeId, Vec<NodeId>> =
         std::collections::HashMap::new();
@@ -364,6 +759,43 @@ fn strip_extra_br_elements(doc: &mut Document, content_id: NodeId) {
                 }
             }
         }
+
+        // Remove standalone <br>s between block-level siblings
+        let parent_tag = if pid == content_id {
+            String::new()
+        } else {
+            doc.tag_name(pid).to_lowercase()
+        };
+        // Only strip brs between blocks when parent is a block container (div, article, section, etc.)
+        // or the content root
+        if parent_tag.is_empty()
+            || parent_tag == "div"
+            || parent_tag == "article"
+            || parent_tag == "section"
+            || parent_tag == "main"
+            || block_tags.contains(parent_tag.as_str())
+        {
+            for &br_id in &group {
+                if let Some(pos) = siblings.iter().position(|&s| s == br_id) {
+                    let before_is_block = pos > 0
+                        && siblings[..pos].iter().any(|&s| {
+                            doc.is_element(s)
+                                && block_tags
+                                    .contains(doc.tag_name(s).to_lowercase().as_str())
+                                && !doc.text_content(s).trim().is_empty()
+                        });
+                    let after_is_block = siblings[pos + 1..].iter().any(|&s| {
+                        doc.is_element(s)
+                            && block_tags.contains(doc.tag_name(s).to_lowercase().as_str())
+                            && !doc.text_content(s).trim().is_empty()
+                    });
+                    if before_is_block && after_is_block {
+                        doc.remove(br_id);
+                    }
+                }
+            }
+        }
+
         // Collapse 3+ consecutive to 2
         let mut consecutive: Vec<NodeId> = Vec::new();
         for &child in &siblings {
@@ -382,6 +814,35 @@ fn strip_extra_br_elements(doc: &mut Document, content_id: NodeId) {
             for &b in &consecutive[2..] {
                 doc.remove(b);
             }
+        }
+    }
+
+    // Remove <p> elements that contain only <br> (empty visual spacers)
+    remove_empty_br_paragraphs(doc, content_id);
+}
+
+/// Remove <p> elements whose only content is <br> (visual spacer paragraphs).
+fn remove_empty_br_paragraphs(doc: &mut Document, content_id: NodeId) {
+    loop {
+        let mut removed = false;
+        let ps = doc.query_selector_all_in_subtree(content_id, "p");
+        for id in ps {
+            if id == content_id {
+                continue;
+            }
+            let children = doc.children(id).to_vec();
+            let all_br = !children.is_empty()
+                && children.iter().all(|&c| {
+                    (doc.is_element(c) && doc.tag_name(c).eq_ignore_ascii_case("br"))
+                        || (doc.is_text(c) && doc.text_content(c).trim().is_empty())
+                });
+            if all_br {
+                doc.remove(id);
+                removed = true;
+            }
+        }
+        if !removed {
+            break;
         }
     }
 }
@@ -1146,6 +1607,7 @@ fn simplify_heading_children(doc: &mut Document, content_id: NodeId) {
                     || class.contains("permalink")
                     || class.contains("anchor-link")
                     || class.contains("heading-anchor")
+                    || class.contains("headerlink")
                 {
                     doc.remove(child);
                 }

@@ -64,19 +64,24 @@ fn build_converter() -> HtmlToMarkdown {
                 .find(|a| a.name.local.as_ref() == "src")
                 .map(|a| a.value.as_ref())
                 .unwrap_or("");
-            if src.contains("youtube.com/embed/") {
+            if src.contains("youtube.com/embed/") || src.contains("youtube-nocookie.com/embed/") {
                 let video_id = src
-                    .split("youtube.com/embed/")
+                    .split("/embed/")
                     .nth(1)
                     .and_then(|s| s.split(['?', '&', '"']).next())
                     .unwrap_or("");
                 Some(HandlerResult {
-                    content: format!("[YouTube](https://www.youtube.com/watch?v={video_id})"),
+                    content: format!("[](https://www.youtube.com/watch?v={video_id})"),
                     markdown_translated: true,
                 })
             } else if src.contains("platform.twitter.com/embed") {
+                let tweet_id = src
+                    .split("id=")
+                    .nth(1)
+                    .and_then(|s| s.split(['&', '"']).next())
+                    .unwrap_or("");
                 Some(HandlerResult {
-                    content: "[Twitter/X Embed]".to_string(),
+                    content: format!("[](https://x.com/i/status/{tweet_id})"),
                     markdown_translated: true,
                 })
             } else {
@@ -256,7 +261,9 @@ fn preprocess_html_for_markdown(html: &str) -> String {
     let html = re_wbr.replace_all(&html, "").to_string();
 
     // Handle callout blocks: convert to blockquote format
-    let html = convert_callouts_to_markdown(&html);
+    // The html-to-markdown-rs handler for div[data-callout] handles this
+    // in DOM order, which correctly processes nested divs.
+    // No string-level regex needed.
 
     // Handle footnote inline references
     let html = convert_footnotes_to_markdown(&html);
@@ -661,7 +668,23 @@ fn convert_code_block_language(html: &str) -> String {
     .to_string()
 }
 
-/// Convert YouTube/Twitter iframe embeds to markdown links.
+fn convert_embeds_to_links(html: &str) -> String {
+    let re_yt = regex_lite::Regex::new(r#"<iframe[^>]*src="https?://(?:www\.)?youtube(?:-nocookie)?\.com/embed/([^"?]+)[^"]*"[^>]*></iframe>"#).unwrap();
+    let html = re_yt.replace_all(&html, "![](https://www.youtube.com/watch?v=$1)").to_string();
+    let re_tw = regex_lite::Regex::new(r#"<iframe[^>]*src="https?://platform\.twitter\.com/embed/Tweet\.html\?id=([^"&]+)[^"]*"[^>]*></iframe>"#).unwrap();
+    let html = re_tw.replace_all(&html, "![](https://x.com/i/status/$1)").to_string();
+    let re_x = regex_lite::Regex::new(r#"<iframe[^>]*src="(https?://x\.com/[^"]+)"[^>]*></iframe>"#).unwrap();
+    re_x.replace_all(&html, "![]($1)").to_string()
+}
+
+/// Extract data-latex attribute from <math> elements and render as LaTeX block.
+fn extract_math_latex(html: &str) -> String {
+    let re = regex_lite::Regex::new(r#"<math[^>]*data-latex="([^"]*)"[^>]*>.*?</math>"#).unwrap();
+    re.replace_all(html, |caps: &regex_lite::Captures| {
+        let latex = caps.get(1).unwrap().as_str();
+        if latex.contains("\\begin{") { format!("\n$\n{}\n$\n", latex) } else { format!("${}$", latex) }
+    }).to_string()
+}
 fn convert_embeds_to_links(html: &str) -> String {
     let re_yt = regex_lite::Regex::new(
         r#"<iframe[^>]*src="https?://(?:www\.)?youtube\.com/embed/([^"?]+)[^"]*"[^>]*></iframe>"#,
@@ -676,6 +699,20 @@ fn convert_embeds_to_links(html: &str) -> String {
         .to_string();
     re_tw.replace_all(&html, "[Twitter/X Embed]").to_string()
 }
+
+/// Extract data-latex attribute from <math> elements.
+fn extract_math_latex(html: &str) -> String {
+    let re = regex_lite::Regex::new(r#\"<math[^>]*data-latex=\"([^\"]*)\"[^>]*>.*?</math>\"#).unwrap(); = regex_lite::Regex::new(r###"<iframe[^>]*src="https?://(?:www\\.)?youtube(?:-nocookie)?\\.com/embed/([^"?]+)[^"]*"[^>]*></iframe>"###).unwrap();
+
+
+    let re_tw = regex_lite::Regex::new(r###"<iframe[^>]*src="https?://platform\\.twitter\\.com/embed/Tweet\\.html\\?id=([^"&]+)[^"]*"[^>]*></iframe>"###).unwrap();
+    let html = re_tw.replace_all(&html, "![](https://x.com/i/status/$1)").to_string();
+
+    // X.com embed
+    let re_x = regex_lite::Regex::new(r###"<iframe[^>]*src="(https?://x\\.com/[^"]+)"[^>]*></iframe>"###).unwrap();
+    re_x.replace_all(&html, "![]($1)").to_string()
+}
+/* END_DELETE */
 
 /// Extract data-latex attribute from <math> elements and render as LaTeX block.
 fn extract_math_latex(html: &str) -> String {
