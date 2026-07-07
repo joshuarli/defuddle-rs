@@ -3,8 +3,7 @@
 
 exceptions = [
     { name = "bilibili-transcript.test.ts", category = "bilibili_excluded", reason = "Bilibili extraction is explicitly out of scope", required_capability = "Bilibili API", target = "out_of_scope", date_added = "2026-07-03" },
-    { name = "all fixtures", category = "site_extractor_out_of_scope", reason = "Site-specific extractors not yet ported", required_capability = "Extractor registry", target = "tranche_6", date_added = "2026-07-03" },
-    { name = "all fixtures (markdown)", category = "intentional_api_difference", reason = "Full Markdown parity deferred", required_capability = "Full standardization + custom rules", target = "post_v1", date_added = "2026-07-03" },
+    { name = "extractor--bbcode-data", category = "site_extractor_out_of_scope", reason = "BBCode extractor removed", required_capability = "N/A", target = "out_of_scope", date_added = "2026-07-07" },
     { name = "cli fetch tests", category = "cli_fetch_excluded", reason = "Rust CLI does not fetch URLs", required_capability = "HTTP client", target = "out_of_scope", date_added = "2026-07-03" },
     { name = "perf.test.ts", category = "intentional_api_difference", reason = "Performance benchmarks deferred", required_capability = "Benchmark harness", target = "post_v1", date_added = "2026-07-03" },
 

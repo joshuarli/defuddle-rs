@@ -130,6 +130,16 @@ impl Document {
         false
     }
 
+    pub fn next_element_sibling(&self, node: NodeId) -> Option<NodeId> {
+        if let Some(parent) = self.parent(node) {
+            let children = self.children(parent);
+            let pos = children.iter().position(|&c| c == node)?;
+            children.iter().skip(pos + 1).copied().next()
+        } else {
+            None
+        }
+    }
+
     pub fn text_content(&self, node: NodeId) -> String {
         let mut out = String::new();
         self.text_content_into(node, &mut out);

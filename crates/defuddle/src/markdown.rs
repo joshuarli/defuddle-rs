@@ -107,7 +107,70 @@ fn build_converter() -> HtmlToMarkdown {
                     markdown_translated: true,
                 })
             } else {
-                None // fall through to default sup handling
+                None
+            }
+        },
+    );
+
+    // --- footnotes: <div id="footnotes"> <ol> <li id="fn:N"> → [^N]: text ---
+    builder = builder.add_handler(
+        vec!["div"],
+        move |_h: &dyn Handlers, el: Element| -> Option<HandlerResult> {
+            let is_footnotes = el.attrs.iter().any(|a| {
+                a.name.local.as_ref() == "id" && a.value.as_ref() == "footnotes"
+            });
+            if !is_footnotes {
+                return None;
+            }
+            // Walk children to extract <li id="fn:N"> with links
+            let mut result = String::new();
+            for child in &*el.node.children.borrow() {
+                if let markup5ever_rcdom::NodeData::Element { ref name, ref attrs, .. } = child.data {
+                    if name.local.as_ref() == "ol" {
+                        for li in &*child.children.borrow() {
+                            if let markup5ever_rcdom::NodeData::Element { ref name, ref attrs, .. } = li.data {
+                                if name.local.as_ref() == "li" {
+                                    let li_attrs = attrs.borrow();
+                                    let lid = li_attrs.iter()
+                                        .find(|a| a.name.local.as_ref() == "id")
+                                        .map(|a| a.value.as_ref())
+                                        .unwrap_or("");
+                                    if let Some(num) = lid.strip_prefix("fn:") {
+                                        // Extract text from the <a> link
+                                        let mut text = String::new();
+                                        let mut url = String::new();
+                                        for lc in &*li.children.borrow() {
+                                            if let markup5ever_rcdom::NodeData::Element { ref name, ref attrs, .. } = lc.data {
+                                                if name.local.as_ref() == "p" || name.local.as_ref() == "a" {
+                                                    let a_attrs = attrs.borrow();
+                                                    if let Some(href) = a_attrs.iter().find(|a| a.name.local.as_ref() == "href") {
+                                                        url = href.value.as_ref().to_string();
+                                                    }
+                                                    for tc in &*lc.children.borrow() {
+                                                        if let markup5ever_rcdom::NodeData::Text { ref contents } = tc.data {
+                                                            text.push_str(&contents.borrow());
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if !text.is_empty() && !url.is_empty() {
+                                            result.push_str(&format!("[^{num}]: [{text}]({url})\n\n"));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if result.is_empty() {
+                None
+            } else {
+                Some(HandlerResult {
+                    content: result.trim().to_string(),
+                    markdown_translated: true,
+                })
             }
         },
     );

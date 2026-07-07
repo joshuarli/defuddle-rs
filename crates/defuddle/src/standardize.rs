@@ -1132,12 +1132,66 @@ fn unwrap_layout_tables(doc: &mut Document, content_id: NodeId) {
     }
 }
 
+/// Convert CodeMirror editor blocks (used by ChatGPT, Claude, etc.) to standard <pre><code>.
+fn normalize_codemirror_blocks(doc: &mut Document, content_id: NodeId) {
+    // Find <pre> elements containing CodeMirror content
+    let pres: Vec<NodeId> = doc
+        .query_selector_all_in_subtree(content_id, "pre")
+        .into_iter()
+        .filter(|&id| {
+            let html = doc.inner_html(id);
+            html.contains("cm-editor") || html.contains("cm-content") || html.contains("CodeMirror")
+        })
+        .collect();
+
+    for pre_id in pres {
+        // Look for language label in a header div above the CodeMirror content
+        let mut language = String::new();
+        let html = doc.inner_html(pre_id);
+        // Try to find language from text nodes near the top (e.g., "Python" in a div header)
+        let re = regex_lite::Regex::new(r#"<div[^>]*class="[^"]*header[^"]*"[^>]*>\s*(\w+)\s*</div>"#).unwrap();
+        if let Some(caps) = re.captures(&html) {
+            language = caps.get(1).map(|m| m.as_str().to_lowercase()).unwrap_or_default();
+        }
+        // Also try to find language from a dedicated language-label element
+        if language.is_empty() {
+            let re2 = regex_lite::Regex::new(r#"<span[^>]*>\s*(\w+)\s*</span>"#).unwrap();
+            if let Some(caps) = re2.captures(&html) {
+                let candidate = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                // Filter out common non-language words
+                if !matches!(candidate.to_lowercase().as_str(), "run" | "copy" | "") {
+                    language = candidate.to_lowercase();
+                }
+            }
+        }
+
+        // Extract text content: CodeMirror uses <br> for line breaks and spans for syntax tokens
+        let mut text = doc.text_content(pre_id);
+        // The text_content may have runs of whitespace from the spans; clean it up
+        text = text.trim().to_string();
+
+        if text.is_empty() {
+            continue;
+        }
+
+        // Build <pre><code> replacement
+        let code_html = if !language.is_empty() {
+            format!("<pre><code class=\"language-{language}\">{text}</code></pre>")
+        } else {
+            format!("<pre><code>{text}</code></pre>")
+        };
+
+        doc.replace_with_html(pre_id, &code_html);
+    }
+}
+
 /// Standardize code blocks: convert syntax highlighter containers
 /// (.highlight, .syntaxhighlighter, etc.) to clean <pre><code> elements.
 fn standardize_code_blocks(doc: &mut Document, content_id: NodeId) {
     normalize_rouge_tables(doc, content_id);
     normalize_code_pre_nesting(doc, content_id);
     normalize_block_code_elements(doc, content_id);
+    normalize_codemirror_blocks(doc, content_id);
 
     let highlight = doc.query_selector_all_in_subtree(content_id, ".highlight");
     let syntax = doc.query_selector_all_in_subtree(content_id, ".syntaxhighlighter");
