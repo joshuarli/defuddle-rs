@@ -27,6 +27,8 @@ pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_titl
     unwrap_layout_tables(doc, content_id);
     flatten_wrapper_elements(doc, content_id);
     remove_permalink_anchors(doc, content_id);
+    standardize_footnotes(doc, content_id);
+    standardize_math(doc, content_id);
     strip_unwanted_attributes(doc, content_id);
     unwrap_bare_spans(doc, content_id);
     unwrap_special_links(doc, content_id);
@@ -37,8 +39,6 @@ pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_titl
     remove_base64_placeholder_images(doc, content_id);
     remove_empty_video_elements(doc, content_id);
     dedup_images(doc, content_id);
-    standardize_footnotes(doc, content_id);
-    standardize_math(doc, content_id);
     remove_obsolete_elements(doc, content_id);
     remove_empty_elements(doc, content_id);
     remove_trailing_headings(doc, content_id);

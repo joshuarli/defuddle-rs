@@ -780,6 +780,8 @@ pub const ALLOWED_ATTRIBUTES: &[&str] = &[
     "colspan",
     "controls",
     "data-latex",
+    "data-math",
+    "data-tex",
     "data-src",
     "data-srcset",
     "data-callout",
