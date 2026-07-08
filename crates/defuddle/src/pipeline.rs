@@ -381,8 +381,13 @@ pub fn remove_hidden_elements(doc: &mut Document) {
                 || style_lower.contains("visibility:hidden")
                 || style_lower.contains("opacity:0")
             {
-                if !to_remove.contains(&id) {
-                    to_remove.push(id);
+                // Skip elements inside callout containers (e.g. collapsed callout content)
+                if doc.closest(id, "[data-callout]").is_none()
+                    && doc.closest(id, ".callout").is_none()
+                {
+                    if !to_remove.contains(&id) {
+                        to_remove.push(id);
+                    }
                 }
                 continue;
             }
@@ -859,7 +864,7 @@ fn remove_related_posts_sections(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-/// Remove table-of-contents: lists where every item contains a link and items are short.
+/// Remove table-of-contents: lists where most links are same-page anchors.
 fn remove_table_of_contents(doc: &mut Document, content_id: NodeId) {
     let lists = doc.query_selector_all_in_subtree(content_id, "ul,ol");
     for list_id in lists {
@@ -867,31 +872,46 @@ fn remove_table_of_contents(doc: &mut Document, content_id: NodeId) {
         if items.len() < 3 {
             continue;
         }
-        let text = doc.text_content(list_id).trim().to_string();
-        if text.len() > 250 {
+        let list_text = doc.text_content(list_id).trim().to_string();
+        // Must be near the top of content — check via DOM position
+        let mut ancestor = doc.parent(list_id);
+        let mut depth = 0;
+        while let Some(a) = ancestor {
+            if a == content_id {
+                break;
+            }
+            depth += 1;
+            ancestor = doc.parent(a);
+        }
+        if depth > 3 {
             continue;
         }
-        let all_have_links = items
-            .iter()
-            .all(|&li_id| !doc.query_selector_all_in_subtree(li_id, "a").is_empty());
-        if !all_have_links {
+        // Count anchor links
+        let links: Vec<_> = doc.query_selector_all_in_subtree(list_id, "a");
+        if links.len() < 3 {
             continue;
         }
-        // Items must be very short (toc-style, under 10 words each)
-        let short_items = items.iter().all(|&li_id| {
-            let item_text = doc.text_content(li_id).trim().to_string();
-            item_text.split_whitespace().count() < 10
-        });
-        if short_items && let Some(pid) = doc.parent(list_id) {
+        let anchor_count = links.iter().filter(|&&id| {
+            doc.get_attr(id, "href").is_some_and(|h| h.starts_with('#'))
+        }).count();
+        if anchor_count < 3 || (anchor_count as f64) / (links.len() as f64) < 0.8 {
+            continue;
+        }
+        // Remove surrounding HRs
+        if let Some(pid) = doc.parent(list_id) {
             let siblings = doc.children(pid).to_vec();
             let pos = siblings.iter().position(|&s| s == list_id);
             if let Some(p) = pos {
-                // Only remove if very near the beginning (first 3 children)
-                if p <= 2 {
-                    doc.remove(list_id);
+                if p > 0 && doc.is_element(siblings[p - 1]) && doc.tag_name(siblings[p - 1]).eq_ignore_ascii_case("hr") {
+                    doc.remove(siblings[p - 1]);
+                }
+                if p + 1 < siblings.len() && doc.is_element(siblings[p + 1]) && doc.tag_name(siblings[p + 1]).eq_ignore_ascii_case("hr") {
+                    doc.remove(siblings[p + 1]);
                 }
             }
         }
+        doc.remove(list_id);
+        break;
     }
 }
 

@@ -15,6 +15,7 @@ pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_titl
     standardize_spaces(doc, content_id);
     remove_html_comments(doc, content_id);
     standardize_headings(doc, content_id, metadata_title);
+    wrap_preformatted_code(doc, content_id);
     standardize_code_blocks(doc, content_id);
     standardize_element_roles(doc, content_id);
     simplify_heading_children(doc, content_id);
@@ -105,10 +106,8 @@ fn convert_bootstrap_alerts(doc: &mut Document) {
             for &child in &remaining {
                 doc.remove(child);
             }
-            doc.append_html(
-                id,
-                &format!("{title_div}<div class=\"callout-content\">{body}</div>"),
-            );
+            let full_html = format!("{title_div}<div class=\"callout-content\">{body}</div>");
+            doc.append_html(id, &full_html);
         }
     }
 }
@@ -449,28 +448,23 @@ pub fn resolve_urls(doc: &mut Document, content_id: NodeId, page_url: &str) {
 
 // --- Individual standardization steps ---
 
-/// Replace &nbsp; with regular spaces, collapse multiple spaces in text nodes.
+/// Replace &nbsp; with regular spaces in text nodes.
+/// Skips <pre>, <code>, and SVG elements to preserve whitespace formatting.
 fn standardize_spaces(doc: &mut Document, node: NodeId) {
+    // Skip pre, code, and SVG elements to preserve whitespace inside code blocks and SVGs
+    if doc.is_element(node) {
+        let tag = doc.tag_name(node).to_lowercase();
+        if tag == "pre" || tag == "code" || tag == "svg" {
+            return;
+        }
+    }
+
     let children = doc.children(node).to_vec();
     for child in children {
         if doc.is_text(child) {
             if let Some(text) = doc.text_content_mut(child) {
+                // Only replace non-breaking spaces — do NOT collapse consecutive spaces
                 *text = text.replace('\u{00A0}', " ");
-                // Collapse 2+ consecutive spaces to a single space
-                let mut result = String::with_capacity(text.len());
-                let mut in_space = false;
-                for c in text.chars() {
-                    if c == ' ' || c == '\t' {
-                        if !in_space {
-                            result.push(' ');
-                            in_space = true;
-                        }
-                    } else {
-                        result.push(c);
-                        in_space = false;
-                    }
-                }
-                *text = result;
             }
         } else if doc.is_element(child) {
             standardize_spaces(doc, child);
@@ -528,15 +522,16 @@ fn unwrap_bare_spans(doc: &mut Document, content_id: NodeId) {
 /// Handle special link unwrapping: code links, javascript: links.
 fn unwrap_special_links(doc: &mut Document, content_id: NodeId) {
     let code_links = doc.query_selector_all_in_subtree(content_id, "code a");
-    for id in code_links {
+    for &id in &code_links {
         doc.unwrap(id);
     }
-    let all_links = doc.query_selector_all_in_subtree(content_id, "a[href]");
-    for id in all_links {
-        if let Some(href) = doc.get_attr(id, "href")
-            && href.trim().to_lowercase().starts_with("javascript:")
-        {
-            doc.unwrap(id);
+    // Use plain "a" selector since [href] attribute presence matching is buggy
+    let all_links = doc.query_selector_all_in_subtree(content_id, "a");
+    for &id in &all_links {
+        if let Some(href) = doc.get_attr(id, "href") {
+            if href.trim().to_lowercase().starts_with("javascript:") {
+                doc.unwrap(id);
+            }
         }
     }
 }
@@ -682,6 +677,7 @@ fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
                 || l.contains("footnote")
                 || l.contains("reference")
                 || l.contains("bibliography")
+                || l.contains("callout-")
             {
                 return true;
             }
@@ -1163,6 +1159,62 @@ fn unwrap_layout_tables(doc: &mut Document, content_id: NodeId) {
             let inner = doc.inner_html(cell);
             doc.replace_with_html(table_id, &inner);
         }
+    }
+}
+
+/// Wrap bare <code> elements with white-space: pre in <pre> wrappers so
+/// they are treated as code blocks instead of inline code.
+fn wrap_preformatted_code(doc: &mut Document, content_id: NodeId) {
+    let codes = doc.query_selector_all_in_subtree(content_id, "code");
+    for code_id in codes {
+        // Skip if already inside a <pre>
+        if doc.closest(code_id, "pre").is_some() {
+            continue;
+        }
+        // Check for white-space: pre or white-space:pre style
+        let style = doc.get_attr(code_id, "style").unwrap_or("").to_lowercase();
+        if !style.contains("white-space") {
+            continue;
+        }
+        // Match "white-space:pre" or "white-space: pre" followed by not "pre-" variants
+        let is_pre = {
+            let rest = style.split("white-space").nth(1).unwrap_or("");
+            let rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == ':');
+            rest.starts_with("pre") && !rest.starts_with("pre-")
+        };
+        if !is_pre {
+            continue;
+        }
+        // Wrap in a <pre> element
+        let _tag = doc.tag_name(code_id).to_string();
+        let attrs: Vec<(String, String)> = doc.attr_names(code_id)
+            .iter()
+            .filter_map(|name| {
+                doc.get_attr(code_id, name).map(|v| (name.clone(), v.to_string()))
+            })
+            .collect();
+        let inner = doc.inner_html(code_id);
+        let trimmed = inner.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Clear code element
+        for child in doc.children(code_id).to_vec() {
+            doc.remove(child);
+        }
+
+        let mut pre_html = String::from("<pre><code");
+        for (name, val) in &attrs {
+            if name != "style" {
+                pre_html.push_str(&format!(r#" {}="{}""#, name, val));
+            }
+        }
+        pre_html.push('>');
+        pre_html.push_str(&trimmed);
+        pre_html.push_str("</code></pre>");
+
+        doc.replace_with_html(code_id, &pre_html);
     }
 }
 

@@ -1035,7 +1035,7 @@ fn extract_byline(doc: &Document, el: NodeId) -> Option<String> {
         }
         if let Some(author) = text.strip_prefix("by ") {
             let author = author.trim();
-            if !author.is_empty() {
+            if !author.is_empty() && author.chars().next().unwrap().is_uppercase() {
                 return Some(author.to_string());
             }
         }
