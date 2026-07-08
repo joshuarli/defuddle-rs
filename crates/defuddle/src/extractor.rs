@@ -1671,7 +1671,7 @@ pub mod twitter {
         let mut content_html = String::new();
         if has_title_block && !article_title.is_empty() {
             let safe = super::comments::escape_html(&article_title);
-            content_html.push_str(&format!("<h1>{safe}</h1>\n<p> </p>\n"));
+            content_html.push_str(&format!("<div>{safe}</div>\n<p>\u{00B7}</p>\n"));
         }
 
         // Recursively walk the wrapper subtree to find Draft.js blocks in document order.

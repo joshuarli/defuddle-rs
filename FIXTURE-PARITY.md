@@ -9,8 +9,8 @@ Measured with `cargo test --test fixtures -- --nocapture`:
 - 202 vendored upstream fixtures.
 - 124 active fixtures.
 - 78 excluded fixtures in `tests/upstream-exceptions.toml`.
-- 41 active fixtures match.
-- 83 active fixtures mismatch.
+- 43 active fixtures match.
+- 81 active fixtures mismatch.
 
 The fixture runner is non-blocking by default and prints the current count. Use strict mode for a real parity gate:
 

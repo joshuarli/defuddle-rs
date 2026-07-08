@@ -485,6 +485,14 @@ fn standardize_headings(doc: &mut Document, content_id: NodeId, metadata_title: 
     if !metadata_title.is_empty() {
         let h2s = doc.query_selector_all_in_subtree(content_id, "h2");
         if let Some(&first_h2) = h2s.first() {
+            // Strip permalink anchors from heading before comparison
+            let permalink_anchors = doc.query_selector_all_in_subtree(
+                first_h2,
+                "a.headerlink, a.permalink, .headerlink, .permalink"
+            );
+            for &anchor_id in &permalink_anchors {
+                doc.remove(anchor_id);
+            }
             let heading_text = crate::utils::normalize_text(&doc.text_content(first_h2));
             let normalized_title = crate::utils::normalize_text(metadata_title);
             if !normalized_title.is_empty() && heading_text == normalized_title {

@@ -173,6 +173,9 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
 
         if comparable.trim() != expected.trim() {
             mismatches.push(name.clone());
+            eprintln!("=== DIF {name} ===");
+            eprintln!("COMP:{:?}", &comparable[..comparable.len().min(200)]);
+            eprintln!("EXP: {:?}", &expected[..expected.len().min(200)]);
         }
 
         let expected_html_path = expected_dir().join(format!("{name}.html"));

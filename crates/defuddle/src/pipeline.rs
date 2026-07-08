@@ -10,6 +10,18 @@ fn has_closest(doc: &Document, node: NodeId, selectors: &[&str]) -> bool {
         .any(|selector| doc.closest(node, selector).is_some())
 }
 
+/// Get the previous element sibling of a node in its parent's children list.
+fn prev_element_sibling(doc: &Document, node: NodeId) -> Option<NodeId> {
+    let parent = doc.parent(node)?;
+    let children = doc.children(parent);
+    let pos = children.iter().position(|&c| c == node)?;
+    if pos > 0 {
+        Some(children[pos - 1])
+    } else {
+        None
+    }
+}
+
 pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial: bool) {
     if remove_exact {
         // Remove dangerous elements and clutter
@@ -494,8 +506,66 @@ pub fn extract_content(
     Some(main)
 }
 
+/// Remove "eyebrow" elements — short category/taxonomy labels immediately preceding
+/// the first heading (e.g. "Blog post", "Off-nominal", "Announcements").
+fn remove_eyebrow_label(doc: &mut Document, content_id: NodeId) {
+    // Find first h1 or h2
+    let first_heading = doc
+        .query_selector_all_in_subtree(content_id, "h1, h2")
+        .first()
+        .copied();
+    let Some(first_h) = first_heading else { return };
+
+    // Walk up through wrappers where the heading is the first child
+    let mut current = first_h;
+    while let Some(parent) = doc.parent(current) {
+        if parent == content_id {
+            break;
+        }
+        let children = doc.children(parent);
+        if children.first() != Some(&current) {
+            break;
+        }
+        current = parent;
+    }
+
+    // Find previous element sibling (skip text/whitespace nodes)
+    let prev = {
+        let parent = doc.parent(current);
+        let children = doc.children(parent.unwrap_or(content_id));
+        let pos = children.iter().position(|&c| c == current);
+        pos.and_then(|p| {
+            children[..p].iter().rev().find(|&&c| doc.is_element(c)).copied()
+        })
+    };
+    let Some(prev) = prev else { return };
+    let text = doc.text_content(prev).trim().to_string();
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() || words.len() > 6 {
+        return;
+    }
+    if text.len() > 40 {
+        return;
+    }
+    if text.contains(['.', '!', '?']) {
+        return;
+    }
+    // Don't remove if it contains substantive elements
+    let substantive = doc.query_selector_all_in_subtree(
+        prev,
+        "img, picture, video, iframe, figure, table, pre, code, time, [datetime], h1, h2, h3, h4, h5, h6, ul, ol, blockquote",
+    );
+    if !substantive.is_empty() {
+        return;
+    }
+
+    doc.remove(prev);
+}
+
 /// Remove common boilerplate and content patterns from the document.
 pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
+    // Remove eyebrow/category labels before the first heading
+    remove_eyebrow_label(doc, content_id);
     // Check all elements and remove boilerplate by class
     for &id in &doc.query_selector_all_in_subtree(content_id, "*") {
         if let Some(c) = doc.get_attr(id, "class") {

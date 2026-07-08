@@ -475,6 +475,11 @@ fn postprocess_markdown(md: &str) -> String {
         }
     }
 
+    // Replace dot-spacer (produced by extractors for title separation)
+    // with a single-space paragraph. Must run after line-by-line cleanup
+    // which would otherwise trim the space line.
+    let result = result.replace("\n\n\u{00B7}\n\n", "\n\n \n\n");
+
     result.trim_end().to_string()
 }
 
