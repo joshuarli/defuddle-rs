@@ -402,11 +402,13 @@ fn preprocess_html_for_markdown(html: &str) -> String {
 /// Postprocess markdown to clean up artifacts.
 /// Ported from TypeScript createMarkdownContent post-processing.
 fn postprocess_markdown(md: &str) -> String {
+    let md = escape_tag_like_text(&md);
+
     // Remove the page title h1 from the beginning if present.
     // Note: h1 was promoted to h2 by standardize_headings, so only
     // original h2 headers survive; we match ^# (h1) only like upstream.
     let title_re = regex_lite::Regex::new(r"^# [^\n]+\n+").unwrap();
-    let md = title_re.replace(md, "").to_string();
+    let md = title_re.replace(&md, "").to_string();
 
     // Remove any empty links [](url) that remain, along with surrounding newlines
     // But don't affect image links like ![](image.jpg)
@@ -416,20 +418,14 @@ fn postprocess_markdown(md: &str) -> String {
     let mut prev_end = 0;
     for mat in empty_link_re.find_iter(&md) {
         let start = mat.start();
-        // Check if preceded by '!'
         if start > 0 && md.as_bytes()[start - 1] == b'!' {
-            // Skip — it's an image with missing alt text
             continue;
         }
-        // Add text before this match, stripping surrounding newlines
-        let before = &md[prev_end..start];
-        result.push_str(before.trim_end_matches('\n'));
-        if !before.is_empty() && !before.ends_with('\n') {
-            // Keep single trailing newline
-        }
+        result.push_str(md[prev_end..start].trim_end_matches('\n'));
         prev_end = mat.end();
     }
     result.push_str(&md[prev_end..]);
+    result = result.trim_end_matches('\n').to_string();
     let md = result;
 
     // Normalize horizontal rules: htmd produces * * *, upstream expects ---
@@ -438,8 +434,13 @@ fn postprocess_markdown(md: &str) -> String {
     let md = fix_inline_spacing_outside_code(&md);
 
     // Add a space between exclamation marks and image syntax ![
-    // "!![img]" → "! ![img]", "![![img](src)](href)" → "! [![img](src)](href)"
+    // e.g. "Yey!![IMG](url)" becomes "Yey! ![IMG](url)" to prevent
+    // the parser from misinterpreting the ! as part of the image markup.
+    // Also handles linked images: "Yey![![IMG](src)](href)"
     let md = md.replace("!![", "! ![").replace("![![", "! [!");
+
+    // Format link destinations: escape parens in URLs, wrap spaced URLs in <>
+    let md = format_link_destinations(&md);
 
     let md = collapse_blank_lines_outside_code(&md);
 
@@ -481,6 +482,33 @@ fn postprocess_markdown(md: &str) -> String {
     let result = result.replace("\n\n\u{00B7}\n\n", "\n\n \n\n");
 
     result.trim_end().to_string()
+}
+
+/// Escape tag-like sequences in text (e.g. "Monte<video>: A Real Place")
+/// so CommonMark renderers don't parse them as raw HTML and swallow
+/// following content. Ported from upstream markdown.ts turndownService.escape.
+fn escape_tag_like_text(md: &str) -> String {
+    let tag_like_re = regex_lite::Regex::new(
+        r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^>]*)?/?>"
+    ).unwrap();
+    let mut result = String::new();
+    let mut in_fenced = false;
+    for line in md.lines() {
+        if line.trim_start().starts_with("```") {
+            in_fenced = !in_fenced;
+            result.push_str(line);
+            result.push('\n');
+        } else if in_fenced {
+            result.push_str(line);
+            result.push('\n');
+        } else {
+            result.push_str(&tag_like_re.replace_all(line, |caps: &regex_lite::Captures| {
+                format!("\\{}", &caps[0])
+            }));
+            result.push('\n');
+        }
+    }
+    result.trim_end_matches('\n').to_string()
 }
 
 fn fix_inline_spacing_outside_code(md: &str) -> String {
@@ -547,6 +575,12 @@ fn fix_inline_spacing_line(line: &str) -> String {
             format!("{} {}", &c[1], &c[2])
         })
         .to_string();
+    let line = regex_lite::Regex::new(r"(\*\*[^*]+\*\*)([a-zA-Z0-9])")
+        .unwrap()
+        .replace_all(&line, |c: &regex_lite::Captures| {
+            format!("{} {}", &c[1], &c[2])
+        })
+        .to_string();
     let line = regex_lite::Regex::new(r"([a-zA-Z0-9:;,.!?])(`[^`]+`)")
         .unwrap()
         .replace_all(&line, |c: &regex_lite::Captures| {
@@ -578,7 +612,6 @@ fn fix_inline_spacing_line(line: &str) -> String {
 }
 
 /// Format markdown link destinations: wrap URLs with spaces in <>, escape parens.
-#[allow(dead_code)]
 fn format_link_destinations(md: &str) -> String {
     let link_re = regex_lite::Regex::new(r"\]\(([^)]+)\)").unwrap();
     link_re

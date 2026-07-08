@@ -706,6 +706,16 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         if tag != "p" && tag != "span" && tag != "div" {
             continue;
         }
+        let class = doc.get_attr(id, "class").unwrap_or("").to_lowercase();
+        // Remove subtitle/lede paragraphs near beginning of content
+        if class.contains("subtitle") || class.contains("lede") || class.contains("deck") || class.contains("article-deck") {
+            let text = doc.text_content(id).trim().to_string();
+            let word_count = text.split_whitespace().count();
+            if word_count < 40 {
+                doc.remove(id);
+                continue;
+            }
+        }
         let text = doc.text_content(id).trim().to_string();
         let lower = text.to_lowercase();
         if (lower.starts_with("by ") || lower.starts_with("written by ")) && text.len() < 80 {
@@ -752,6 +762,9 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
             }
         }
     }
+
+    // Remove byline blocks (author link + date near article top)
+    remove_byline_blocks(doc, content_id);
 
     // Remove related-posts headings and their following lists
     remove_related_posts_sections(doc, content_id);
@@ -901,6 +914,43 @@ fn is_appendix_heading(text: &str) -> bool {
         r"(?i)^(?:appendix|acknowledg?ments|disclaimers?|dedication|colophon|epilogue|further reading|references?|bibliography|notes|footnotes)$"
     ).unwrap();
     re.is_match(text.trim())
+}
+
+/// Remove author+date byline blocks that appear near the top of article content.
+/// These typically contain an author link and a date within a short wrapper element.
+fn remove_byline_blocks(doc: &mut Document, content_id: NodeId) {
+    let children = doc.children(content_id).to_vec();
+    // Only check the first few children of the content container — bylines are at the top
+    for &child in children.iter().take(6) {
+        if !doc.is_element(child) {
+            continue;
+        }
+        let tag = doc.tag_name(child).to_lowercase();
+        if tag != "div" && tag != "p" && tag != "span" {
+            continue;
+        }
+        let class = doc.get_attr(child, "class").unwrap_or("").to_lowercase();
+        let text = doc.text_content(child).trim().to_string();
+        let word_count = text.split_whitespace().count();
+
+        if class.contains("byline") || class.contains("author") || class.contains("meta") {
+            if word_count < 30 {
+                doc.remove(child);
+                continue;
+            }
+        }
+        // Also match patterns with author link + date text
+        if word_count <= 20 && word_count >= 2 {
+            let has_author_link = class.contains("author")
+                || class.contains("byline")
+                || doc.query_selector_all_in_subtree(child, "a[href*=\"/author/\"]").len() == 1;
+            let has_date = crate::metadata::parse_date_text(&text).is_some()
+                || doc.query_selector_all_in_subtree(child, "time").len() == 1;
+            if has_author_link && has_date {
+                doc.remove(child);
+            }
+        }
+    }
 }
 
 /// Remove sections headed by "Related Posts" / "Read Next" etc.

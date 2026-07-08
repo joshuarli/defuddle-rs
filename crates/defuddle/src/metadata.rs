@@ -756,7 +756,7 @@ const MONTH_MAP: &[(&str, &str)] = &[
     ("december", "12"),
 ];
 
-fn parse_date_text(text: &str) -> Option<String> {
+pub(crate) fn parse_date_text(text: &str) -> Option<String> {
     // "26 February 2025" or "Wednesday, 26 February 2025"
     let re1 = regex_lite::Regex::new(
         r"(?i)\b(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b"
