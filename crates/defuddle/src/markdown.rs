@@ -121,7 +121,7 @@ fn build_converter() -> HtmlToMarkdown {
                 .iter()
                 .any(|a| a.name.local.as_ref() == "id" && a.value.as_ref() == "footnotes");
             if !is_footnotes {
-                return None;
+                return _h.fallback(el);
             }
             // Walk children to extract <li id="fn:N"> with links
             let mut result = String::new();
