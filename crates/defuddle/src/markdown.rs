@@ -116,48 +116,64 @@ fn build_converter() -> HtmlToMarkdown {
     builder = builder.add_handler(
         vec!["div"],
         move |_h: &dyn Handlers, el: Element| -> Option<HandlerResult> {
-            let is_footnotes = el.attrs.iter().any(|a| {
-                a.name.local.as_ref() == "id" && a.value.as_ref() == "footnotes"
-            });
+            let is_footnotes = el
+                .attrs
+                .iter()
+                .any(|a| a.name.local.as_ref() == "id" && a.value.as_ref() == "footnotes");
             if !is_footnotes {
                 return None;
             }
             // Walk children to extract <li id="fn:N"> with links
             let mut result = String::new();
             for child in &*el.node.children.borrow() {
-                if let markup5ever_rcdom::NodeData::Element { ref name, ref attrs, .. } = child.data {
-                    if name.local.as_ref() == "ol" {
-                        for li in &*child.children.borrow() {
-                            if let markup5ever_rcdom::NodeData::Element { ref name, ref attrs, .. } = li.data {
-                                if name.local.as_ref() == "li" {
-                                    let li_attrs = attrs.borrow();
-                                    let lid = li_attrs.iter()
-                                        .find(|a| a.name.local.as_ref() == "id")
-                                        .map(|a| a.value.as_ref())
-                                        .unwrap_or("");
-                                    if let Some(num) = lid.strip_prefix("fn:") {
-                                        // Extract text from the <a> link
-                                        let mut text = String::new();
-                                        let mut url = String::new();
-                                        for lc in &*li.children.borrow() {
-                                            if let markup5ever_rcdom::NodeData::Element { ref name, ref attrs, .. } = lc.data {
-                                                if name.local.as_ref() == "p" || name.local.as_ref() == "a" {
-                                                    let a_attrs = attrs.borrow();
-                                                    if let Some(href) = a_attrs.iter().find(|a| a.name.local.as_ref() == "href") {
-                                                        url = href.value.as_ref().to_string();
-                                                    }
-                                                    for tc in &*lc.children.borrow() {
-                                                        if let markup5ever_rcdom::NodeData::Text { ref contents } = tc.data {
-                                                            text.push_str(&contents.borrow());
-                                                        }
-                                                    }
-                                                }
+                if let markup5ever_rcdom::NodeData::Element { ref name, .. } = child.data
+                    && name.local.as_ref() == "ol"
+                {
+                    for li in &*child.children.borrow() {
+                        if let markup5ever_rcdom::NodeData::Element {
+                            ref name,
+                            ref attrs,
+                            ..
+                        } = li.data
+                            && name.local.as_ref() == "li"
+                        {
+                            let li_attrs = attrs.borrow();
+                            let lid = li_attrs
+                                .iter()
+                                .find(|a| a.name.local.as_ref() == "id")
+                                .map(|a| a.value.as_ref())
+                                .unwrap_or("");
+                            if let Some(num) = lid.strip_prefix("fn:") {
+                                // Extract text from the <a> link
+                                let mut text = String::new();
+                                let mut url = String::new();
+                                for lc in &*li.children.borrow() {
+                                    if let markup5ever_rcdom::NodeData::Element {
+                                        ref name,
+                                        ref attrs,
+                                        ..
+                                    } = lc.data
+                                        && (name.local.as_ref() == "p"
+                                            || name.local.as_ref() == "a")
+                                    {
+                                        let a_attrs = attrs.borrow();
+                                        if let Some(href) =
+                                            a_attrs.iter().find(|a| a.name.local.as_ref() == "href")
+                                        {
+                                            url = href.value.as_ref().to_string();
+                                        }
+                                        for tc in &*lc.children.borrow() {
+                                            if let markup5ever_rcdom::NodeData::Text {
+                                                ref contents,
+                                            } = tc.data
+                                            {
+                                                text.push_str(&contents.borrow());
                                             }
                                         }
-                                        if !text.is_empty() && !url.is_empty() {
-                                            result.push_str(&format!("[^{num}]: [{text}]({url})\n\n"));
-                                        }
                                     }
+                                }
+                                if !text.is_empty() && !url.is_empty() {
+                                    result.push_str(&format!("[^{num}]: [{text}]({url})\n\n"));
                                 }
                             }
                         }
@@ -350,9 +366,8 @@ fn preprocess_html_for_markdown(html: &str) -> String {
     let html = strip_table_attrs(&html);
 
     // Resolve best image sources from srcset
-    let html = resolve_best_image_sources(&html);
 
-    html
+    resolve_best_image_sources(&html)
 }
 
 /// Postprocess markdown to clean up artifacts.
@@ -529,6 +544,7 @@ fn fix_inline_spacing_line(line: &str) -> String {
 }
 
 /// Format markdown link destinations: wrap URLs with spaces in <>, escape parens.
+#[allow(dead_code)]
 fn format_link_destinations(md: &str) -> String {
     let link_re = regex_lite::Regex::new(r"\]\(([^)]+)\)").unwrap();
     link_re
@@ -545,6 +561,7 @@ fn format_link_destinations(md: &str) -> String {
 }
 
 /// Convert Obsidian-style callout blocks to blockquote format.
+#[allow(dead_code)]
 fn convert_callouts_to_markdown(html: &str) -> String {
     // Match div with data-callout attribute (order-independent)
     let re =
@@ -597,6 +614,7 @@ fn convert_callouts_to_markdown(html: &str) -> String {
     .to_string()
 }
 
+#[allow(dead_code)]
 fn strip_keep_inline_tags(s: &str) -> String {
     // Keep: strong, em, b, i, code, a, p, br, mark, del, s, strike, sup, sub, span
     let keep_tags = [
@@ -630,7 +648,7 @@ fn convert_task_lists(html: &str) -> String {
             .unwrap();
     let re_unchecked =
         regex_lite::Regex::new(r#"<li[^>]*>\s*<input[^>]*type="checkbox"[^>]*>\s*"#).unwrap();
-    let html = re_checked.replace_all(&html, "<li>[x] ").to_string();
+    let html = re_checked.replace_all(html, "<li>[x] ").to_string();
     re_unchecked.replace_all(&html, "<li>[ ] ").to_string()
 }
 
@@ -709,7 +727,7 @@ pub fn resolve_best_image_sources(html: &str) -> String {
 fn convert_inline_formatting(html: &str) -> String {
     let re_mark = regex_lite::Regex::new(r"<mark[^>]*>(.*?)</mark>").unwrap();
     let re_del = regex_lite::Regex::new(r"</?(?:del|s|strike)\b[^>]*>").unwrap();
-    let html = re_mark.replace_all(&html, "==$1==").to_string();
+    let html = re_mark.replace_all(html, "==$1==").to_string();
     re_del.replace_all(&html, "~~").to_string()
 }
 
@@ -721,7 +739,7 @@ fn convert_code_block_language(html: &str) -> String {
     re.replace_all(html, |caps: &regex_lite::Captures| {
         let data_lang = caps.get(1).map_or("", |m| m.as_str());
         let class_lang = caps.get(2).map_or("", |m| m.as_str());
-        let lang = if !data_lang.is_empty() {
+        let _lang = if !data_lang.is_empty() {
             data_lang
         } else {
             class_lang
@@ -741,11 +759,10 @@ fn convert_embeds_to_links(html: &str) -> String {
     )
     .unwrap();
     let html = re_yt
-        .replace_all(&html, "[YouTube](https://www.youtube.com/watch?v=$1)")
+        .replace_all(html, "[YouTube](https://www.youtube.com/watch?v=$1)")
         .to_string();
     re_tw.replace_all(&html, "[Twitter/X Embed]").to_string()
 }
-
 
 /// Extract data-latex attribute from <math> elements and render as LaTeX block.
 fn extract_math_latex(html: &str) -> String {

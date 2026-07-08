@@ -322,7 +322,9 @@ pub fn score_non_content_block(doc: &Document, node: NodeId) -> f64 {
     }
 
     // Penalize table cells that are mostly links (link farms)
-    if doc.tag_name(node).eq_ignore_ascii_case("td") || doc.tag_name(node).eq_ignore_ascii_case("th") {
+    if doc.tag_name(node).eq_ignore_ascii_case("td")
+        || doc.tag_name(node).eq_ignore_ascii_case("th")
+    {
         let links = count_descendant_tag(doc, node, "a");
         if links > 0 {
             let mut link_text_len = 0;

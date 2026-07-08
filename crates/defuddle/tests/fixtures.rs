@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet};
+use rustc_hash::FxHashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -41,7 +41,7 @@ fn fixture_harness_discovers_vendored_snapshot() {
 fn exception_manifest_is_valid() {
     let raw = fs::read_to_string(EXCEPTIONS_PATH).expect("exception manifest is readable");
     let manifest: ExceptionManifest = toml::from_str(&raw).expect("exception manifest parses");
-    let allowed = BTreeSet::from([
+    let allowed = FxHashSet::from_iter([
         "browser_only",
         "network_only",
         "site_extractor_out_of_scope",
@@ -50,7 +50,7 @@ fn exception_manifest_is_valid() {
         "dependency_blocked",
         "intentional_api_difference",
     ]);
-    let mut seen_names = BTreeSet::new();
+    let mut seen_names = FxHashSet::default();
 
     for exception in manifest.exceptions {
         assert!(
@@ -100,7 +100,7 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
     let exceptions_raw = fs::read_to_string(EXCEPTIONS_PATH).expect("exception manifest readable");
     let manifest: ExceptionManifest =
         toml::from_str(&exceptions_raw).expect("exception manifest parses");
-    let excluded_names: HashSet<String> =
+    let excluded_names: FxHashSet<String> =
         manifest.exceptions.iter().map(|e| e.name.clone()).collect();
     let fixture_filter = fixture_filter();
 
@@ -145,6 +145,11 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
         let expected_path = expected_dir().join(format!("{name}.md"));
         let expected = fs::read_to_string(&expected_path).expect("expected markdown exists");
 
+        fn truncate_first_n(s: &str, n: usize) -> &str {
+            let byte_idx = s.char_indices().nth(n).map(|(i, _)| i).unwrap_or(s.len());
+            &s[..byte_idx.min(s.len())]
+        }
+
         if fixture_debug_mode()
             || name.contains("bbcode")
             || name.contains("chatgpt")
@@ -158,11 +163,11 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
             eprintln!("=== EXTRACTOR {name} ===");
             eprintln!(
                 "COMPARABLE first 2000:\n{}",
-                &comparable[..comparable.len().min(2000)]
+                truncate_first_n(&comparable, 2000)
             );
             eprintln!(
                 "EXPECTED first 2000:\n{}",
-                &expected[..expected.len().min(2000)]
+                truncate_first_n(&expected, 2000)
             );
         }
 
@@ -207,14 +212,14 @@ fn strict_fixture_mode() -> bool {
     })
 }
 
-fn fixture_filter() -> Option<HashSet<String>> {
+fn fixture_filter() -> Option<FxHashSet<String>> {
     let raw = env::var("DEFUDDLE_FIXTURE_FILTER").ok()?;
     let names = raw
         .split(',')
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .map(String::from)
-        .collect::<HashSet<_>>();
+        .collect::<FxHashSet<_>>();
     if names.is_empty() { None } else { Some(names) }
 }
 

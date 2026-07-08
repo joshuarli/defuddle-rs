@@ -265,7 +265,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
 
 #[allow(clippy::too_many_arguments)]
 fn parse_internal(
-    mut doc: Document,
+    doc: Document,
     remove_exact: bool,
     remove_partial: bool,
     remove_hidden: bool,

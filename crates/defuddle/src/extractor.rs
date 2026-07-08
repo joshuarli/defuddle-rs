@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use rustc_hash::FxHashMap;
 
 use crate::dom::Document;
 
@@ -6,7 +6,7 @@ pub struct ExtractorResult {
     pub content_html: String,
     #[allow(dead_code)]
     pub content_selector: Option<String>,
-    pub variables: BTreeMap<String, String>,
+    pub variables: FxHashMap<String, String>,
 }
 
 pub trait Extractor {
@@ -34,7 +34,9 @@ impl Registry {
     pub fn find(&self, url: &str, doc: &Document) -> Option<Box<dyn Extractor>> {
         let hostname = extract_hostname(url);
         for (domain, factory) in &self.mappings {
-            if (hostname.contains(domain.as_str()) || url.contains(domain.as_str()) || domain.is_empty())
+            if (hostname.contains(domain.as_str())
+                || url.contains(domain.as_str())
+                || domain.is_empty())
                 && let Some(extractor) = factory(doc, url)
                 && extractor.can_extract(doc)
             {
@@ -182,7 +184,8 @@ pub mod comments {
 }
 
 pub mod hackernews {
-    use super::{BTreeMap, Document, Extractor, ExtractorResult};
+    use super::{Document, Extractor, ExtractorResult, FxHashMap};
+    use rustc_hash::FxHashSet;
 
     pub fn create(doc: &Document, _url: &str) -> Option<Box<dyn Extractor>> {
         let main_post = doc.query_selector_all(".fatitem");
@@ -194,8 +197,11 @@ pub mod hackernews {
 
         // Detect comment page: has .onstory inside .fatitem but no .titleline
         let is_comment_page = main_post.first().is_some_and(|&pid| {
-            !doc.query_selector_all_in_subtree(pid, ".onstory").is_empty()
-                && doc.query_selector_all_in_subtree(pid, ".titleline").is_empty()
+            !doc.query_selector_all_in_subtree(pid, ".onstory")
+                .is_empty()
+                && doc
+                    .query_selector_all_in_subtree(pid, ".titleline")
+                    .is_empty()
         });
 
         Some(Box::new(HackerNewsExtractor {
@@ -305,14 +311,18 @@ pub mod hackernews {
                 })
                 .collect();
 
-            let more_link = doc
-                .query_selector_all(".morelink")
-                .first()
-                .and_then(|&id| {
-                    let href = doc.get_attr(id, "href").map(|s| s.to_string()).unwrap_or_default();
-                    let text = doc.text_content(id).trim().to_string();
-                    if href.is_empty() { None } else { Some((href, text)) }
-                });
+            let more_link = doc.query_selector_all(".morelink").first().and_then(|&id| {
+                let href = doc
+                    .get_attr(id, "href")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                let text = doc.text_content(id).trim().to_string();
+                if href.is_empty() {
+                    None
+                } else {
+                    Some((href, text))
+                }
+            });
 
             let content_html = {
                 let mut html = stories.join("\n");
@@ -340,7 +350,7 @@ pub mod hackernews {
             ExtractorResult {
                 content_html,
                 content_selector: None,
-                variables: BTreeMap::from([
+                variables: FxHashMap::from_iter([
                     ("title".into(), title),
                     ("site".into(), "Hacker News".into()),
                 ]),
@@ -361,7 +371,7 @@ pub mod hackernews {
             ExtractorResult {
                 content_html,
                 content_selector: None,
-                variables: BTreeMap::from([
+                variables: FxHashMap::from_iter([
                     ("title".into(), post_title),
                     ("author".into(), post_author),
                     ("site".into(), "Hacker News".into()),
@@ -448,7 +458,7 @@ pub mod hackernews {
         fn extract_comments(&self, doc: &Document) -> String {
             let comtrs = doc.query_selector_all("tr.comtr");
             let mut comment_data = Vec::new();
-            let mut processed = std::collections::BTreeSet::new();
+            let mut processed = FxHashSet::default();
 
             for comtr in comtrs {
                 let id_attr = doc
@@ -520,7 +530,8 @@ pub mod hackernews {
 }
 
 pub mod reddit {
-    use super::{BTreeMap, Document, Extractor, ExtractorResult};
+    use super::{Document, Extractor, ExtractorResult, FxHashMap};
+    use rustc_hash::FxHashSet;
 
     pub fn create(doc: &Document, url: &str) -> Option<Box<dyn Extractor>> {
         let is_old = !doc.query_selector_all(".thing.link").is_empty();
@@ -600,7 +611,7 @@ pub mod reddit {
             ExtractorResult {
                 content_html,
                 content_selector: None,
-                variables: BTreeMap::from([
+                variables: FxHashMap::from_iter([
                     ("title".into(), post_title),
                     ("author".into(), post_author),
                     ("site".into(), format!("r/{subreddit}")),
@@ -630,16 +641,17 @@ pub mod reddit {
         }
         let thing_comments: Vec<_> = doc
             .children(container)
-            .into_iter()
+            .iter()
             .filter(|&c| {
                 doc.is_element(*c)
                     && doc.tag_name(*c).eq_ignore_ascii_case("div")
-                    && doc.get_attr(*c, "class").map_or(false, |cls| {
-                        cls.split_whitespace().any(|w| w == "thing" || w == "comment")
+                    && doc.get_attr(*c, "class").is_some_and(|cls| {
+                        cls.split_whitespace()
+                            .any(|w| w == "thing" || w == "comment")
                     })
             })
             .collect();
-        let mut seen_children = std::collections::BTreeSet::new();
+        let mut seen_children = FxHashSet::default();
         for comment in thing_comments {
             if !seen_children.insert(comment) {
                 continue;
@@ -698,7 +710,7 @@ pub mod reddit {
 }
 
 pub mod github {
-    use super::{BTreeMap, Document, Extractor, ExtractorResult};
+    use super::{Document, Extractor, ExtractorResult, FxHashMap};
 
     pub fn create(doc: &Document, url: &str) -> Option<Box<dyn Extractor>> {
         let is_pr = url.contains("/pull/");
@@ -814,7 +826,7 @@ pub mod github {
             ExtractorResult {
                 content_html,
                 content_selector: None,
-                variables: BTreeMap::from([
+                variables: FxHashMap::from_iter([
                     ("title".into(), title),
                     ("site".into(), format!("GitHub - {owner}/{repo}")),
                     ("author".into(), author),
@@ -847,22 +859,44 @@ pub mod github {
             });
         }
 
-        for header_id in doc.query_selector_all(".js-inline-comments-container .review-comment .ml-n1.clearfix") {
-            let container = match doc.closest(header_id, ".review-comment,.timeline-comment-group") {
-                Some(c) => c, None => continue,
+        for header_id in
+            doc.query_selector_all(".js-inline-comments-container .review-comment .ml-n1.clearfix")
+        {
+            let container = match doc.closest(header_id, ".review-comment,.timeline-comment-group")
+            {
+                Some(c) => c,
+                None => continue,
             };
-            let author = doc.query_selector_all_in_subtree(header_id, ".author").first()
+            let author = doc
+                .query_selector_all_in_subtree(header_id, ".author")
+                .first()
                 .and_then(|id| doc.get_attr(*id, "href"))
-                .map(|href| href.trim_start_matches('/').to_string()).unwrap_or_default();
-            if author.is_empty() { continue; }
-            let datetime = doc.query_selector_all_in_subtree(header_id, "relative-time").first()
-                .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string())).unwrap_or_default();
+                .map(|href| href.trim_start_matches('/').to_string())
+                .unwrap_or_default();
+            if author.is_empty() {
+                continue;
+            }
+            let datetime = doc
+                .query_selector_all_in_subtree(header_id, "relative-time")
+                .first()
+                .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string()))
+                .unwrap_or_default();
             let date = datetime.split('T').next().unwrap_or("").to_string();
-            let body = doc.query_selector_all_in_subtree(container, ".comment-body.markdown-body").first()
-                .map(|id| doc.inner_html(*id)).unwrap_or_default();
-            if body.trim().is_empty() { continue; }
+            let body = doc
+                .query_selector_all_in_subtree(container, ".comment-body.markdown-body")
+                .first()
+                .map(|id| doc.inner_html(*id))
+                .unwrap_or_default();
+            if body.trim().is_empty() {
+                continue;
+            }
             comment_data.push(super::comments::CommentData {
-                author, date, content: body, depth: 0, score: String::new(), url: String::new(),
+                author,
+                date,
+                content: body,
+                depth: 0,
+                score: String::new(),
+                url: String::new(),
             });
         }
 
@@ -871,7 +905,7 @@ pub mod github {
 }
 
 pub mod chatgpt {
-    use super::{BTreeMap, Document, Extractor, ExtractorResult};
+    use super::{Document, Extractor, ExtractorResult, FxHashMap};
 
     pub fn create(doc: &Document, _url: &str) -> Option<Box<dyn Extractor>> {
         if doc
@@ -906,14 +940,21 @@ pub mod chatgpt {
                 let heading = doc
                     .query_selector_all_in_subtree(turn_id, "h4.sr-only, h5.sr-only, h6.sr-only")
                     .first()
-                    .map(|&id| doc.text_content(id).trim().trim_end_matches(':').to_string())
+                    .map(|&id| {
+                        doc.text_content(id)
+                            .trim()
+                            .trim_end_matches(':')
+                            .to_string()
+                    })
                     .unwrap_or_default();
 
                 // Collect all content from [data-message-author-role] elements (post-thought merge)
                 let msg_els: Vec<_> = doc
                     .query_selector_all_in_subtree(turn_id, "[data-message-author-role]")
                     .into_iter()
-                    .filter(|&el| doc.closest(el, "[data-testid^=\"conversation-turn-\"]") == Some(turn_id))
+                    .filter(|&el| {
+                        doc.closest(el, "[data-testid^=\"conversation-turn-\"]") == Some(turn_id)
+                    })
                     .collect();
 
                 let content_parts: Vec<String> = if msg_els.is_empty() {
@@ -924,22 +965,34 @@ pub mod chatgpt {
                         .unwrap_or_else(|| doc.inner_html(turn_id));
                     vec![fallback]
                 } else {
-                    msg_els.iter().flat_map(|&el| {
-                        let content_els = doc.query_selector_all_in_subtree(el, ".markdown, .whitespace-pre-wrap");
-                        if content_els.is_empty() { vec![doc.inner_html(el)] }
-                        else { content_els.iter().map(|&c| doc.inner_html(c)).collect() }
-                    }).collect()
+                    msg_els
+                        .iter()
+                        .flat_map(|&el| {
+                            let content_els = doc.query_selector_all_in_subtree(
+                                el,
+                                ".markdown, .whitespace-pre-wrap",
+                            );
+                            if content_els.is_empty() {
+                                vec![doc.inner_html(el)]
+                            } else {
+                                content_els.iter().map(|&c| doc.inner_html(c)).collect()
+                            }
+                        })
+                        .collect()
                 };
 
                 let mut message_content = content_parts.join("\n");
                 message_content = message_content.replace('\u{200B}', "");
 
                 // Process citations
-                message_content = process_citations(&message_content, &mut footnotes, &mut footnote_counter);
+                message_content =
+                    process_citations(&message_content, &mut footnotes, &mut footnote_counter);
 
                 // Clean up empty paragraphs
-                message_content = regex_lite::Regex::new(r"<p[^>]*>\s*</p>").unwrap()
-                    .replace_all(&message_content, "").to_string();
+                message_content = regex_lite::Regex::new(r"<p[^>]*>\s*</p>")
+                    .unwrap()
+                    .replace_all(&message_content, "")
+                    .to_string();
 
                 let trimmed = message_content.trim().to_string();
                 if !trimmed.is_empty() {
@@ -952,7 +1005,7 @@ pub mod chatgpt {
             ExtractorResult {
                 content_html: html,
                 content_selector: None,
-                variables: BTreeMap::from([
+                variables: FxHashMap::from_iter([
                     ("title".into(), title),
                     ("site".into(), "ChatGPT".into()),
                     ("author".into(), String::new()),
@@ -973,18 +1026,30 @@ pub mod chatgpt {
         re.replace_all(html, |caps: &regex_lite::Captures| {
             let url = caps.get(1).map(|m| m.as_str()).unwrap_or("");
             let domain = url
-                .strip_prefix("https://").or_else(|| url.strip_prefix("http://")).unwrap_or(url)
-                .split('/').next().unwrap_or("").split(':').next().unwrap_or("")
+                .strip_prefix("https://")
+                .or_else(|| url.strip_prefix("http://"))
+                .unwrap_or(url)
+                .split('/')
+                .next()
+                .unwrap_or("")
+                .split(':')
+                .next()
+                .unwrap_or("")
                 .trim_start_matches("www.");
-            if domain.is_empty() { return String::new(); }
+            if domain.is_empty() {
+                return String::new();
+            }
             let existing = footnotes.iter().position(|(u, _)| u == url);
-            let num = if let Some(idx) = existing { idx + 1 } else {
+            let num = if let Some(idx) = existing {
+                idx + 1
+            } else {
                 *counter += 1;
                 footnotes.push((url.to_string(), domain.to_string()));
                 *counter
             };
             format!("<sup><a href=\"#fn:{num}\" id=\"fnref:{num}\">{num}</a></sup>")
-        }).to_string()
+        })
+        .to_string()
     }
 
     fn build_conversation_html(
@@ -993,7 +1058,9 @@ pub mod chatgpt {
     ) -> String {
         let mut html = String::new();
         for (i, (author, msg)) in messages.iter().enumerate() {
-            if i > 0 { html.push_str("<hr>\n"); }
+            if i > 0 {
+                html.push_str("<hr>\n");
+            }
             let safe = super::comments::escape_html(author);
             html.push_str(&format!(
                 "<div class=\"message message-{}\">\n<div class=\"message-header\">\n<p class=\"message-author\"><strong>{}</strong></p>\n</div>\n<div class=\"message-content\">\n{}\n</div>\n</div>\n",
@@ -1015,13 +1082,16 @@ pub mod chatgpt {
 }
 
 pub mod substack {
-    use super::{BTreeMap, Document, Extractor, ExtractorResult};
+    use super::{Document, Extractor, ExtractorResult, FxHashMap};
 
     pub fn create(doc: &Document, _url: &str) -> Option<Box<dyn Extractor>> {
         if !doc.query_selector_all("div.body.markup").is_empty() {
             return Some(Box::new(SubstackExtractor { mode: 0 }));
         }
-        if !doc.query_selector_all(".ProseMirror, .FeedProseMirror").is_empty() {
+        if !doc
+            .query_selector_all(".ProseMirror, .FeedProseMirror")
+            .is_empty()
+        {
             return Some(Box::new(SubstackExtractor { mode: 1 }));
         }
         let scripts = doc.query_selector_all("script");
@@ -1034,7 +1104,9 @@ pub mod substack {
         None
     }
 
-    struct SubstackExtractor { mode: u8 }
+    struct SubstackExtractor {
+        mode: u8,
+    }
 
     impl Extractor for SubstackExtractor {
         fn can_extract(&self, _doc: &Document) -> bool {
@@ -1042,40 +1114,91 @@ pub mod substack {
         }
 
         fn extract(&self, doc: &Document) -> ExtractorResult {
-            let meta_title = doc.query_selector_all("meta[property=\"og:title\"]").first()
-                .and_then(|id| doc.get_attr(*id, "content")).unwrap_or("").to_string();
-            let meta_site = doc.query_selector_all("meta[property=\"og:site_name\"]").first()
-                .and_then(|id| doc.get_attr(*id, "content")).unwrap_or("").to_string();
-            let meta_author = doc.query_selector_all("meta[name=\"author\"]").first()
-                .and_then(|id| doc.get_attr(*id, "content")).unwrap_or("").to_string();
-            let meta_published = doc.query_selector_all("meta[property=\"article:published_time\"]").first()
-                .and_then(|id| doc.get_attr(*id, "content")).unwrap_or("").to_string();
+            let meta_title = doc
+                .query_selector_all("meta[property=\"og:title\"]")
+                .first()
+                .and_then(|id| doc.get_attr(*id, "content"))
+                .unwrap_or("")
+                .to_string();
+            let meta_site = doc
+                .query_selector_all("meta[property=\"og:site_name\"]")
+                .first()
+                .and_then(|id| doc.get_attr(*id, "content"))
+                .unwrap_or("")
+                .to_string();
+            let meta_author = doc
+                .query_selector_all("meta[name=\"author\"]")
+                .first()
+                .and_then(|id| doc.get_attr(*id, "content"))
+                .unwrap_or("")
+                .to_string();
+            let meta_published = doc
+                .query_selector_all("meta[property=\"article:published_time\"]")
+                .first()
+                .and_then(|id| doc.get_attr(*id, "content"))
+                .unwrap_or("")
+                .to_string();
 
             let (content_html, title, author, site) = match self.mode {
                 0 => {
                     let body_html = substack_article_body(doc);
-                    let t = if meta_title.is_empty() { doc.query_selector_all("title").first().map(|id| doc.text_content(*id).trim().to_string()).unwrap_or_default() } else { meta_title.clone() };
-                    let a = if meta_author.is_empty() { doc.query_selector_all("a[href*=\"substack.com/@\"]").first().map(|id| doc.text_content(*id).trim().to_string()).unwrap_or_default() } else { meta_author.clone() };
-                    let s = if meta_site.is_empty() { "Substack".to_string() } else { meta_site.clone() };
+                    let t = if meta_title.is_empty() {
+                        doc.query_selector_all("title")
+                            .first()
+                            .map(|id| doc.text_content(*id).trim().to_string())
+                            .unwrap_or_default()
+                    } else {
+                        meta_title.clone()
+                    };
+                    let a = if meta_author.is_empty() {
+                        doc.query_selector_all("a[href*=\"substack.com/@\"]")
+                            .first()
+                            .map(|id| doc.text_content(*id).trim().to_string())
+                            .unwrap_or_default()
+                    } else {
+                        meta_author.clone()
+                    };
+                    let s = if meta_site.is_empty() {
+                        "Substack".to_string()
+                    } else {
+                        meta_site.clone()
+                    };
                     (body_html, t, a, s)
                 }
                 1 => {
                     let feed_perm = doc.query_selector_all("[class*=\"feedPermalinkUnit\"]");
                     let permalink = feed_perm.first();
                     let note_html = permalink
-                        .and_then(|pid| doc.query_selector_all_in_subtree(*pid, "div.ProseMirror.FeedProseMirror").first().copied())
-                        .or_else(|| doc.query_selector_all("div.ProseMirror.FeedProseMirror").first().copied())
-                        .map(|id| doc.inner_html(id)).unwrap_or_default();
-                    let a = meta_title.rsplit(" (@").last().unwrap_or(&meta_title).trim().to_string();
+                        .and_then(|pid| {
+                            doc.query_selector_all_in_subtree(
+                                *pid,
+                                "div.ProseMirror.FeedProseMirror",
+                            )
+                            .first()
+                            .copied()
+                        })
+                        .or_else(|| {
+                            doc.query_selector_all("div.ProseMirror.FeedProseMirror")
+                                .first()
+                                .copied()
+                        })
+                        .map(|id| doc.inner_html(id))
+                        .unwrap_or_default();
+                    let a = meta_title
+                        .rsplit(" (@")
+                        .last()
+                        .unwrap_or(&meta_title)
+                        .trim()
+                        .to_string();
                     (note_html, meta_title, a, "Substack".to_string())
                 }
-                _ => { substack_preload(doc) }
+                _ => substack_preload(doc),
             };
 
             ExtractorResult {
                 content_html,
                 content_selector: None,
-                variables: BTreeMap::from([
+                variables: FxHashMap::from_iter([
                     ("title".into(), title),
                     ("author".into(), author),
                     ("site".into(), site),
@@ -1087,12 +1210,31 @@ pub mod substack {
 
     fn substack_article_body(doc: &Document) -> String {
         let all_body = doc.query_selector_all("div.body.markup");
-        let body_id = match all_body.first() { Some(id) => *id, None => return String::new() };
+        let body_id = match all_body.first() {
+            Some(id) => *id,
+            None => return String::new(),
+        };
         let mut html = doc.inner_html(body_id);
-        html = regex_lite::Regex::new(r#"<p[^>]*class="button-wrapper"[^>]*>[\s\S]*?</p>"#).unwrap().replace_all(&html, "").to_string();
-        html = regex_lite::Regex::new(r#"<div[^>]*data-component-name="SubscribeWidgetToDOM"[^>]*>[\s\S]*?</div>"#).unwrap().replace_all(&html, "").to_string();
-        html = regex_lite::Regex::new(r#"<div[^>]*data-component-name="DigestPostEmbed"[^>]*>[\s\S]*?</div>"#).unwrap().replace_all(&html, "").to_string();
-        html = regex_lite::Regex::new(r#"<div><hr></div>\s*<p>For More[\s\S]*?</p>\s*"#).unwrap().replace(&html, "").to_string();
+        html = regex_lite::Regex::new(r#"<p[^>]*class="button-wrapper"[^>]*>[\s\S]*?</p>"#)
+            .unwrap()
+            .replace_all(&html, "")
+            .to_string();
+        html = regex_lite::Regex::new(
+            r#"<div[^>]*data-component-name="SubscribeWidgetToDOM"[^>]*>[\s\S]*?</div>"#,
+        )
+        .unwrap()
+        .replace_all(&html, "")
+        .to_string();
+        html = regex_lite::Regex::new(
+            r#"<div[^>]*data-component-name="DigestPostEmbed"[^>]*>[\s\S]*?</div>"#,
+        )
+        .unwrap()
+        .replace_all(&html, "")
+        .to_string();
+        html = regex_lite::Regex::new(r#"<div><hr></div>\s*<p>For More[\s\S]*?</p>\s*"#)
+            .unwrap()
+            .replace(&html, "")
+            .to_string();
         html.trim().to_string()
     }
 
@@ -1100,34 +1242,66 @@ pub mod substack {
         let scripts = doc.query_selector_all("script");
         for sc in scripts {
             let text = doc.text_content(sc);
-            if !text.contains("window._preloads") || !text.contains("body_html") { continue; }
+            if !text.contains("window._preloads") || !text.contains("body_html") {
+                continue;
+            }
             if let Some(start) = text.find("JSON.parse(\"") {
                 let start = start + "JSON.parse(\"".len();
                 let mut i = start;
                 let chars: Vec<char> = text.chars().collect();
                 while i < chars.len() {
-                    if chars[i] == '\\' { i += 2; } else if chars[i] == '"' { break; } else { i += 1; }
+                    if chars[i] == '\\' {
+                        i += 2;
+                    } else if chars[i] == '"' {
+                        break;
+                    } else {
+                        i += 1;
+                    }
                 }
                 let inner: String = chars[start..i].iter().collect();
-                if let Ok(json_str) = serde_json::from_str::<String>(&format!("\"{}\"", inner)) {
-                    if let Ok(data) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                        if let Some(post) = data.get("feedData").and_then(|f| f.get("initialPost")).and_then(|p| p.get("post")) {
-                            let title = post.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let author = post.get("publishedBylines").and_then(|v| v.as_array()).and_then(|arr| arr.first()).and_then(|b| b.get("name")).and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let body = post.get("body_html").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            if !body.is_empty() { return (body, title, author, "Substack".to_string()); }
-                        }
+                if let Ok(json_str) = serde_json::from_str::<String>(&format!("\"{}\"", inner))
+                    && let Ok(data) = serde_json::from_str::<serde_json::Value>(&json_str)
+                    && let Some(post) = data
+                        .get("feedData")
+                        .and_then(|f| f.get("initialPost"))
+                        .and_then(|p| p.get("post"))
+                {
+                    let title = post
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let author = post
+                        .get("publishedBylines")
+                        .and_then(|v| v.as_array())
+                        .and_then(|arr| arr.first())
+                        .and_then(|b| b.get("name"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let body = post
+                        .get("body_html")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if !body.is_empty() {
+                        return (body, title, author, "Substack".to_string());
                     }
                 }
                 break;
             }
         }
-        (String::new(), String::new(), String::new(), "Substack".to_string())
+        (
+            String::new(),
+            String::new(),
+            String::new(),
+            "Substack".to_string(),
+        )
     }
 }
 
 pub mod mastodon {
-    use super::{BTreeMap, Document, Extractor, ExtractorResult};
+    use super::{Document, Extractor, ExtractorResult, FxHashMap};
 
     pub fn create(doc: &Document, _url: &str) -> Option<Box<dyn Extractor>> {
         if doc
@@ -1331,7 +1505,7 @@ pub mod mastodon {
             ExtractorResult {
                 content_html,
                 content_selector: None,
-                variables: BTreeMap::from([
+                variables: FxHashMap::from_iter([
                     (
                         "title".into(),
                         format!("Post by {author} on {fallback_site}"),
@@ -1345,14 +1519,19 @@ pub mod mastodon {
     }
 }
 
-
 pub mod twitter {
-    use super::{BTreeMap, Document, Extractor, ExtractorResult};
+    use super::{Document, Extractor, ExtractorResult, FxHashMap};
 
     pub fn create(doc: &Document, url: &str) -> Option<Box<dyn Extractor>> {
         // Check for X Article pages (twitterArticleRichTextView with Draft.js blocks)
-        if !doc.query_selector_all("[data-testid=\"twitterArticleRichTextView\"]").is_empty() {
-            return Some(Box::new(XExtractor { mode: XMode::Article, url: url.to_string() }));
+        if !doc
+            .query_selector_all("[data-testid=\"twitterArticleRichTextView\"]")
+            .is_empty()
+        {
+            return Some(Box::new(XExtractor {
+                mode: XMode::Article,
+                url: url.to_string(),
+            }));
         }
 
         // Check for conversation timeline pages (localized)
@@ -1360,19 +1539,39 @@ pub mod twitter {
         for section_id in &sections {
             if let Some(label) = doc.get_attr(*section_id, "aria-label") {
                 let lower = label.to_lowercase();
-                if (lower.contains("time") || lower.contains("conversation") || lower.contains("对话"))
-                    && !doc.query_selector_all_in_subtree(*section_id, "article[data-testid=\"tweet\"]").is_empty() {
-                    return Some(Box::new(XExtractor { mode: XMode::Conversation, url: url.to_string() }));
+                if (lower.contains("time")
+                    || lower.contains("conversation")
+                    || lower.contains("对话"))
+                    && !doc
+                        .query_selector_all_in_subtree(
+                            *section_id,
+                            "article[data-testid=\"tweet\"]",
+                        )
+                        .is_empty()
+                {
+                    return Some(Box::new(XExtractor {
+                        mode: XMode::Conversation,
+                        url: url.to_string(),
+                    }));
                 }
             }
         }
 
         // Check for tweet articles on x.com/twitter.com pages
-        if !doc.query_selector_all("article[data-testid=\"tweet\"]").is_empty() {
-            let meta_site = doc.query_selector_all("meta[property=\"og:site_name\"]").first()
-                .and_then(|id| doc.get_attr(*id, "content")).unwrap_or("");
+        if !doc
+            .query_selector_all("article[data-testid=\"tweet\"]")
+            .is_empty()
+        {
+            let meta_site = doc
+                .query_selector_all("meta[property=\"og:site_name\"]")
+                .first()
+                .and_then(|id| doc.get_attr(*id, "content"))
+                .unwrap_or("");
             if meta_site.contains("X") || meta_site.contains("Twitter") {
-                return Some(Box::new(XExtractor { mode: XMode::Conversation, url: url.to_string() }));
+                return Some(Box::new(XExtractor {
+                    mode: XMode::Conversation,
+                    url: url.to_string(),
+                }));
             }
         }
 
@@ -1390,7 +1589,9 @@ pub mod twitter {
     }
 
     impl Extractor for XExtractor {
-        fn can_extract(&self, _doc: &Document) -> bool { true }
+        fn can_extract(&self, _doc: &Document) -> bool {
+            true
+        }
 
         fn extract(&self, doc: &Document) -> ExtractorResult {
             match self.mode {
@@ -1402,12 +1603,17 @@ pub mod twitter {
 
     /// Extract content from an X Article page (twitterArticleRichTextView with Draft.js blocks).
     fn extract_article(doc: &Document, url: &str) -> ExtractorResult {
-        let wrapper = doc.query_selector_all("[data-testid=\"twitterArticleRichTextView\"]")
-            .first().copied();
+        let wrapper = doc
+            .query_selector_all("[data-testid=\"twitterArticleRichTextView\"]")
+            .first()
+            .copied();
 
         // Extract title from dedicated element
         let (article_title, has_title_block) = if let Some(wrap) = wrapper {
-            if let Some(&title_el) = doc.query_selector_all_in_subtree(wrap, "[data-testid=\"twitter-article-title\"]").first() {
+            if let Some(&title_el) = doc
+                .query_selector_all_in_subtree(wrap, "[data-testid=\"twitter-article-title\"]")
+                .first()
+            {
                 (doc.text_content(title_el).trim().to_string(), true)
             } else {
                 (String::new(), false)
@@ -1418,10 +1624,18 @@ pub mod twitter {
 
         // Extract author
         let author = if let Some(wrap) = wrapper {
-            let author_name = doc.query_selector_all_in_subtree(wrap, "[itemprop=\"author\"] [itemprop=\"name\"]").first()
+            let author_name = doc
+                .query_selector_all_in_subtree(wrap, "[itemprop=\"author\"] [itemprop=\"name\"]")
+                .first()
                 .and_then(|&id| doc.get_attr(id, "content"))
-                .filter(|s| !s.is_empty()).map(|s| s.to_string());
-            let author_handle = doc.query_selector_all_in_subtree(wrap, "[itemprop=\"author\"] [itemprop=\"additionalName\"]").first()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string());
+            let author_handle = doc
+                .query_selector_all_in_subtree(
+                    wrap,
+                    "[itemprop=\"author\"] [itemprop=\"additionalName\"]",
+                )
+                .first()
                 .and_then(|&id| doc.get_attr(id, "content"))
                 .filter(|s| !s.is_empty());
             match (author_name, author_handle) {
@@ -1429,17 +1643,29 @@ pub mod twitter {
                 (Some(name), None) => name,
                 (None, Some(handle)) => format!("@{handle}"),
                 (None, None) => {
-                    let og_title = doc.query_selector_all("meta[property=\"og:title\"]").first()
-                        .and_then(|id| doc.get_attr(*id, "content")).unwrap_or("");
-                    if let Some(a) = parse_author_from_og_title(og_title) { a }
-                    else { extract_handle_from_url(url) }
+                    let og_title = doc
+                        .query_selector_all("meta[property=\"og:title\"]")
+                        .first()
+                        .and_then(|id| doc.get_attr(*id, "content"))
+                        .unwrap_or("");
+                    if let Some(a) = parse_author_from_og_title(og_title) {
+                        a
+                    } else {
+                        extract_handle_from_url(url)
+                    }
                 }
             }
-        } else { String::new() };
+        } else {
+            String::new()
+        };
 
         // Extract published date
-        let published = doc.query_selector_all("meta[property=\"article:published_time\"]").first()
-            .and_then(|id| doc.get_attr(*id, "content")).unwrap_or("").to_string();
+        let published = doc
+            .query_selector_all("meta[property=\"article:published_time\"]")
+            .first()
+            .and_then(|id| doc.get_attr(*id, "content"))
+            .unwrap_or("")
+            .to_string();
 
         // Build content HTML
         let mut content_html = String::new();
@@ -1453,17 +1679,21 @@ pub mod twitter {
             find_and_process_blocks(doc, wrap, &mut content_html);
         }
 
-        let title = if !article_title.is_empty() { article_title }
-        else {
-            let og_title = doc.query_selector_all("meta[property=\"og:title\"]").first()
-                .and_then(|id| doc.get_attr(*id, "content")).unwrap_or("");
+        let title = if !article_title.is_empty() {
+            article_title
+        } else {
+            let og_title = doc
+                .query_selector_all("meta[property=\"og:title\"]")
+                .first()
+                .and_then(|id| doc.get_attr(*id, "content"))
+                .unwrap_or("");
             parse_article_title_from_og(og_title)
         };
 
         ExtractorResult {
             content_html: content_html.trim().to_string(),
             content_selector: None,
-            variables: BTreeMap::from([
+            variables: FxHashMap::from_iter([
                 ("title".into(), title),
                 ("author".into(), author),
                 ("site".into(), "X (Twitter)".into()),
@@ -1480,11 +1710,15 @@ pub mod twitter {
         for &section_id in &sections {
             if let Some(label) = doc.get_attr(section_id, "aria-label") {
                 let lower = label.to_lowercase();
-                if lower.contains("time") || lower.contains("conversation") || lower.contains("对话") {
-                    if !doc.query_selector_all_in_subtree(section_id, "article[data-testid=\"tweet\"]").is_empty() {
-                        conversation_section = Some(section_id);
-                        break;
-                    }
+                if (lower.contains("time")
+                    || lower.contains("conversation")
+                    || lower.contains("对话"))
+                    && !doc
+                        .query_selector_all_in_subtree(section_id, "article[data-testid=\"tweet\"]")
+                        .is_empty()
+                {
+                    conversation_section = Some(section_id);
+                    break;
                 }
             }
         }
@@ -1500,56 +1734,105 @@ pub mod twitter {
         let mut author_handle = String::new();
 
         for (i, &tweet_id) in tweets.iter().enumerate() {
-            let user_name = doc.query_selector_all_in_subtree(tweet_id, "[data-testid=\"User-Name\"]").first()
-                .and_then(|uid| {
+            let user_name = doc
+                .query_selector_all_in_subtree(tweet_id, "[data-testid=\"User-Name\"]")
+                .first()
+                .map(|uid| {
                     let links = doc.query_selector_all_in_subtree(*uid, "a");
-                    let display_name = links.first().map(|&id| doc.text_content(id).trim().to_string()).unwrap_or_default();
-                    let handle = links.get(1).map(|&id| doc.text_content(id).trim().to_string()).unwrap_or_default();
-                    if display_name.is_empty() && handle.is_empty() { String::new() }
-                    else if display_name.is_empty() { handle.clone() }
-                    else if handle.is_empty() { display_name.clone() }
-                    else { format!("{display_name} {handle}") }
-                }).unwrap_or_default();
+                    let display_name = links
+                        .first()
+                        .map(|&id| doc.text_content(id).trim().to_string())
+                        .unwrap_or_default();
+                    let handle = links
+                        .get(1)
+                        .map(|&id| doc.text_content(id).trim().to_string())
+                        .unwrap_or_default();
+                    if display_name.is_empty() && handle.is_empty() {
+                        String::new()
+                    } else if display_name.is_empty() {
+                        handle.clone()
+                    } else if handle.is_empty() {
+                        display_name.clone()
+                    } else {
+                        format!("{display_name} {handle}")
+                    }
+                })
+                .unwrap_or_default();
 
-            let date = doc.query_selector_all_in_subtree(tweet_id, "time[datetime]").first()
-                .and_then(|&tid| doc.get_attr(tid, "datetime")).unwrap_or("").to_string();
+            let date = doc
+                .query_selector_all_in_subtree(tweet_id, "time[datetime]")
+                .first()
+                .and_then(|&tid| doc.get_attr(tid, "datetime"))
+                .unwrap_or("")
+                .to_string();
 
-            let permalink = doc.query_selector_all_in_subtree(tweet_id, "time[datetime]").first()
+            let permalink = doc
+                .query_selector_all_in_subtree(tweet_id, "time[datetime]")
+                .first()
                 .and_then(|tid| {
                     let time_parent = doc.parent(*tid)?;
                     if doc.tag_name(time_parent) == "a" {
                         doc.get_attr(time_parent, "href").map(|s| {
-                            if s.starts_with('/') { format!("https://x.com{s}") } else { s.to_string() }
+                            if s.starts_with('/') {
+                                format!("https://x.com{s}")
+                            } else {
+                                s.to_string()
+                            }
                         })
-                    } else { None }
-                }).unwrap_or_default();
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
 
-            let content = doc.query_selector_all_in_subtree(tweet_id, "[data-testid=\"tweetText\"]").first()
-                .map(|&tt_id| doc.text_content(tt_id).trim().to_string()).unwrap_or_default();
+            let content = doc
+                .query_selector_all_in_subtree(tweet_id, "[data-testid=\"tweetText\"]")
+                .first()
+                .map(|&tt_id| doc.text_content(tt_id).trim().to_string())
+                .unwrap_or_default();
 
             if i == 0 {
                 main_post = content;
-                author_handle = doc.query_selector_all_in_subtree(tweet_id, "[data-testid=\"User-Name\"]").first()
+                author_handle = doc
+                    .query_selector_all_in_subtree(tweet_id, "[data-testid=\"User-Name\"]")
+                    .first()
                     .and_then(|uid| {
                         let links = doc.query_selector_all_in_subtree(*uid, "a");
-                        links.get(1).map(|&id| doc.text_content(id).trim().to_string())
-                    }).unwrap_or_default();
+                        links
+                            .get(1)
+                            .map(|&id| doc.text_content(id).trim().to_string())
+                    })
+                    .unwrap_or_default();
             } else {
                 replies.push(super::comments::CommentData {
-                    author: user_name, date, content, depth: 0,
-                    score: String::new(), url: permalink,
+                    author: user_name,
+                    date,
+                    content,
+                    depth: 0,
+                    score: String::new(),
+                    url: permalink,
                 });
             }
         }
 
         let comments_html = if !replies.is_empty() {
-            format!("\n<hr>\n## Comments\n\n{}", super::comments::build_comment_tree(&replies))
-        } else { String::new() };
+            format!(
+                "\n<hr>\n## Comments\n\n{}",
+                super::comments::build_comment_tree(&replies)
+            )
+        } else {
+            String::new()
+        };
 
-        let published = tweets.first().and_then(|&tid| {
-            doc.query_selector_all_in_subtree(tid, "time[datetime]").first()
-                .and_then(|&time_id| doc.get_attr(time_id, "datetime")).map(|s| s.to_string())
-        }).unwrap_or_default();
+        let published = tweets
+            .first()
+            .and_then(|&tid| {
+                doc.query_selector_all_in_subtree(tid, "time[datetime]")
+                    .first()
+                    .and_then(|&time_id| doc.get_attr(time_id, "datetime"))
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_default();
 
         let content_html = format!("{main_post}{comments_html}");
         let fallback_title = if author_handle.is_empty() {
@@ -1561,9 +1844,14 @@ pub mod twitter {
         ExtractorResult {
             content_html: content_html.trim().to_string(),
             content_selector: None,
-            variables: BTreeMap::from([
+            variables: FxHashMap::from_iter([
                 ("title".into(), fallback_title),
                 ("author".into(), author_handle),
+                ("site".into(), "X".into()),
+                ("published".into(), published),
+            ]),
+        }
+    }
 
     /// Recursively walk the DOM tree to find Draft.js blocks in document order.
     fn find_and_process_blocks(doc: &Document, node: crate::NodeId, html: &mut String) {
@@ -1585,7 +1873,7 @@ pub mod twitter {
         }
 
         // Recurse into children
-        for child_id in doc.children(node) {
+        for &child_id in doc.children(node) {
             find_and_process_blocks(doc, child_id, html);
         }
     }
@@ -1596,55 +1884,80 @@ pub mod twitter {
         let testid = doc.get_attr(block_id, "data-testid").unwrap_or("");
         let tag = doc.tag_name(block_id);
 
-        if class.contains("longform-unstyled") || tag == "div" && doc.get_attr(block_id, "data-block").is_some() && !class.contains("longform-header") {
+        if class.contains("longform-unstyled")
+            || tag == "div"
+                && doc.get_attr(block_id, "data-block").is_some()
+                && !class.contains("longform-header")
+        {
             let text = extract_draft_text(doc, block_id);
             if !text.is_empty() {
                 html.push_str(&format!("<p>{text}</p>\n"));
             }
-        } else if class.contains("longform-header-two") || (tag == "h2" && class.contains("longform-header")) {
+        } else if class.contains("longform-header-two")
+            || (tag == "h2" && class.contains("longform-header"))
+        {
             let text = extract_draft_heading_text(doc, block_id);
-            if !text.is_empty() { html.push_str(&format!("<h2>{text}</h2>\n")); }
+            if !text.is_empty() {
+                html.push_str(&format!("<h2>{text}</h2>\n"));
+            }
         } else if class.contains("longform-header-three") {
             let text = extract_draft_heading_text(doc, block_id);
-            if !text.is_empty() { html.push_str(&format!("<h3>{text}</h3>\n")); }
+            if !text.is_empty() {
+                html.push_str(&format!("<h3>{text}</h3>\n"));
+            }
         } else if class.contains("longform-header-four") {
             let text = extract_draft_heading_text(doc, block_id);
-            if !text.is_empty() { html.push_str(&format!("<h4>{text}</h4>\n")); }
+            if !text.is_empty() {
+                html.push_str(&format!("<h4>{text}</h4>\n"));
+            }
         } else if testid == "tweetPhoto" {
-            if let Some(&img_id) = doc.query_selector_all_in_subtree(block_id, "img").first() {
-                if let Some(src) = doc.get_attr(img_id, "src") {
-                    let alt = doc.get_attr(img_id, "alt").unwrap_or("Image");
-                    let src = src.replace("&name=medium", "&name=large")
-                                 .replace("?name=medium", "?name=large");
-                    html.push_str(&format!("<img src=\"{src}\" alt=\"{alt}\">\n"));
-                }
+            if let Some(&img_id) = doc.query_selector_all_in_subtree(block_id, "img").first()
+                && let Some(src) = doc.get_attr(img_id, "src")
+            {
+                let alt = doc.get_attr(img_id, "alt").unwrap_or("Image");
+                let src = src
+                    .replace("&name=medium", "&name=large")
+                    .replace("?name=medium", "?name=large");
+                html.push_str(&format!("<img src=\"{src}\" alt=\"{alt}\">\n"));
             }
         } else if testid == "markdown-code-block" {
             let code_html = extract_code_block_html(doc, block_id);
-            if !code_html.is_empty() { html.push_str(&format!("{code_html}\n")); }
-        } else if testid == "twitter-article-title" || tag == "div" && doc.get_attr(block_id, "itemprop").is_some() {
+            if !code_html.is_empty() {
+                html.push_str(&format!("{code_html}\n"));
+            }
+        } else if testid == "twitter-article-title"
+            || tag == "div" && doc.get_attr(block_id, "itemprop").is_some()
+        {
             // Skip title and author metadata blocks
-        } else if testid == "orderedList" || class.contains("public-DraftStyleDefault-ol") || tag == "ol" {
+        } else if testid == "orderedList"
+            || class.contains("public-DraftStyleDefault-ol")
+            || tag == "ol"
+        {
             let list_html = extract_ordered_list_html(doc, block_id);
-            if !list_html.is_empty() { html.push_str(&format!("{list_html}\n")); }
+            if !list_html.is_empty() {
+                html.push_str(&format!("{list_html}\n"));
+            }
         } else {
             // Generic fallback: extract as paragraph
             let text = extract_draft_text_recursive(doc, block_id);
-            if !text.is_empty() { html.push_str(&format!("<p>{text}</p>\n")); }
+            if !text.is_empty() {
+                html.push_str(&format!("<p>{text}</p>\n"));
+            }
         }
     }
 
     /// Extract text content from a longform-unstyled paragraph block.
     fn extract_draft_text(doc: &Document, block_id: crate::NodeId) -> String {
-        let blocks = doc.query_selector_all_in_subtree(block_id, "div.public-DraftStyleDefault-block");
+        let blocks =
+            doc.query_selector_all_in_subtree(block_id, "div.public-DraftStyleDefault-block");
         let mut result = String::new();
         if blocks.is_empty() {
-            for child_id in doc.children(block_id) {
+            for &child_id in doc.children(block_id) {
                 collect_formatted_text(doc, child_id, &mut result);
             }
         } else {
             for &b_id in &blocks {
-                for child_id in doc.children(b_id) {
+                for &child_id in doc.children(b_id) {
                     collect_formatted_text(doc, child_id, &mut result);
                 }
             }
@@ -1654,15 +1967,16 @@ pub mod twitter {
 
     /// Extract just the heading text from a heading block (skip div wrappers).
     fn extract_draft_heading_text(doc: &Document, heading_id: crate::NodeId) -> String {
-        let blocks = doc.query_selector_all_in_subtree(heading_id, "div.public-DraftStyleDefault-block");
+        let blocks =
+            doc.query_selector_all_in_subtree(heading_id, "div.public-DraftStyleDefault-block");
         let mut result = String::new();
         if blocks.is_empty() {
-            for child_id in doc.children(heading_id) {
+            for &child_id in doc.children(heading_id) {
                 collect_formatted_text(doc, child_id, &mut result);
             }
         } else {
             for &b_id in &blocks {
-                for child_id in doc.children(b_id) {
+                for &child_id in doc.children(b_id) {
                     collect_formatted_text(doc, child_id, &mut result);
                 }
             }
@@ -1674,17 +1988,22 @@ pub mod twitter {
     fn extract_draft_text_recursive(doc: &Document, node_id: crate::NodeId) -> String {
         let tag = doc.tag_name(node_id);
         let spans = doc.query_selector_all_in_subtree(node_id, "span[data-text=\"true\"]");
-        if spans.is_empty() && tag != "ol" && tag != "ul" { return String::new(); }
-        let blocks = doc.query_selector_all_in_subtree(node_id, "div.public-DraftStyleDefault-block");
+        if spans.is_empty() && tag != "ol" && tag != "ul" {
+            return String::new();
+        }
+        let blocks =
+            doc.query_selector_all_in_subtree(node_id, "div.public-DraftStyleDefault-block");
         let mut result = String::new();
         if blocks.is_empty() {
-            for child_id in doc.children(node_id) {
+            for &child_id in doc.children(node_id) {
                 collect_formatted_text(doc, child_id, &mut result);
             }
         } else {
             for &b_id in &blocks {
-                if !result.is_empty() { result.push(' '); }
-                for child_id in doc.children(b_id) {
+                if !result.is_empty() {
+                    result.push(' ');
+                }
+                for &child_id in doc.children(b_id) {
                     collect_formatted_text(doc, child_id, &mut result);
                 }
             }
@@ -1692,25 +2011,20 @@ pub mod twitter {
         result.trim().to_string()
     }
 
-                ("site".into(), "X (Twitter)".into()),
-                ("published".into(), published),
-            ]),
-        }
-
     /// Walk through inline elements collecting formatted text for HTML output.
     fn collect_formatted_text(doc: &Document, node_id: crate::NodeId, result: &mut String) {
         let tag = doc.tag_name(node_id);
         match tag {
             "strong" | "b" => {
                 result.push_str("<strong>");
-                for child_id in doc.children(node_id) {
+                for &child_id in doc.children(node_id) {
                     collect_formatted_text(doc, child_id, result);
                 }
                 result.push_str("</strong>");
             }
             "em" | "i" => {
                 result.push_str("<em>");
-                for child_id in doc.children(node_id) {
+                for &child_id in doc.children(node_id) {
                     collect_formatted_text(doc, child_id, result);
                 }
                 result.push_str("</em>");
@@ -1718,7 +2032,7 @@ pub mod twitter {
             "a" => {
                 let href = doc.get_attr(node_id, "href").unwrap_or("");
                 result.push_str(&format!("<a href=\"{href}\">"));
-                for child_id in doc.children(node_id) {
+                for &child_id in doc.children(node_id) {
                     collect_formatted_text(doc, child_id, result);
                 }
                 result.push_str("</a>");
@@ -1727,13 +2041,13 @@ pub mod twitter {
                 let style = doc.get_attr(node_id, "style").unwrap_or("");
                 if style.contains("font-weight") && style.contains("bold") {
                     result.push_str("<strong>");
-                    for child_id in doc.children(node_id) {
+                    for &child_id in doc.children(node_id) {
                         collect_formatted_text(doc, child_id, result);
                     }
                     result.push_str("</strong>");
                     return;
                 }
-                for child_id in doc.children(node_id) {
+                for &child_id in doc.children(node_id) {
                     collect_formatted_text(doc, child_id, result);
                 }
             }
@@ -1750,7 +2064,7 @@ pub mod twitter {
                         result.push_str(&super::comments::escape_html(&text));
                     }
                 } else {
-                    for child_id in doc.children(node_id) {
+                    for &child_id in doc.children(node_id) {
                         collect_formatted_text(doc, child_id, result);
                     }
                 }
@@ -1759,14 +2073,27 @@ pub mod twitter {
     }
 
     fn extract_code_block_html(doc: &Document, block_id: crate::NodeId) -> String {
-        let code = doc.query_selector_all_in_subtree(block_id, "code").first().copied();
-        let pre = doc.query_selector_all_in_subtree(block_id, "pre").first().copied();
+        let code = doc
+            .query_selector_all_in_subtree(block_id, "code")
+            .first()
+            .copied();
+        let pre = doc
+            .query_selector_all_in_subtree(block_id, "pre")
+            .first()
+            .copied();
         if let Some(code_id) = code {
-            let lang = doc.get_attr(code_id, "class").unwrap_or("")
+            let lang = doc
+                .get_attr(code_id, "class")
+                .unwrap_or("")
                 .split_whitespace()
                 .find(|c| c.starts_with("language-"))
-                .map(|c| &c["language-".len()..]).unwrap_or("");
-            let code_text = if pre.is_some() { doc.text_content(pre.unwrap()) } else { doc.text_content(code_id) };
+                .map(|c| &c["language-".len()..])
+                .unwrap_or("");
+            let code_text = if let Some(pre_val) = pre {
+                doc.text_content(pre_val)
+            } else {
+                doc.text_content(code_id)
+            };
             let escaped = super::comments::escape_html(code_text.trim());
             if lang.is_empty() {
                 format!("<pre><code>{escaped}</code></pre>")
@@ -1777,38 +2104,57 @@ pub mod twitter {
             let code_text = doc.text_content(pre_id);
             let escaped = super::comments::escape_html(code_text.trim());
             format!("<pre><code>{escaped}</code></pre>")
-        } else { String::new() }
+        } else {
+            String::new()
+        }
     }
 
     fn extract_ordered_list_html(doc: &Document, list_id: crate::NodeId) -> String {
         let items = doc.query_selector_all_in_subtree(list_id, "li");
-        if items.is_empty() { return String::new(); }
+        if items.is_empty() {
+            return String::new();
+        }
         let mut html = String::from("<ol>\n");
         for &item_id in &items {
             let text = extract_draft_text(doc, item_id);
-            if !text.is_empty() { html.push_str(&format!("<li>{text}</li>\n")); }
+            if !text.is_empty() {
+                html.push_str(&format!("<li>{text}</li>\n"));
+            }
         }
         html.push_str("</ol>");
         html
     }
 
     fn parse_author_from_og_title(og_title: &str) -> Option<String> {
-        let title = og_title.trim_start_matches(|c: char| c == '(' || c.is_ascii_digit() || c == ')').trim();
+        let title = og_title
+            .trim_start_matches(|c: char| c == '(' || c.is_ascii_digit() || c == ')')
+            .trim();
         if let Some(pos) = title.find(" on X:") {
             let name = title[..pos].trim();
-            if !name.is_empty() && !name.contains('/') { return Some(name.to_string()); }
+            if !name.is_empty() && !name.contains('/') {
+                return Some(name.to_string());
+            }
         } else if let Some(pos) = title.find(" on Twitter:") {
             let name = title[..pos].trim();
-            if !name.is_empty() && !name.contains('/') { return Some(name.to_string()); }
+            if !name.is_empty() && !name.contains('/') {
+                return Some(name.to_string());
+            }
         }
         None
     }
 
     fn extract_handle_from_url(url: &str) -> String {
-        for prefix in &["https://x.com/", "https://twitter.com/", "http://x.com/", "http://twitter.com/"] {
+        for prefix in &[
+            "https://x.com/",
+            "https://twitter.com/",
+            "http://x.com/",
+            "http://twitter.com/",
+        ] {
             if let Some(path) = url.strip_prefix(prefix) {
                 let username = path.split('/').next().unwrap_or("");
-                if !username.is_empty() && username != "status" { return format!("@{username}"); }
+                if !username.is_empty() && username != "status" {
+                    return format!("@{username}");
+                }
             }
         }
         String::new()
@@ -1819,14 +2165,16 @@ pub mod twitter {
             let after = &og_title[colon_pos + " on X:".len()..];
             if let Some(start) = after.find('"') {
                 let inner = &after[start + 1..];
-                if let Some(end) = inner.find('"') { return inner[..end].to_string(); }
+                if let Some(end) = inner.find('"') {
+                    return inner[..end].to_string();
+                }
             }
             let rest = after.trim();
-            if let Some(end) = rest.rfind(" / X") { return rest[..end].trim().to_string(); }
+            if let Some(end) = rest.rfind(" / X") {
+                return rest[..end].trim().to_string();
+            }
             return rest.to_string();
         }
         og_title.to_string()
     }
-
-    }
-
+}

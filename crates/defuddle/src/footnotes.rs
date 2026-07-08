@@ -5,7 +5,7 @@
 //! HR-separated sup-numbered, named anchors, heading-separated, p.footnote.
 
 use crate::dom::{Document, NodeId};
-use std::collections::BTreeMap;
+use rustc_hash::FxHashMap;
 
 /// Footnote heading regex
 const FOOTNOTE_SECTION_RE: &str = r"(?i)^(?:foot\s*notes?|end\s*notes?|notes?|references?)$";
@@ -43,7 +43,7 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
     }
 
     // Phase 2: Collect definitions from various formats
-    let mut definitions: BTreeMap<usize, String> = BTreeMap::new();
+    let mut definitions: FxHashMap<usize, String> = FxHashMap::default();
     collect_wp_footnotes(doc, content_id, &mut definitions);
     collect_pulldown_cmark_defs(doc, content_id, &mut definitions);
     collect_hugo_defs(doc, content_id, &mut definitions);
@@ -72,28 +72,36 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
     for selector in INLINE_REF_SELECTORS {
         let els = doc.query_selector_all_in_subtree(content_id, selector);
         for el_id in els {
-            if let Some(num_str) = doc.get_attr(el_id, "data-fn-ref") {
-                if let Ok(num) = num_str.parse::<usize>() {
-                    if definitions.contains_key(&num) {
-                        let sup_text = doc.text_content(el_id).trim().to_string();
-                        let display = if sup_text.is_empty() { num.to_string() } else { sup_text };
-                        doc.set_tag_name(el_id, "sup");
-                        let html = format!("<a href=\"#fn:{num}\" id=\"fnref:{num}\" class=\"footnote-ref\">{display}</a>");
-                        doc.replace_with_html(el_id, &html);
-                    }
-                }
+            if let Some(num_str) = doc.get_attr(el_id, "data-fn-ref")
+                && let Ok(num) = num_str.parse::<usize>()
+                && definitions.contains_key(&num)
+            {
+                let sup_text = doc.text_content(el_id).trim().to_string();
+                let display = if sup_text.is_empty() {
+                    num.to_string()
+                } else {
+                    sup_text
+                };
+                doc.set_tag_name(el_id, "sup");
+                let html = format!(
+                    "<a href=\"#fn:{num}\" id=\"fnref:{num}\" class=\"footnote-ref\">{display}</a>"
+                );
+                doc.replace_with_html(el_id, &html);
             }
         }
     }
 }
 
-
 /// WordPress block footnotes: ol.wp-block-footnotes.
-fn collect_wp_footnotes(doc: &mut Document, content_id: NodeId, defs: &mut BTreeMap<usize, String>) {
+fn collect_wp_footnotes(
+    doc: &mut Document,
+    content_id: NodeId,
+    defs: &mut FxHashMap<usize, String>,
+) {
     let lists = doc.query_selector_all_in_subtree(content_id, "ol.wp-block-footnotes");
     for list_id in lists {
         let items = doc.query_selector_all_in_subtree(list_id, "li");
-        for (_i, &li_id) in items.iter().enumerate() {
+        for &li_id in items.iter() {
             let num = defs.len() + 1;
             defs.entry(num).or_insert_with(|| doc.inner_html(li_id));
         }
@@ -102,29 +110,48 @@ fn collect_wp_footnotes(doc: &mut Document, content_id: NodeId, defs: &mut BTree
 }
 
 /// pulldown-cmark: div.footnote-definition with id="N".
-fn collect_pulldown_cmark_defs(doc: &mut Document, content_id: NodeId, defs: &mut BTreeMap<usize, String>) {
+fn collect_pulldown_cmark_defs(
+    doc: &mut Document,
+    content_id: NodeId,
+    defs: &mut FxHashMap<usize, String>,
+) {
     let defs_els = doc.query_selector_all_in_subtree(content_id, "div.footnote-definition");
     for def_id in defs_els {
         let labels = doc.query_selector_all_in_subtree(def_id, "sup.footnote-definition-label");
-        for label_id in labels { doc.remove(label_id); }
-        if let Some(id_attr) = doc.get_attr(def_id, "id") {
-            if let Ok(num) = id_attr.trim().parse::<usize>() {
-                defs.entry(num).or_insert_with(|| doc.inner_html(def_id));
-            }
+        for label_id in labels {
+            doc.remove(label_id);
+        }
+        if let Some(id_attr) = doc.get_attr(def_id, "id")
+            && let Ok(num) = id_attr.trim().parse::<usize>()
+        {
+            defs.entry(num).or_insert_with(|| doc.inner_html(def_id));
         }
         doc.remove(def_id);
     }
 }
 
-
 /// Hugo-style: sup.footnote-ref → definition in div.footnotes.
-fn collect_hugo_defs(_doc: &mut Document, _content_id: NodeId, _defs: &mut BTreeMap<usize, String>) {}
+fn collect_hugo_defs(
+    _doc: &mut Document,
+    _content_id: NodeId,
+    _defs: &mut FxHashMap<usize, String>,
+) {
+}
 
 /// Easy Footnotes WP plugin: span.easy-footnote → definition in ol.easy-footnotes-wrapper.
-fn collect_easy_footnotes(_doc: &mut Document, _content_id: NodeId, _defs: &mut BTreeMap<usize, String>) {}
+fn collect_easy_footnotes(
+    _doc: &mut Document,
+    _content_id: NodeId,
+    _defs: &mut FxHashMap<usize, String>,
+) {
+}
 
 /// HR-separated sup definitions: <p><sup>N</sup> text</p> after <hr>.
-fn collect_hr_separated_defs(doc: &mut Document, content_id: NodeId, defs: &mut BTreeMap<usize, String>) {
+fn collect_hr_separated_defs(
+    doc: &mut Document,
+    content_id: NodeId,
+    defs: &mut FxHashMap<usize, String>,
+) {
     let children = doc.children(content_id).to_vec();
     let mut after_hr = false;
     let mut to_remove = Vec::new();
@@ -133,7 +160,9 @@ fn collect_hr_separated_defs(doc: &mut Document, content_id: NodeId, defs: &mut 
             after_hr = true;
             continue;
         }
-        if !after_hr { continue; }
+        if !after_hr {
+            continue;
+        }
         let tag = doc.tag_name(child).to_lowercase();
         if tag == "p" || tag == "div" {
             let sups = doc.query_selector_all_in_subtree(child, "sup");
@@ -149,18 +178,26 @@ fn collect_hr_separated_defs(doc: &mut Document, content_id: NodeId, defs: &mut 
             }
         }
     }
-    for id in to_remove { doc.remove(id); }
+    for id in to_remove {
+        doc.remove(id);
+    }
 }
 
 /// Footnotes under "Notes"/"Footnotes"/"References" heading.
-fn collect_heading_separated_defs(doc: &mut Document, content_id: NodeId, defs: &mut BTreeMap<usize, String>) {
+fn collect_heading_separated_defs(
+    doc: &mut Document,
+    content_id: NodeId,
+    defs: &mut FxHashMap<usize, String>,
+) {
     let re = regex_lite::Regex::new(FOOTNOTE_SECTION_RE).unwrap();
     let headings = doc.query_selector_all_in_subtree(content_id, "h2,h3,h4,h5,h6");
     let children = doc.children(content_id).to_vec();
 
     for &h_id in &headings {
         let text = doc.text_content(h_id).trim().to_string();
-        if !re.is_match(&text) { continue; }
+        if !re.is_match(&text) {
+            continue;
+        }
         if let Some(pos) = children.iter().position(|&c| c == h_id) {
             doc.remove(h_id);
             for &child in &children[pos + 1..] {
@@ -195,7 +232,11 @@ fn collect_heading_separated_defs(doc: &mut Document, content_id: NodeId, defs: 
 }
 
 /// p.footnote / li.footnote class definitions.
-fn collect_p_class_defs(doc: &mut Document, content_id: NodeId, defs: &mut BTreeMap<usize, String>) {
+fn collect_p_class_defs(
+    doc: &mut Document,
+    content_id: NodeId,
+    defs: &mut FxHashMap<usize, String>,
+) {
     let ps = doc.query_selector_all_in_subtree(content_id, "p.footnote, p.footnotes, li.footnote");
     for p_id in ps {
         let num = defs.len() + 1;

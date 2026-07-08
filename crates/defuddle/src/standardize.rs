@@ -5,7 +5,7 @@ use crate::constants::{
 use crate::dom::{Document, NodeId};
 use crate::footnotes::standardize_footnotes;
 use crate::math::standardize_math;
-use std::collections::HashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 // --- Public entry point ---
 
@@ -141,8 +141,7 @@ fn convert_hugo_admonitions(doc: &mut Document) {
                     .iter()
                     .filter(|&&c| {
                         let cclass = doc.get_attr(c, "class").unwrap_or("");
-                        !cclass.contains("admonition-title")
-                            && !cclass.contains("details-summary")
+                        !cclass.contains("admonition-title") && !cclass.contains("details-summary")
                     })
                     .map(|&c| doc.outer_html(c))
                     .collect::<Vec<_>>()
@@ -194,7 +193,10 @@ fn unwrap_figure_content_wrappers(doc: &mut Document, content_id: NodeId) {
                 return false;
             }
             let t = doc.tag_name(c).to_lowercase();
-            matches!(t.as_str(), "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "ul" | "ol" | "blockquote" | "pre")
+            matches!(
+                t.as_str(),
+                "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "ul" | "ol" | "blockquote" | "pre"
+            )
         });
         if has_block {
             doc.unwrap(id);
@@ -261,28 +263,31 @@ fn recover_lazy_images(doc: &mut Document, content_id: NodeId) {
             continue;
         }
         for attr in &lazy_attrs {
-            if let Some(real_url) = doc.get_attr(id, attr) {
-                if !real_url.is_empty() && !real_url.starts_with("data:") {
-                    let url = real_url.to_string();
-                    doc.set_attr(id, "src", &url);
-                    break;
-                }
+            if let Some(real_url) = doc.get_attr(id, attr)
+                && !real_url.is_empty()
+                && !real_url.starts_with("data:")
+            {
+                let url = real_url.to_string();
+                doc.set_attr(id, "src", &url);
+                break;
             }
         }
-        if doc.get_attr(id, "src").map_or(true, |s| s.starts_with("data:")) {
-            if let Some(pid) = doc.parent(id) {
-                if doc.tag_name(pid).eq_ignore_ascii_case("picture") {
-                    for &source_id in &doc.query_selector_all_in_subtree(pid, "source") {
-                        let srcset = doc.get_attr(source_id, "srcSet")
-                            .or_else(|| doc.get_attr(source_id, "srcset"))
-                            .unwrap_or("");
-                        if !srcset.is_empty() {
-                            if let Some(best) = get_best_src_url(&srcset) {
-                                doc.set_attr(id, "src", &best);
-                                break;
-                            }
-                        }
-                    }
+        if doc
+            .get_attr(id, "src")
+            .is_none_or(|s| s.starts_with("data:"))
+            && let Some(pid) = doc.parent(id)
+            && doc.tag_name(pid).eq_ignore_ascii_case("picture")
+        {
+            for &source_id in &doc.query_selector_all_in_subtree(pid, "source") {
+                let srcset = doc
+                    .get_attr(source_id, "srcSet")
+                    .or_else(|| doc.get_attr(source_id, "srcset"))
+                    .unwrap_or("");
+                if !srcset.is_empty()
+                    && let Some(best) = get_best_src_url(srcset)
+                {
+                    doc.set_attr(id, "src", &best);
+                    break;
                 }
             }
         }
@@ -316,19 +321,18 @@ fn remove_base64_placeholder_images(doc: &mut Document, content_id: NodeId) {
         }
         // Don't remove if has a picture parent with sources
         let mut has_fallback = false;
-        if let Some(pid) = doc.parent(id) {
-            if doc.tag_name(pid).eq_ignore_ascii_case("picture")
-                && !doc.query_selector_all_in_subtree(pid, "source").is_empty()
-            {
-                has_fallback = true;
-            }
+        if let Some(pid) = doc.parent(id)
+            && doc.tag_name(pid).eq_ignore_ascii_case("picture")
+            && !doc.query_selector_all_in_subtree(pid, "source").is_empty()
+        {
+            has_fallback = true;
         }
         if has_fallback {
             continue;
         }
         let has_lazy = lazy_attrs.iter().any(|attr| {
             doc.get_attr(id, attr)
-                .map_or(false, |v| !v.is_empty() && !v.starts_with("data:"))
+                .is_some_and(|v| !v.is_empty() && !v.starts_with("data:"))
         });
         if has_lazy {
             continue;
@@ -340,7 +344,7 @@ fn remove_base64_placeholder_images(doc: &mut Document, content_id: NodeId) {
 /// Remove <video> elements without src and source children.
 fn remove_empty_video_elements(doc: &mut Document, content_id: NodeId) {
     for id in doc.query_selector_all_in_subtree(content_id, "video") {
-        let has_src = doc.get_attr(id, "src").map_or(false, |s| !s.is_empty());
+        let has_src = doc.get_attr(id, "src").is_some_and(|s| !s.is_empty());
         let has_source = !doc.query_selector_all_in_subtree(id, "source").is_empty();
         if !has_src && !has_source {
             doc.remove(id);
@@ -355,7 +359,7 @@ fn dedup_images(doc: &mut Document, content_id: NodeId) {
         if imgs.len() < 2 {
             continue;
         }
-        let mut seen: HashSet<String> = HashSet::new();
+        let mut seen: FxHashSet<String> = FxHashSet::default();
         let mut to_remove: Vec<NodeId> = Vec::new();
         for &img_id in &imgs {
             let src = doc.get_attr(img_id, "src").unwrap_or("").to_string();
@@ -380,16 +384,15 @@ fn dedup_images(doc: &mut Document, content_id: NodeId) {
 
 fn lightbox_image_dedup(doc: &mut Document, content_id: NodeId) {
     let all_imgs = doc.query_selector_all_in_subtree(content_id, "img");
-    let mut linked_urls: HashSet<String> = HashSet::new();
+    let mut linked_urls: FxHashSet<String> = FxHashSet::default();
     for &img_id in &all_imgs {
-        if let Some(pid) = doc.parent(img_id) {
-            if doc.tag_name(pid).eq_ignore_ascii_case("a") {
-                if let Some(href) = doc.get_attr(pid, "href") {
-                    if !href.is_empty() && !href.starts_with("javascript:") {
-                        linked_urls.insert(href.to_string());
-                    }
-                }
-            }
+        if let Some(pid) = doc.parent(img_id)
+            && doc.tag_name(pid).eq_ignore_ascii_case("a")
+            && let Some(href) = doc.get_attr(pid, "href")
+            && !href.is_empty()
+            && !href.starts_with("javascript:")
+        {
+            linked_urls.insert(href.to_string());
         }
     }
     let mut to_remove: Vec<NodeId> = Vec::new();
@@ -499,7 +502,7 @@ fn standardize_headings(doc: &mut Document, content_id: NodeId, metadata_title: 
 
 /// Strip attributes not in the allowed set.
 fn strip_unwanted_attributes(doc: &mut Document, content_id: NodeId) {
-    let allowed: HashSet<&str> = ALLOWED_ATTRIBUTES.iter().copied().collect();
+    let allowed: FxHashSet<&str> = ALLOWED_ATTRIBUTES.iter().copied().collect();
     let all_els = doc.query_selector_all_in_subtree(content_id, "*");
     for id in all_els {
         let names = doc.attr_names(id);
@@ -530,10 +533,10 @@ fn unwrap_special_links(doc: &mut Document, content_id: NodeId) {
     }
     let all_links = doc.query_selector_all_in_subtree(content_id, "a[href]");
     for id in all_links {
-        if let Some(href) = doc.get_attr(id, "href") {
-            if href.trim().to_lowercase().starts_with("javascript:") {
-                doc.unwrap(id);
-            }
+        if let Some(href) = doc.get_attr(id, "href")
+            && href.trim().to_lowercase().starts_with("javascript:")
+        {
+            doc.unwrap(id);
         }
     }
 }
@@ -550,7 +553,7 @@ fn remove_obsolete_elements(doc: &mut Document, content_id: NodeId) {
 /// Remove empty elements (no text, no children, not in ALLOWED_EMPTY_ELEMENTS)
 /// and tables with no visible text content.
 fn remove_empty_elements(doc: &mut Document, content_id: NodeId) {
-    let allowed_empty: HashSet<&str> = ALLOWED_EMPTY_ELEMENTS.iter().copied().collect();
+    let allowed_empty: FxHashSet<&str> = ALLOWED_EMPTY_ELEMENTS.iter().copied().collect();
     loop {
         let mut removed = false;
         let all = doc.query_selector_all_in_subtree(content_id, "*");
@@ -591,10 +594,10 @@ fn remove_trailing_headings(doc: &mut Document, content_id: NodeId) {
     for (i, &child) in children.iter().enumerate() {
         if doc.is_element(child) {
             let tag = doc.tag_name(child).to_lowercase();
-            if !matches!(tag.as_str(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "hr") {
-                if !doc.text_content(child).trim().is_empty() {
-                    last_idx = Some(i);
-                }
+            if !matches!(tag.as_str(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "hr")
+                && !doc.text_content(child).trim().is_empty()
+            {
+                last_idx = Some(i);
             }
         } else if doc.is_text(child) && !doc.text_content(child).trim().is_empty() {
             last_idx = Some(i);
@@ -637,10 +640,10 @@ fn remove_orphaned_dividers(doc: &mut Document, content_id: NodeId) {
 
 /// Flatten unnecessary wrapper divs/sections.
 fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
-    let block_set: HashSet<&str> = BLOCK_ELEMENTS.iter().copied().collect();
-    let block_level: HashSet<&str> = BLOCK_LEVEL_ELEMENTS.iter().copied().collect();
-    let preserve: HashSet<&str> = PRESERVE_ELEMENTS.iter().copied().collect();
-    let inline: HashSet<&str> = INLINE_ELEMENTS.iter().copied().collect();
+    let block_set: FxHashSet<&str> = BLOCK_ELEMENTS.iter().copied().collect();
+    let block_level: FxHashSet<&str> = BLOCK_LEVEL_ELEMENTS.iter().copied().collect();
+    let preserve: FxHashSet<&str> = PRESERVE_ELEMENTS.iter().copied().collect();
+    let inline: FxHashSet<&str> = INLINE_ELEMENTS.iter().copied().collect();
 
     let has_inline_content = |doc: &Document, id: NodeId| -> bool {
         for &child in doc.children(id) {
@@ -663,13 +666,13 @@ fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
         if doc.get_attr(id, "data-callout").is_some() {
             return true;
         }
-        if let Some(role) = doc.get_attr(id, "role") {
-            if matches!(
+        if let Some(role) = doc.get_attr(id, "role")
+            && matches!(
                 role,
                 "article" | "main" | "navigation" | "banner" | "contentinfo"
-            ) {
-                return true;
-            }
+            )
+        {
+            return true;
         }
         if let Some(class) = doc.get_attr(id, "class") {
             let l = class.to_lowercase();
@@ -738,10 +741,9 @@ fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
 /// Normalize <br> tags: remove standalone brs between blocks, collapse consecutive brs,
 /// and remove empty <p><br/></p> elements.
 fn strip_extra_br_elements(doc: &mut Document, content_id: NodeId) {
-    let block_tags: HashSet<&str> = BLOCK_ELEMENTS.iter().copied().collect();
+    let block_tags: FxHashSet<&str> = BLOCK_ELEMENTS.iter().copied().collect();
     let brs = doc.query_selector_all_in_subtree(content_id, "br");
-    let mut groups: std::collections::HashMap<NodeId, Vec<NodeId>> =
-        std::collections::HashMap::new();
+    let mut groups: FxHashMap<NodeId, Vec<NodeId>> = FxHashMap::default();
     for &id in &brs {
         if let Some(pid) = doc.parent(id) {
             groups.entry(pid).or_default().push(id);
@@ -751,18 +753,18 @@ fn strip_extra_br_elements(doc: &mut Document, content_id: NodeId) {
         let siblings = doc.children(pid).to_vec();
         group.sort_by_key(|&id| siblings.iter().position(|&s| s == id));
         // Remove leading brs if no preceding content
-        if let Some(&first) = group.first() {
-            if let Some(p) = siblings.iter().position(|&s| s == first) {
-                let has_before = siblings[..p].iter().any(|&s| {
-                    (doc.is_text(s) && !doc.text_content(s).trim().is_empty())
-                        || (doc.is_element(s) && !doc.tag_name(s).eq_ignore_ascii_case("br"))
-                });
-                if !has_before {
-                    for &b in &group {
-                        doc.remove(b);
-                    }
-                    continue;
+        if let Some(&first) = group.first()
+            && let Some(p) = siblings.iter().position(|&s| s == first)
+        {
+            let has_before = siblings[..p].iter().any(|&s| {
+                (doc.is_text(s) && !doc.text_content(s).trim().is_empty())
+                    || (doc.is_element(s) && !doc.tag_name(s).eq_ignore_ascii_case("br"))
+            });
+            if !has_before {
+                for &b in &group {
+                    doc.remove(b);
                 }
+                continue;
             }
         }
 
@@ -786,8 +788,7 @@ fn strip_extra_br_elements(doc: &mut Document, content_id: NodeId) {
                     let before_is_block = pos > 0
                         && siblings[..pos].iter().any(|&s| {
                             doc.is_element(s)
-                                && block_tags
-                                    .contains(doc.tag_name(s).to_lowercase().as_str())
+                                && block_tags.contains(doc.tag_name(s).to_lowercase().as_str())
                                 && !doc.text_content(s).trim().is_empty()
                         });
                     let after_is_block = siblings[pos + 1..].iter().any(|&s| {
@@ -891,9 +892,7 @@ fn remove_empty_text_nodes(doc: &mut Document, node: NodeId) {
             doc.remove(tc);
         } else {
             let new_text = text
-                .replace('\n', " ")
-                .replace('\r', " ")
-                .replace('\t', " ")
+                .replace(['\n', '\r', '\t'], " ")
                 .split_whitespace()
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -938,11 +937,11 @@ fn resolve_url(url: &str, base: &str) -> Option<String> {
         return Some(url.to_string());
     }
     let last_slash = base.rfind('/');
-    if let Some(pos) = last_slash {
-        if pos > base.find("://").unwrap_or(0) + 2 {
-            let base_dir = &base[..pos + 1];
-            return Some(resolve_dot_segments(&format!("{}{}", base_dir, url)));
-        }
+    if let Some(pos) = last_slash
+        && pos > base.find("://").unwrap_or(0) + 2
+    {
+        let base_dir = &base[..pos + 1];
+        return Some(resolve_dot_segments(&format!("{}{}", base_dir, url)));
     }
     Some(format!("{}/{}", base.trim_end_matches('/'), url))
 }
@@ -965,7 +964,7 @@ fn resolve_dot_segments(path: &str) -> String {
 
 /// Replace custom elements (hyphenated tag names) with divs.
 fn replace_custom_elements(doc: &mut Document, content_id: NodeId) {
-    let inline_set: HashSet<&str> = INLINE_ELEMENTS.iter().copied().collect();
+    let inline_set: FxHashSet<&str> = INLINE_ELEMENTS.iter().copied().collect();
     let custom: Vec<NodeId> = doc
         .query_selector_all_in_subtree(content_id, "*")
         .into_iter()
@@ -983,7 +982,7 @@ fn replace_custom_elements(doc: &mut Document, content_id: NodeId) {
 
 /// Convert <span data-as="..."> to real elements.
 fn convert_data_as_spans(doc: &mut Document, content_id: NodeId) {
-    let allowed: HashSet<&str> = ["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote"]
+    let allowed: FxHashSet<&str> = ["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote"]
         .iter()
         .copied()
         .collect();
@@ -1017,10 +1016,8 @@ fn convert_block_spans(doc: &mut Document, content_id: NodeId) {
 fn standardize_drop_caps(doc: &mut Document, content_id: NodeId) {
     let caps = doc.query_selector_all_in_subtree(content_id, r#"span[data-caps="initial"]"#);
     for id in caps {
-        let parent = doc.parent(id);
         // Since we can't easily insert text nodes between siblings in the current DOM,
         // we just unwrap the span and remove the following <small>
-        let children = doc.children(content_id).to_vec(); // not ideal; skip for now
         // Simplified: just unwrap the span
         doc.unwrap(id);
     }
@@ -1039,7 +1036,7 @@ fn remove_permalink_anchors(doc: &mut Document, content_id: NodeId) {
                 .collect();
             for a_id in anchors {
                 let text = doc.text_content(a_id).trim().to_string();
-                if text == "#" || text == "¶" || text == "§" || text == "¶" || text.is_empty() {
+                if text == "#" || text == "¶" || text == "§" || text.is_empty() {
                     doc.remove(a_id);
                 }
             }
@@ -1082,9 +1079,9 @@ fn standardize_element_roles(doc: &mut Document, content_id: NodeId) {
     for id in lists {
         // Check first listitem label for ordered list
         let listitems = doc.query_selector_all_in_subtree(id, r#"div[role="listitem"]"#);
-        let is_ordered = listitems.first().map_or(false, |&li_id| {
+        let is_ordered = listitems.first().is_some_and(|&li_id| {
             let label = doc.query_selector_all_in_subtree(li_id, ".label");
-            label.first().map_or(false, |&lbl_id| {
+            label.first().is_some_and(|&lbl_id| {
                 let binding = doc.text_content(lbl_id);
                 let text = binding.trim();
                 text.starts_with(|c: char| c.is_ascii_digit()) && text.contains(')')
@@ -1186,15 +1183,23 @@ fn normalize_codemirror_blocks(doc: &mut Document, content_id: NodeId) {
         let mut language = String::new();
         let html = doc.inner_html(pre_id);
         // Try to find language from text nodes near the top (e.g., "Python" in a div header)
-        let re = regex_lite::Regex::new(r#"<div[^>]*class="[^"]*header[^"]*"[^>]*>\s*(\w+)\s*</div>"#).unwrap();
+        let re =
+            regex_lite::Regex::new(r#"<div[^>]*class="[^"]*header[^"]*"[^>]*>\s*(\w+)\s*</div>"#)
+                .unwrap();
         if let Some(caps) = re.captures(&html) {
-            language = caps.get(1).map(|m| m.as_str().to_lowercase()).unwrap_or_default();
+            language = caps
+                .get(1)
+                .map(|m| m.as_str().to_lowercase())
+                .unwrap_or_default();
         }
         // Also try to find language from a dedicated language-label element
         if language.is_empty() {
             let re2 = regex_lite::Regex::new(r#"<span[^>]*>\s*(\w+)\s*</span>"#).unwrap();
             if let Some(caps) = re2.captures(&html) {
-                let candidate = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                let candidate = caps
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
                 // Filter out common non-language words
                 if !matches!(candidate.to_lowercase().as_str(), "run" | "copy" | "") {
                     language = candidate.to_lowercase();
@@ -1245,10 +1250,10 @@ fn standardize_code_blocks(doc: &mut Document, content_id: NodeId) {
                 return false;
             }
             doc.get_attr(id, "class")
-                .map_or(false, |c| c.to_lowercase().contains("language-"))
+                .is_some_and(|c| c.to_lowercase().contains("language-"))
         })
         .collect();
-    let mut seen: HashSet<NodeId> = HashSet::new();
+    let mut seen: FxHashSet<NodeId> = FxHashSet::default();
     let containers: Vec<NodeId> = highlight
         .into_iter()
         .chain(syntax)
@@ -1281,7 +1286,7 @@ fn standardize_code_blocks(doc: &mut Document, content_id: NodeId) {
             // Also check inner code for gutter classes (Chroma uses <code class="lnt">)
             let codes = doc.query_selector_all_in_subtree(*pre_id, "code");
             let is_gutter = codes.iter().any(|cid| {
-                doc.get_attr(*cid, "class").map_or(false, |c| {
+                doc.get_attr(*cid, "class").is_some_and(|c| {
                     let c = c.to_lowercase();
                     c.contains("lnt")
                         || c.contains("ln ")
@@ -1293,18 +1298,18 @@ fn standardize_code_blocks(doc: &mut Document, content_id: NodeId) {
                 continue;
             }
             // Also skip if parent td has lntd class (Chroma gutter column)
-            if let Some(parent) = doc.parent(*pre_id) {
-                if doc.is_element(parent) {
-                    let parent_class = doc.get_attr(parent, "class").unwrap_or("").to_lowercase();
-                    // For Chroma: both columns have lntd, so check if this pre is the FIRST td child
-                    if parent_class.contains("lntd") {
-                        if let Some(grandparent) = doc.parent(parent) {
-                            let siblings: Vec<NodeId> = doc.children(grandparent).to_vec();
-                            // If this is NOT the last td, it's likely the gutter
-                            if siblings.last() != Some(&parent) {
-                                continue;
-                            }
-                        }
+            if let Some(parent) = doc.parent(*pre_id)
+                && doc.is_element(parent)
+            {
+                let parent_class = doc.get_attr(parent, "class").unwrap_or("").to_lowercase();
+                // For Chroma: both columns have lntd, so check if this pre is the FIRST td child
+                if parent_class.contains("lntd")
+                    && let Some(grandparent) = doc.parent(parent)
+                {
+                    let siblings: Vec<NodeId> = doc.children(grandparent).to_vec();
+                    // If this is NOT the last td, it's likely the gutter
+                    if siblings.last() != Some(&parent) {
+                        continue;
                     }
                 }
             }
@@ -1380,13 +1385,17 @@ fn standardize_code_blocks(doc: &mut Document, content_id: NodeId) {
             doc.get_attr(id, "data-language").map(|s| s.to_string());
         if let Some(ref dl) = data_lang_val {
             let dl = dl.trim();
-            if !dl.is_empty() && dl.len() < 20 {
-                if dl != "plaintext" && dl != "plain" && dl != "text" && dl != "none" {
-                    // Set class for htmd compatibility
-                    let existing = doc.get_attr(id, "class").unwrap_or("");
-                    let new_class = format!("{} language-{}", existing, dl);
-                    doc.set_attr(id, "class", &new_class);
-                }
+            if !dl.is_empty()
+                && dl.len() < 20
+                && dl != "plaintext"
+                && dl != "plain"
+                && dl != "text"
+                && dl != "none"
+            {
+                // Set class for htmd compatibility
+                let existing = doc.get_attr(id, "class").unwrap_or("");
+                let new_class = format!("{} language-{}", existing, dl);
+                doc.set_attr(id, "class", &new_class);
             }
             continue;
         }
@@ -1601,21 +1610,21 @@ fn extract_code_lang(class: &str) -> String {
             }
         }
     }
-    if class.starts_with("highlight ") {
-        if let Some(lang) = class.split_whitespace().nth(1) {
-            let lang = lang.trim_matches('-');
-            if !lang.is_empty() && lang.len() < 20 {
-                if lang == "plaintext"
-                    || lang == "plain"
-                    || lang == "text"
-                    || lang == "nohighlight"
-                    || lang == "none"
-                    || lang == "wrap"
-                {
-                    return String::new();
-                }
-                return lang.to_string();
+    if class.starts_with("highlight ")
+        && let Some(lang) = class.split_whitespace().nth(1)
+    {
+        let lang = lang.trim_matches('-');
+        if !lang.is_empty() && lang.len() < 20 {
+            if lang == "plaintext"
+                || lang == "plain"
+                || lang == "text"
+                || lang == "nohighlight"
+                || lang == "none"
+                || lang == "wrap"
+            {
+                return String::new();
             }
+            return lang.to_string();
         }
     }
     String::new()
@@ -1699,7 +1708,7 @@ fn simplify_heading_children(doc: &mut Document, content_id: NodeId) {
                     || (tag == "a"
                         && doc
                             .get_attr(child, "href")
-                            .map_or(false, |h| h.starts_with('#')))
+                            .is_some_and(|h| h.starts_with('#')))
                     || class.contains("permalink")
                     || class.contains("anchor-link")
                     || class.contains("heading-anchor")
@@ -1744,7 +1753,6 @@ fn resolve_svg_colors(doc: &mut Document, content_id: NodeId) {
         let fills = doc.query_selector_all_in_subtree(svg_id, "[class]");
         for id in fills {
             let class = doc.get_attr(id, "class").unwrap_or("").to_string();
-            let mut new_class = class.clone();
             for (color_name, hex) in tailwind_colors {
                 let prefix = format!("fill-{color_name}-");
                 if class.contains(&prefix) {

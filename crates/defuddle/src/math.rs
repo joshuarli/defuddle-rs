@@ -13,20 +13,28 @@ pub fn standardize_math(doc: &mut Document, content_id: NodeId) {
 fn standardize_katex(doc: &mut Document, content_id: NodeId) {
     let katex_els = doc.query_selector_all_in_subtree(content_id, ".katex");
     for el_id in katex_els {
-        if has_closest(doc, el_id, &["pre", "code"]) { continue; }
+        if has_closest(doc, el_id, &["pre", "code"]) {
+            continue;
+        }
         let annotations = doc.query_selector_all_in_subtree(el_id, "annotation");
         let mut latex = String::new();
         for ann_id in annotations {
-            if let Some(enc) = doc.get_attr(ann_id, "encoding") {
-                if enc == "application/x-tex" {
-                    latex = doc.text_content(ann_id).trim().to_string();
-                    break;
-                }
+            if let Some(enc) = doc.get_attr(ann_id, "encoding")
+                && enc == "application/x-tex"
+            {
+                latex = doc.text_content(ann_id).trim().to_string();
+                break;
             }
         }
-        if latex.is_empty() { continue; }
+        if latex.is_empty() {
+            continue;
+        }
         let is_block = is_block_display(doc, el_id);
-        let replacement = if is_block { format!("$${latex}$$") } else { format!("${latex}$") };
+        let replacement = if is_block {
+            format!("$${latex}$$")
+        } else {
+            format!("${latex}$")
+        };
         let target = doc.closest(el_id, ".math").unwrap_or(el_id);
         doc.replace_with_html(target, &replacement);
     }
@@ -36,13 +44,23 @@ fn standardize_katex(doc: &mut Document, content_id: NodeId) {
 fn standardize_mathjax_tex(doc: &mut Document, content_id: NodeId) {
     let scripts = doc.query_selector_all_in_subtree(content_id, "script");
     for script_id in scripts {
-        if has_closest(doc, script_id, &["pre", "code"]) { continue; }
+        if has_closest(doc, script_id, &["pre", "code"]) {
+            continue;
+        }
         let type_attr = doc.get_attr(script_id, "type").unwrap_or("");
-        if !type_attr.starts_with("math/tex") { continue; }
+        if !type_attr.starts_with("math/tex") {
+            continue;
+        }
         let tex = doc.text_content(script_id).trim().to_string();
-        if tex.is_empty() { continue; }
+        if tex.is_empty() {
+            continue;
+        }
         let is_block = type_attr.contains("mode=display");
-        let replacement = if is_block { format!("$$\n{tex}\n$$") } else { format!("${tex}$") };
+        let replacement = if is_block {
+            format!("$$\n{tex}\n$$")
+        } else {
+            format!("${tex}$")
+        };
         doc.replace_with_html(script_id, &replacement);
     }
 }
@@ -52,10 +70,16 @@ fn standardize_raw_latex(doc: &mut Document, content_id: NodeId) {
     let re_inline = regex_lite::Regex::new(r"\\\(([^)]*)\\\)").unwrap();
     let all_els = doc.query_selector_all_in_subtree(content_id, "p,div,span,li,td,th,figcaption");
     for el_id in all_els {
-        if has_closest(doc, el_id, &["pre", "code"]) { continue; }
+        if has_closest(doc, el_id, &["pre", "code"]) {
+            continue;
+        }
         let text = doc.text_content(el_id);
-        if !text.contains("\\(") && !text.contains("$$") { continue; }
-        if text.contains("$\\displaystyle") || text.contains("$\\") { continue; }
+        if !text.contains("\\(") && !text.contains("$$") {
+            continue;
+        }
+        if text.contains("$\\displaystyle") || text.contains("$\\") {
+            continue;
+        }
         if re_inline.is_match(&text) {
             let new_text = re_inline.replace_all(&text, "$$1$").to_string();
             if new_text != text && !new_text.contains("$\\displaystyle") {
@@ -70,14 +94,16 @@ fn standardize_mathjax_svg(doc: &mut Document, content_id: NodeId) {
     for sel in &["mjx-container", "mjx-math"] {
         let els = doc.query_selector_all_in_subtree(content_id, sel);
         for el_id in els {
-            if has_closest(doc, el_id, &["pre", "code"]) { continue; }
-            if let Some(data_tex) = doc.get_attr(el_id, "data-tex")
+            if has_closest(doc, el_id, &["pre", "code"]) {
+                continue;
+            }
+            if let Some(data_tex) = doc
+                .get_attr(el_id, "data-tex")
                 .or_else(|| doc.get_attr(el_id, "data-latex"))
+                && !data_tex.is_empty()
             {
-                if !data_tex.is_empty() {
-                    let replacement = format!("$${data_tex}$$");
-                    doc.replace_with_html(el_id, &replacement);
-                }
+                let replacement = format!("$${data_tex}$$");
+                doc.replace_with_html(el_id, &replacement);
             }
         }
     }
@@ -86,15 +112,16 @@ fn standardize_mathjax_svg(doc: &mut Document, content_id: NodeId) {
 /// Check if an element is block-display math.
 fn is_block_display(doc: &Document, node: NodeId) -> bool {
     let has_ds = doc.query_selector_all_in_subtree(node, "[displaystyle=\"true\"]");
-    if !has_ds.is_empty() { return true; }
+    if !has_ds.is_empty() {
+        return true;
+    }
     if let Some(parent) = doc.parent(node) {
         let pt = doc.tag_name(parent).to_lowercase();
-        if pt == "div" {
-            if let Some(c) = doc.get_attr(parent, "class") {
-                if c.contains("math") || c.contains("display") || c.contains("equation") {
-                    return true;
-                }
-            }
+        if pt == "div"
+            && let Some(c) = doc.get_attr(parent, "class")
+            && (c.contains("math") || c.contains("display") || c.contains("equation"))
+        {
+            return true;
         }
     }
     false
@@ -103,4 +130,3 @@ fn is_block_display(doc: &Document, node: NodeId) -> bool {
 fn has_closest(doc: &Document, node: NodeId, selectors: &[&str]) -> bool {
     selectors.iter().any(|s| doc.closest(node, s).is_some())
 }
-

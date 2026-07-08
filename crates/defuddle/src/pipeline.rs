@@ -2,6 +2,7 @@ use crate::constants::{ENTRY_POINT_ELEMENTS, EXACT_SELECTORS, PARTIAL_SELECTORS}
 use crate::dom::{Document, NodeId};
 use crate::scoring;
 use crate::utils::count_words;
+use rustc_hash::FxHashSet;
 
 fn has_closest(doc: &Document, node: NodeId, selectors: &[&str]) -> bool {
     selectors
@@ -87,7 +88,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
             .flat_map(|attr| doc.query_selector_all(&format!("[{attr}]")))
             .collect();
 
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = FxHashSet::default();
         let mut to_remove = Vec::new();
 
         for id in elements {
@@ -256,7 +257,7 @@ pub fn remove_by_selector_protected(
             .flat_map(|attr| doc.query_selector_all(&format!("[{attr}]")))
             .collect();
 
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = FxHashSet::default();
         let mut to_remove = Vec::new();
 
         for id in elements {
@@ -576,14 +577,14 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
             }
         }
         // Single-word labels that are common breadcrumbs/eyebrows
-        if words.len() <= 3 && text.len() < 100 {
-            if class.contains("text-")
+        if words.len() <= 3
+            && text.len() < 100
+            && (class.contains("text-")
                 || class.contains("eyebrow")
                 || class.contains("overline")
-                || class.contains("kicker")
-            {
-                doc.remove(id);
-            }
+                || class.contains("kicker"))
+        {
+            doc.remove(id);
         }
     }
 
@@ -653,8 +654,9 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
     // Remove ISO date lines (YYYY-MM-DD), "N min read", and date formats like "May 22, 2026"
     let date_re = regex_lite::Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
     let named_date_re = regex_lite::Regex::new(
-        r"^(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}(?:,\s*\d{4})?)$"
-    ).unwrap();
+        r"^(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}(?:,\s*\d{4})?)$",
+    )
+    .unwrap();
     let min_read_re = regex_lite::Regex::new(r"^\d+\s*min\s*read$").unwrap();
     for &id in &doc.query_selector_all_in_subtree(content_id, "*") {
         if !doc.is_element(id) {
@@ -838,16 +840,15 @@ fn remove_related_posts_sections(doc: &mut Document, content_id: NodeId) {
             if let Some(pid) = doc.parent(h_id) {
                 let siblings = doc.children(pid).to_vec();
                 let pos = siblings.iter().position(|&s| s == h_id);
-                if let Some(p) = pos {
-                    for &sib in &siblings[p + 1..] {
-                        let tag = doc.tag_name(sib).to_lowercase();
-                        if tag == "ul" || tag == "ol" || tag == "div" {
-                            let sib_text = doc.text_content(sib).trim().to_string();
-                            if sib_text.split_whitespace().count() < 80 {
-                                to_remove.push(sib);
-                            }
+                if let Some(p) = pos
+                    && let Some(&sib) = siblings[p + 1..].first()
+                {
+                    let tag = doc.tag_name(sib).to_lowercase();
+                    if tag == "ul" || tag == "ol" || tag == "div" {
+                        let sib_text = doc.text_content(sib).trim().to_string();
+                        if sib_text.split_whitespace().count() < 80 {
+                            to_remove.push(sib);
                         }
-                        break;
                     }
                 }
             }
@@ -870,9 +871,9 @@ fn remove_table_of_contents(doc: &mut Document, content_id: NodeId) {
         if text.len() > 250 {
             continue;
         }
-        let all_have_links = items.iter().all(|&li_id| {
-            !doc.query_selector_all_in_subtree(li_id, "a").is_empty()
-        });
+        let all_have_links = items
+            .iter()
+            .all(|&li_id| !doc.query_selector_all_in_subtree(li_id, "a").is_empty());
         if !all_have_links {
             continue;
         }
@@ -881,15 +882,13 @@ fn remove_table_of_contents(doc: &mut Document, content_id: NodeId) {
             let item_text = doc.text_content(li_id).trim().to_string();
             item_text.split_whitespace().count() < 10
         });
-        if short_items {
-            if let Some(pid) = doc.parent(list_id) {
-                let siblings = doc.children(pid).to_vec();
-                let pos = siblings.iter().position(|&s| s == list_id);
-                if let Some(p) = pos {
-                    // Only remove if very near the beginning (first 3 children)
-                    if p <= 2 {
-                        doc.remove(list_id);
-                    }
+        if short_items && let Some(pid) = doc.parent(list_id) {
+            let siblings = doc.children(pid).to_vec();
+            let pos = siblings.iter().position(|&s| s == list_id);
+            if let Some(p) = pos {
+                // Only remove if very near the beginning (first 3 children)
+                if p <= 2 {
+                    doc.remove(list_id);
                 }
             }
         }
@@ -908,7 +907,7 @@ fn remove_newsletter_blocks(doc: &mut Document, content_id: NodeId) {
         }
         let text = doc.text_content(id).trim().to_string();
         let word_count = text.split_whitespace().count();
-        if word_count < 2 || word_count > 50 {
+        if !(2..=50).contains(&word_count) {
             continue;
         }
         if newsletter_re.is_match(&text) {
@@ -917,24 +916,24 @@ fn remove_newsletter_blocks(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-
 /// Remove social engagement counters like "13 Likes", "5 Comments", "2 Shares".
 fn remove_social_counters(doc: &mut Document, content_id: NodeId) {
     let social_re = regex_lite::Regex::new(
-        r"(?i)^\d+\s+(?:Likes?|Comments?|Shares?|Retweets?|Reposts?|Restacks?|Views?)$"
-    ).unwrap();
+        r"(?i)^\d+\s+(?:Likes?|Comments?|Shares?|Retweets?|Reposts?|Restacks?|Views?)$",
+    )
+    .unwrap();
     let els = doc.query_selector_all_in_subtree(content_id, "div,p,span,a,button");
     for id in els {
         if has_closest(doc, id, &["pre", "code"]) {
             continue;
         }
         let text = doc.text_content(id).trim().to_string();
-        if social_re.is_match(&text) {
-            if let Some(pid) = doc.parent(id) {
-                let wrapper_text = doc.text_content(pid).trim().to_string();
-                if wrapper_text.split_whitespace().count() < 10 {
-                    doc.remove(pid);
-                }
+        if social_re.is_match(&text)
+            && let Some(pid) = doc.parent(id)
+        {
+            let wrapper_text = doc.text_content(pid).trim().to_string();
+            if wrapper_text.split_whitespace().count() < 10 {
+                doc.remove(pid);
             }
         }
     }
@@ -942,9 +941,7 @@ fn remove_social_counters(doc: &mut Document, content_id: NodeId) {
 
 /// Remove social counter links: anchors wrapping "Likes" / "Comments" text.
 fn remove_social_counter_links(doc: &mut Document, content_id: NodeId) {
-    let likes_re = regex_lite::Regex::new(
-        r"(?i)^\d+\s+(?:Likes?|Comments?)$"
-    ).unwrap();
+    let likes_re = regex_lite::Regex::new(r"(?i)^\d+\s+(?:Likes?|Comments?)$").unwrap();
     let anchors = doc.query_selector_all_in_subtree(content_id, "a");
     for a_id in anchors {
         let text = doc.text_content(a_id).trim().to_string();
@@ -974,9 +971,16 @@ fn remove_social_counter_links(doc: &mut Document, content_id: NodeId) {
 /// Remove cookie consent banners and overlays.
 fn remove_cookie_consent(doc: &mut Document, content_id: NodeId) {
     let cookie_classes = [
-        "cookie-consent", "cookie-banner", "cookie-notice",
-        "cookie-message", "cookie-policy", "eu-cookie",
-        "gdpr", "cc-banner", "consent-banner", "cookie-bar",
+        "cookie-consent",
+        "cookie-banner",
+        "cookie-notice",
+        "cookie-message",
+        "cookie-policy",
+        "eu-cookie",
+        "gdpr",
+        "cc-banner",
+        "consent-banner",
+        "cookie-bar",
     ];
     for pattern in &cookie_classes {
         let selector = format!("[class*=\"{pattern}\" i], [id*=\"{pattern}\" i]");
@@ -987,7 +991,6 @@ fn remove_cookie_consent(doc: &mut Document, content_id: NodeId) {
         }
     }
 }
-
 
 /// Remove trailing CTA / appendix sections: thin heading-introduced blocks at end.
 fn remove_trailing_cta_sections(doc: &mut Document, content_id: NodeId) {
@@ -1013,12 +1016,13 @@ fn remove_trailing_cta_sections(doc: &mut Document, content_id: NodeId) {
 
         // Check if this element is link-dense (related posts section)
         let links = doc.query_selector_all_in_subtree(child, "a").len();
-        let link_dense = links > 0 && words > 0
-            && (links as f64) > (words as f64) * 0.3;
+        let link_dense = links > 0 && words > 0 && (links as f64) > (words as f64) * 0.3;
 
         // Link-dense elements with no heading are likely related posts
-        let has_heading = is_heading_tag(doc, child)
-            || !doc.query_selector_all_in_subtree(child, "h1,h2,h3,h4").is_empty();
+        let _has_heading = is_heading_tag(doc, child)
+            || !doc
+                .query_selector_all_in_subtree(child, "h1,h2,h3,h4")
+                .is_empty();
 
         // Stop at substantial content paragraphs unless they're link-dense
         if words > 30 && !link_dense {
@@ -1035,7 +1039,7 @@ fn remove_trailing_cta_sections(doc: &mut Document, content_id: NodeId) {
         }
     }
 
-    if trailing_ids.len() >= 1 && trailing_words < total_words * 15 / 100 {
+    if !trailing_ids.is_empty() && trailing_words < total_words * 15 / 100 {
         let has_heading = trailing_ids.iter().any(|&id| is_heading_tag(doc, id));
         let has_cta = trailing_ids.iter().any(|&id| {
             let text = doc.text_content(id).trim().to_string();
@@ -1070,7 +1074,9 @@ fn remove_card_grid_blocks(doc: &mut Document, content_id: NodeId) {
                 continue;
             }
             let has_img = !doc.query_selector_all_in_subtree(child, "img").is_empty();
-            let has_heading = !doc.query_selector_all_in_subtree(child, "h1,h2,h3,h4,h5,h6").is_empty();
+            let has_heading = !doc
+                .query_selector_all_in_subtree(child, "h1,h2,h3,h4,h5,h6")
+                .is_empty();
             if has_img && has_heading {
                 card_count += 1;
             }
@@ -1090,4 +1096,3 @@ fn remove_card_grid_blocks(doc: &mut Document, content_id: NodeId) {
         }
     }
 }
-

@@ -2,6 +2,7 @@ use serde_json::Value;
 
 use crate::dom::{Document, NodeId};
 use crate::utils::count_words;
+use rustc_hash::FxHashSet;
 
 type MetaTags = [(Option<String>, Option<String>, Option<String>)];
 
@@ -209,7 +210,7 @@ fn get_schema_property(data: &[Value], property: &str) -> Vec<String> {
             search_schema(item, &parts, "", false, &mut results);
         }
     }
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen = FxHashSet::default();
     results.retain(|r| !r.is_empty() && seen.insert(r.clone()));
     results
 }
@@ -840,7 +841,7 @@ fn get_author(doc: &Document, schema_org_data: &[Value], meta_tags: &MetaTags) -
             .filter(|p| !p.is_empty() && !is_placeholder_value(p))
             .collect();
         if !parts.is_empty() {
-            let mut seen = std::collections::BTreeSet::new();
+            let mut seen = FxHashSet::default();
             let unique: Vec<String> = parts
                 .into_iter()
                 .filter(|p| seen.insert(p.clone()))
@@ -869,8 +870,8 @@ fn get_author_from_dom(doc: &Document, meta_tags: &MetaTags) -> String {
                 names.push(text);
             }
         }
-        use std::collections::BTreeSet;
-        let unique: BTreeSet<_> = names.into_iter().collect();
+        use rustc_hash::FxHashSet;
+        let unique: FxHashSet<_> = names.into_iter().collect();
         let unique: Vec<_> = unique.into_iter().collect();
         if !unique.is_empty() {
             return unique.join(", ");
@@ -919,7 +920,7 @@ fn get_author_from_dom(doc: &Document, meta_tags: &MetaTags) -> String {
     }
 
     if !collected.is_empty() {
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = FxHashSet::default();
         let mut unique: Vec<String> = collected
             .into_iter()
             .filter(|a| {
@@ -932,7 +933,7 @@ fn get_author_from_dom(doc: &Document, meta_tags: &MetaTags) -> String {
             .collect();
 
         if unique.len() > 1 {
-            let set_copy: std::collections::BTreeSet<String> = unique.iter().cloned().collect();
+            let set_copy: FxHashSet<String> = unique.iter().cloned().collect();
             unique.retain(|a| !set_copy.iter().any(|b| b != a && a.contains(b)));
         }
 
