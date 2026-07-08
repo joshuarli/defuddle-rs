@@ -79,32 +79,51 @@ impl Document {
     }
 
     pub fn query_selector_all(&self, selector: &str) -> Vec<NodeId> {
-        let parts: Vec<SimpleSelector> = selector
-            .split_whitespace()
-            .filter_map(SimpleSelector::parse)
-            .collect();
-        if parts.is_empty() {
-            return Vec::new();
+        // Split on commas first to support selector lists (e.g., "h1,h2,h3")
+        let mut results: Vec<NodeId> = Vec::new();
+        for part in selector.split(',') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            let parts: Vec<SimpleSelector> = part
+                .split_whitespace()
+                .filter_map(SimpleSelector::parse)
+                .collect();
+            if parts.is_empty() {
+                continue;
+            }
+            let r: Vec<NodeId> = self
+                .live_node_ids()
+                .filter(|&id| self.matches_selector_chain(id, &parts))
+                .collect();
+            results.extend(r);
         }
-
-        self.live_node_ids()
-            .filter(|&id| self.matches_selector_chain(id, &parts))
-            .collect()
+        results
     }
 
     /// Like query_selector_all but only searches within a subtree.
     pub fn query_selector_all_in_subtree(&self, root: NodeId, selector: &str) -> Vec<NodeId> {
-        let parts: Vec<SimpleSelector> = selector
-            .split_whitespace()
-            .filter_map(SimpleSelector::parse)
-            .collect();
-        if parts.is_empty() {
-            return Vec::new();
+        let mut results: Vec<NodeId> = Vec::new();
+        for part in selector.split(',') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            let parts: Vec<SimpleSelector> = part
+                .split_whitespace()
+                .filter_map(SimpleSelector::parse)
+                .collect();
+            if parts.is_empty() {
+                continue;
+            }
+            let r: Vec<NodeId> = self
+                .live_node_ids()
+                .filter(|&id| self.contains(root, id) && self.matches_selector_chain(id, &parts))
+                .collect();
+            results.extend(r);
         }
-
-        self.live_node_ids()
-            .filter(|&id| self.contains(root, id) && self.matches_selector_chain(id, &parts))
-            .collect()
+        results
     }
 
     pub fn closest(&self, node: NodeId, selector: &str) -> Option<NodeId> {

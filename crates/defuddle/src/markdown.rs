@@ -103,7 +103,7 @@ fn build_converter() -> HtmlToMarkdown {
             if let Some(fnref) = id.strip_prefix("fnref:") {
                 let primary = fnref.split('-').next().unwrap_or(fnref);
                 Some(HandlerResult {
-                    content: format!("[^{primary}]"),
+                    content: format!("[^{primary}] "),
                     markdown_translated: true,
                 })
             } else {
@@ -112,7 +112,23 @@ fn build_converter() -> HtmlToMarkdown {
         },
     );
 
-    // --- footnotes: <div id="footnotes"> <ol> <li id="fn:N"> → [^N]: text ---
+    
+    // Helper: recursively collect text from a markup5ever_rcdom node
+    fn collect_rcdom_text(node: &markup5ever_rcdom::Handle, text: &mut String) {
+        for child in &*node.children.borrow() {
+            match &child.data {
+                markup5ever_rcdom::NodeData::Text { contents } => {
+                    text.push_str(contents.borrow().as_ref());
+                }
+                markup5ever_rcdom::NodeData::Element { .. } => {
+                    collect_rcdom_text(child, text);
+                }
+                _ => {}
+            }
+        }
+    }
+
+// --- footnotes: <div id="footnotes"> <ol> <li id="fn:N"> → [^N]: text ---
     builder = builder.add_handler(
         vec!["div"],
         move |_h: &dyn Handlers, el: Element| -> Option<HandlerResult> {
@@ -144,36 +160,49 @@ fn build_converter() -> HtmlToMarkdown {
                                 .map(|a| a.value.as_ref())
                                 .unwrap_or("");
                             if let Some(num) = lid.strip_prefix("fn:") {
-                                // Extract text from the <a> link
+                                // Collect text from all children, skipping backref <a> links
                                 let mut text = String::new();
                                 let mut url = String::new();
                                 for lc in &*li.children.borrow() {
-                                    if let markup5ever_rcdom::NodeData::Element {
-                                        ref name,
-                                        ref attrs,
-                                        ..
-                                    } = lc.data
-                                        && (name.local.as_ref() == "p"
-                                            || name.local.as_ref() == "a")
-                                    {
-                                        let a_attrs = attrs.borrow();
-                                        if let Some(href) =
-                                            a_attrs.iter().find(|a| a.name.local.as_ref() == "href")
-                                        {
-                                            url = href.value.as_ref().to_string();
+                                    match &lc.data {
+                                        markup5ever_rcdom::NodeData::Text { contents } => {
+                                            text.push_str(contents.borrow().as_ref());
                                         }
-                                        for tc in &*lc.children.borrow() {
-                                            if let markup5ever_rcdom::NodeData::Text {
-                                                ref contents,
-                                            } = tc.data
-                                            {
-                                                text.push_str(&contents.borrow());
+                                        markup5ever_rcdom::NodeData::Element { name, attrs, .. } => {
+                                            let tag = name.local.as_ref();
+                                            if tag == "a" {
+                                                let a_attrs = attrs.borrow();
+                                                let href = a_attrs
+                                                    .iter()
+                                                    .find(|a| a.name.local.as_ref() == "href")
+                                                    .map(|a| a.value.as_ref())
+                                                    .unwrap_or("");
+                                                if href.starts_with("#fnref:") {
+                                                    // Backref link — skip
+                                                    continue;
+                                                }
+                                                url = href.to_string();
+                                                // Collect link text too
+                                                for tc in &*lc.children.borrow() {
+                                                    if let markup5ever_rcdom::NodeData::Text { ref contents } = tc.data {
+                                                        text.push_str(contents.borrow().as_ref());
+                                                    }
+                                                }
+                                            } else {
+                                                // Collect text from other elements recursively
+                                                collect_rcdom_text(lc, &mut text);
                                             }
                                         }
+                                        _ => {}
                                     }
                                 }
-                                if !text.is_empty() && !url.is_empty() {
-                                    result.push_str(&format!("[^{num}]: [{text}]({url})\n\n"));
+                                let trimmed = text.trim();
+                                if !trimmed.is_empty() {
+                                    if !url.is_empty() {
+                                        result.push_str(&format!("[^{num}]: [{trimmed}]({url})\n\n"));
+                                    } else {
+                                        result.push_str(&format!("[^{num}]: {trimmed}\n\n"));
+                                    }
                                 }
                             }
                         }

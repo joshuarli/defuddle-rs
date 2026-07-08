@@ -7,8 +7,10 @@
 use crate::dom::{Document, NodeId};
 use rustc_hash::FxHashMap;
 
-/// Footnote heading regex
-const FOOTNOTE_SECTION_RE: &str = r"(?i)^(?:foot\s*notes?|end\s*notes?|notes?|references?)$";
+/// Footnote heading regex — matches headings that delimit footnote sections.
+/// Also matches compound headings like "References and notes".
+const FOOTNOTE_SECTION_RE: &str =
+    r"(?i)^(?:foot\s*notes?|end\s*notes?|notes?|references?)(?:\s+and\s+notes?)?$";
 
 /// Inline reference selectors
 const INLINE_REF_SELECTORS: &[&str] = &[
@@ -22,10 +24,28 @@ const INLINE_REF_SELECTORS: &[&str] = &[
     "span[id^=\"fnref:\"]",
     "sup[id^=\"fnr\"]",
     "a.citation",
+    // Additional patterns from upstream FOOTNOTE_INLINE_REFERENCES_SELECTOR
+    "sup.reference",
+    "a[id^=\"ref-link\"]",
+    "a[href^=\"#fn\"]",
+    "a[href^=\"#cite\"]",
+    "a[href^=\"#reference\"]",
+    "a[href^=\"#footnote\"]",
+    "a[href^=\"#r\"]",
+    "a[href^=\"#b\"]",
+    "a[href*=\"cite_note\"]",
+    "a[href*=\"cite_ref\"]",
+    "a.footnote-anchor",
+    "span.footnote-hovercard-target a",
+    "a[role=\"doc-biblioref\"]",
+    "sup[data-fn] > a[href^=\"#\"]",
+    "sup[id^=\"ftnt_ref\"] a[href^=\"#ftnt\"]",
+    "span.easy-footnote > a[href^=\"#easy-footnote-bottom-\"]",
+    "a.footnote[href^=\"#\"]",
 ];
 
 pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
-    // Phase 1: Mark inline references
+    // Phase 1: Mark inline references matching known selectors
     let mut ref_count = 0;
     for selector in INLINE_REF_SELECTORS {
         let els = doc.query_selector_all_in_subtree(content_id, selector);
@@ -35,6 +55,23 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
             }
             ref_count += 1;
             doc.set_attr(el_id, "data-fn-ref", &ref_count.to_string());
+        }
+    }
+
+    // Phase 1b: Detect bare <sup> elements with numeric markers (e.g., <sup>1</sup>, <sup>[2]</sup>)
+    let footnote_marker_re = regex_lite::Regex::new(r"^\[?\(?(\d{1,4})\)?\]?$").unwrap();
+    let bare_sups = doc.query_selector_all_in_subtree(content_id, "sup");
+    for sup_id in bare_sups {
+        if has_closest(doc, sup_id, &["pre", "code"]) {
+            continue;
+        }
+        if doc.get_attr(sup_id, "data-fn-ref").is_some() {
+            continue;
+        }
+        let text = doc.text_content(sup_id).trim().to_string();
+        if footnote_marker_re.is_match(&text) {
+            ref_count += 1;
+            doc.set_attr(sup_id, "data-fn-ref", &ref_count.to_string());
         }
     }
 
@@ -56,14 +93,15 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
         return;
     }
 
-    // Phase 3: Build unified <ol id="footnotes">
-    let mut ol_html = String::from("<ol id=\"footnotes\">\n");
+
+    // Phase 3: Build unified <div id="footnotes"><ol>...</ol></div>
+    let mut ol_html = String::from("<div id=\"footnotes\">\n<ol>\n");
     for (num, def_html) in &definitions {
         ol_html.push_str(&format!(
             "<li id=\"fn:{num}\" class=\"footnote\">{def_html}<a href=\"#fnref:{num}\" class=\"footnote-backref\" title=\"return to article\">\u{21A9}</a></li>\n"
         ));
     }
-    ol_html.push_str("</ol>");
+    ol_html.push_str("</ol>\n</div>");
 
     // Append footnote list after the content_id
     doc.append_html(content_id, &ol_html);
@@ -82,12 +120,33 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
                 } else {
                     sup_text
                 };
-                doc.set_tag_name(el_id, "sup");
                 let html = format!(
-                    "<a href=\"#fn:{num}\" id=\"fnref:{num}\" class=\"footnote-ref\">{display}</a>"
+                    "<sup id=\"fnref:{num}\"><a href=\"#fn:{num}\" class=\"footnote-ref\">{display}</a></sup>"
                 );
                 doc.replace_with_html(el_id, &html);
             }
+        }
+    }
+
+    // Phase 4b: Also convert bare <sup> elements that were marked in Phase 1b
+    let bare_sups = doc.query_selector_all_in_subtree(content_id, "sup");
+    for sup_id in bare_sups {
+        if let Some(num_str) = doc.get_attr(sup_id, "data-fn-ref")
+            && let Ok(num) = num_str.parse::<usize>()
+            && definitions.contains_key(&num)
+            // Only convert if not already handled (simpler than checking all selectors)
+            && doc.get_attr(sup_id, "id").is_none()
+        {
+            let sup_text = doc.text_content(sup_id).trim().to_string();
+            let display = if sup_text.is_empty() {
+                num.to_string()
+            } else {
+                sup_text
+            };
+            let html = format!(
+                "<sup id=\"fnref:{num}\"><a href=\"#fn:{num}\" class=\"footnote-ref\">{display}</a></sup>"
+            );
+            doc.replace_with_html(sup_id, &html);
         }
     }
 }
@@ -193,6 +252,7 @@ fn collect_heading_separated_defs(
     let headings = doc.query_selector_all_in_subtree(content_id, "h2,h3,h4,h5,h6");
     let children = doc.children(content_id).to_vec();
 
+
     for &h_id in &headings {
         let text = doc.text_content(h_id).trim().to_string();
         if !re.is_match(&text) {
@@ -202,6 +262,10 @@ fn collect_heading_separated_defs(
             doc.remove(h_id);
             for &child in &children[pos + 1..] {
                 let tag = doc.tag_name(child).to_lowercase();
+                // Skip whitespace/text nodes between elements
+                if tag.is_empty() {
+                    continue;
+                }
                 if tag == "ol" || tag == "ul" {
                     let items = doc.query_selector_all_in_subtree(child, "li");
                     for &li_id in &items {
