@@ -22,6 +22,7 @@ pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_titl
     replace_custom_elements(doc, content_id);
     convert_data_as_spans(doc, content_id);
     convert_block_spans(doc, content_id);
+    flatten_definition_lists(doc, content_id);
     unwrap_layout_tables(doc, content_id);
     flatten_wrapper_elements(doc, content_id);
     remove_permalink_anchors(doc, content_id);
@@ -1099,6 +1100,37 @@ fn standardize_element_roles(doc: &mut Document, content_id: NodeId) {
     }
 }
 
+/// Flatten definition lists (<dl>) by converting <dt>/<dd> pairs into
+/// inline code blocks followed by separate paragraphs.
+fn flatten_definition_lists(doc: &mut Document, content_id: NodeId) {
+    let dls = doc.query_selector_all_in_subtree(content_id, "dl");
+    for dl_id in dls {
+        if doc.is_removed(dl_id) {
+            continue;
+        }
+        // Collect dt/dd pairs
+        let children: Vec<NodeId> = doc.children(dl_id).to_vec();
+        // Build replacement HTML
+        let mut replacement = String::new();
+        for child_id in children {
+            let tag = doc.tag_name(child_id).to_lowercase();
+            if tag == "dt" {
+                let html = doc.inner_html(child_id);
+                // Wrap dt content on its own line (will become inline code in markdown)
+                replacement.push_str(&html);
+                replacement.push('\n');
+            } else if tag == "dd" {
+                let html = doc.inner_html(child_id);
+                replacement.push_str(&format!("<p>{html}</p>\n"));
+            } else {
+                let outer = doc.outer_html(child_id);
+                replacement.push_str(&outer);
+            }
+        }
+        doc.replace_with_html(dl_id, &replacement);
+    }
+}
+
 /// Unwrap single-column layout tables (tables used for positioning, not data).
 fn unwrap_layout_tables(doc: &mut Document, content_id: NodeId) {
     let tables = doc.query_selector_all_in_subtree(content_id, "table");
@@ -1128,6 +1160,11 @@ fn unwrap_layout_tables(doc: &mut Document, content_id: NodeId) {
             if BLOCK_LEVEL_ELEMENTS.contains(&child_tag.as_str()) {
                 doc.replace_with_html(table_id, &doc.outer_html(child));
             }
+        } else if cell_children.len() > 1 {
+            // Multiple block children in the cell: flatten the layout table,
+            // replacing it with the cell's inner HTML.
+            let inner = doc.inner_html(cell);
+            doc.replace_with_html(table_id, &inner);
         }
     }
 }

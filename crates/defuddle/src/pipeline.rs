@@ -149,15 +149,31 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
             for pattern in PARTIAL_SELECTORS {
                 let pat = pattern.to_lowercase();
                 if attr_values.contains(&pat) {
-                    matched = true;
-                    break;
+                    // Word-boundary check: if pattern starts or ends with '-', ensure
+                    // the match is at a CSS class boundary (not mid-word like "commented").
+                    if pat.starts_with('-') || pat.ends_with('-') {
+                        if is_word_boundary_match(&attr_values, &pat) {
+                            matched = true;
+                            break;
+                        }
+                    } else {
+                        matched = true;
+                        break;
+                    }
                 }
                 if !id_str.is_empty() {
                     let has_delimiter = id_str.contains([' ', '_', '-', ':', '.']);
                     if has_delimiter {
                         if id_str.contains(&pat) {
-                            matched = true;
-                            break;
+                            if pat.starts_with('-') || pat.ends_with('-') {
+                                if is_word_boundary_match(&id_str, &pat) {
+                                    matched = true;
+                                    break;
+                                }
+                            } else {
+                                matched = true;
+                                break;
+                            }
                         }
                     } else if id_str == pat {
                         matched = true;
@@ -175,6 +191,22 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
             doc.remove(id);
         }
     }
+}
+
+/// Check whether a pattern with leading/trailing hyphens matches at CSS class boundaries.
+fn is_word_boundary_match(haystack: &str, pattern: &str) -> bool {
+    if let Some(pos) = haystack.find(pattern) {
+        let after_pos = pos + pattern.len();
+        // Character after match must be non-alphabetic or end of string
+        if after_pos < haystack.len() {
+            let after_char = haystack.as_bytes()[after_pos] as char;
+            if after_char.is_alphabetic() {
+                return false;
+            }
+        }
+        return true;
+    }
+    false
 }
 
 /// Like remove_by_selector but skips ancestors of the content element.
@@ -289,15 +321,29 @@ pub fn remove_by_selector_protected(
             for pattern in PARTIAL_SELECTORS {
                 let pat = pattern.to_lowercase();
                 if attr_values.contains(&pat) {
-                    matched = true;
-                    break;
+                    if pat.starts_with('-') || pat.ends_with('-') {
+                        if is_word_boundary_match(&attr_values, &pat) {
+                            matched = true;
+                            break;
+                        }
+                    } else {
+                        matched = true;
+                        break;
+                    }
                 }
                 if !id_str.is_empty() {
                     let has_delimiter = id_str.contains([' ', '_', '-', ':', '.']);
                     if has_delimiter {
                         if id_str.contains(&pat) {
-                            matched = true;
-                            break;
+                            if pat.starts_with('-') || pat.ends_with('-') {
+                                if is_word_boundary_match(&id_str, &pat) {
+                                    matched = true;
+                                    break;
+                                }
+                            } else {
+                                matched = true;
+                                break;
+                            }
                         }
                     } else if id_str == pat {
                         matched = true;
