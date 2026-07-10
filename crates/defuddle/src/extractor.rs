@@ -382,6 +382,25 @@ pub mod hackernews {
         }
 
         fn get_post_title(&self, doc: &Document) -> String {
+            if self.is_comment_page {
+                let author = doc
+                    .query_selector_all(".hnuser")
+                    .first()
+                    .map(|id| doc.text_content(*id).trim().to_string())
+                    .unwrap_or_else(|| "[deleted]".into());
+                let commtext = doc
+                    .query_selector_all(".commtext")
+                    .first()
+                    .map(|id| doc.text_content(*id).trim().to_string())
+                    .unwrap_or_default();
+                let truncated: String = commtext.chars().take(50).collect();
+                let preview = if commtext.chars().count() > 50 {
+                    format!("{truncated}...")
+                } else {
+                    commtext
+                };
+                return format!("Comment by {author}: {preview}");
+            }
             doc.query_selector_all(".titleline")
                 .first()
                 .map(|id| doc.text_content(*id).trim().to_string())
@@ -956,6 +975,7 @@ pub mod chatgpt {
                         doc.closest(el, "[data-testid^=\"conversation-turn-\"]") == Some(turn_id)
                     })
                     .collect();
+                eprintln!("DEBUG: turn has {} msg_els, heading={:?}", msg_els.len(), heading);
 
                 let content_parts: Vec<String> = if msg_els.is_empty() {
                     let fallback = doc
@@ -982,6 +1002,7 @@ pub mod chatgpt {
                 };
 
                 let mut message_content = content_parts.join("\n");
+                eprintln!("DEBUG: content_parts.len()={}, joined_len={}", content_parts.len(), message_content.len());
                 message_content = message_content.replace('\u{200B}', "");
 
                 // Process citations
@@ -995,6 +1016,7 @@ pub mod chatgpt {
                     .to_string();
 
                 let trimmed = message_content.trim().to_string();
+                eprintln!("DEBUG: trimmed.len()={}", trimmed.len());
                 if !trimmed.is_empty() {
                     messages.push((heading, trimmed));
                 }
@@ -1088,18 +1110,18 @@ pub mod substack {
         if !doc.query_selector_all("div.body.markup").is_empty() {
             return Some(Box::new(SubstackExtractor { mode: 0 }));
         }
-        if !doc
-            .query_selector_all(".ProseMirror, .FeedProseMirror")
-            .is_empty()
-        {
-            return Some(Box::new(SubstackExtractor { mode: 1 }));
-        }
         let scripts = doc.query_selector_all("script");
         for sc in scripts {
             let text = doc.text_content(sc);
             if text.contains("window._preloads") && text.contains("body_html") {
                 return Some(Box::new(SubstackExtractor { mode: 2 }));
             }
+        }
+        if !doc
+            .query_selector_all(".ProseMirror, .FeedProseMirror")
+            .is_empty()
+        {
+            return Some(Box::new(SubstackExtractor { mode: 1 }));
         }
         None
     }

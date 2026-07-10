@@ -176,6 +176,8 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
             eprintln!("=== DIF {name} ===");
             eprintln!("COMP:{:?}", truncate_first_n(&comparable, 200));
             eprintln!("EXP: {:?}", truncate_first_n(&expected, 200));
+            eprintln!("\n--- FULL COMPUTED ({name}) ---\n{}\n--- END COMPUTED ---", truncate_first_n(&comparable, 5000));
+            eprintln!("\n--- FULL EXPECTED ({name}) ---\n{}\n--- END EXPECTED ---", truncate_first_n(&expected, 5000));
         }
 
         let expected_html_path = expected_dir().join(format!("{name}.html"));
@@ -191,16 +193,20 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
     mismatches.sort();
     let active_count = total - excluded_count;
     let matched = total - excluded_count - mismatches.len();
-    let first_five = &mismatches[..mismatches.len().min(5)];
     eprintln!(
-        "fixture parity: {matched} matched, {} mismatched, {active_count} active, {excluded_count} excluded of {total} total. first five mismatches: {first_five:?}",
+        "fixture parity: {matched} matched, {} mismatched, {active_count} active, {excluded_count} excluded of {total} total.",
         mismatches.len()
     );
+    eprintln!("=== MISMATCH LIST ===");
+    for m in &mismatches {
+        eprintln!("  {m}");
+    }
+    eprintln!("=== END MISMATCH LIST ===");
 
     if strict_fixture_mode() {
         assert!(
             mismatches.is_empty(),
-            "strict fixture parity failed: {} mismatches across {active_count} active fixtures. first five mismatches: {first_five:?}",
+            "strict fixture parity failed: {} mismatches across {active_count} active fixtures. all mismatches: {mismatches:?}",
             mismatches.len()
         );
     }
