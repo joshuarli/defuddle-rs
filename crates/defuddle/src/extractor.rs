@@ -969,17 +969,15 @@ pub mod chatgpt {
 
                 // Collect all content from [data-message-author-role] elements (post-thought merge)
                 let msg_els: Vec<_> = doc
-                    .query_selector_all_in_subtree(turn_id, "[data-message-author-role]")
+                    .query_selector_all_in_subtree(
+                        turn_id,
+                        "[data-message-author-role=\"user\"],[data-message-author-role=\"assistant\"]",
+                    )
                     .into_iter()
                     .filter(|&el| {
                         doc.closest(el, "[data-testid^=\"conversation-turn-\"]") == Some(turn_id)
                     })
                     .collect();
-                eprintln!(
-                    "DEBUG: turn has {} msg_els, heading={:?}",
-                    msg_els.len(),
-                    heading
-                );
 
                 let content_parts: Vec<String> = if msg_els.is_empty() {
                     let fallback = doc
@@ -1006,12 +1004,8 @@ pub mod chatgpt {
                 };
 
                 let mut message_content = content_parts.join("\n");
-                eprintln!(
-                    "DEBUG: content_parts.len()={}, joined_len={}",
-                    content_parts.len(),
-                    message_content.len()
-                );
                 message_content = message_content.replace('\u{200B}', "");
+                message_content = message_content.replace("<br>", "\n");
 
                 // Process citations
                 message_content =
@@ -1024,7 +1018,6 @@ pub mod chatgpt {
                     .to_string();
 
                 let trimmed = message_content.trim().to_string();
-                eprintln!("DEBUG: trimmed.len()={}", trimmed.len());
                 if !trimmed.is_empty() {
                     messages.push((heading, trimmed));
                 }
@@ -1051,14 +1044,18 @@ pub mod chatgpt {
         counter: &mut usize,
     ) -> String {
         let re = regex_lite::Regex::new(
-            r#"<span[^>]*data-state="closed"[^>]*>\s*<span[^>]*data-testid="webpage-citation-pill"[^>]*>\s*<a\b[^>]*href="([^"]*)"[^>]*target="_blank"[^>]*rel="noopener"[^>]*>[\s\S]*?</a>\s*</span>\s*</span>"#,
-        ).unwrap();
+            r#"<span[^>]*data-testid="webpage-citation-pill"[^>]*>[\s\S]*?<a\b[^>]*href="([^"]*)"[^>]*>[\s\S]*?</a>[\s\S]*?</span>"#,
+        )
+        .unwrap();
         re.replace_all(html, |caps: &regex_lite::Captures| {
-            let url = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let url = caps
+                .get(1)
+                .map(|m| m.as_str().replace("&amp;", "&"))
+                .unwrap_or_default();
             let domain = url
                 .strip_prefix("https://")
                 .or_else(|| url.strip_prefix("http://"))
-                .unwrap_or(url)
+                .unwrap_or(url.as_str())
                 .split('/')
                 .next()
                 .unwrap_or("")
@@ -1069,15 +1066,15 @@ pub mod chatgpt {
             if domain.is_empty() {
                 return String::new();
             }
-            let existing = footnotes.iter().position(|(u, _)| u == url);
+            let existing = footnotes.iter().position(|(u, _)| u == &url);
             let num = if let Some(idx) = existing {
                 idx + 1
             } else {
                 *counter += 1;
-                footnotes.push((url.to_string(), domain.to_string()));
+                footnotes.push((url.clone(), domain.to_string()));
                 *counter
             };
-            format!("<sup><a href=\"#fn:{num}\" id=\"fnref:{num}\">{num}</a></sup>")
+            format!("<sup class=\"footnote-ref\"><a href=\"#fn{num}\" id=\"fnref:{num}\">{num}</a></sup>")
         })
         .to_string()
     }

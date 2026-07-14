@@ -128,17 +128,19 @@ fn standardize_raw_latex(doc: &mut Document, content_id: NodeId) {
 
         // \[...\] block LaTeX → $$...$$
         if let Ok(re_block) = regex_lite::Regex::new(r"\\\[([^\]]*)\\\]")
-            && re_block.is_match(&new_text) {
-                new_text = re_block.replace_all(&new_text, "$$\n$1\n$$").to_string();
-                changed = true;
-            }
+            && re_block.is_match(&new_text)
+        {
+            new_text = re_block.replace_all(&new_text, "$$\n$1\n$$").to_string();
+            changed = true;
+        }
 
         // \(...\) inline LaTeX → $...$
         if let Ok(re_inline) = regex_lite::Regex::new(r"\\\(([^)]*)\\\)")
-            && re_inline.is_match(&new_text) {
-                new_text = re_inline.replace_all(&new_text, "$$1$").to_string();
-                changed = true;
-            }
+            && re_inline.is_match(&new_text)
+        {
+            new_text = re_inline.replace_all(&new_text, "$$1$").to_string();
+            changed = true;
+        }
 
         if changed && new_text != text && !new_text.contains("$\\displaystyle") {
             doc.replace_with_html(el_id, &new_text);
@@ -201,9 +203,10 @@ fn is_block_math(doc: &Document, node: NodeId) -> bool {
 /// Check if a MathJax element is block display.
 fn is_block_mathjax(doc: &Document, node: NodeId) -> bool {
     if let Some(display) = doc.get_attr(node, "display")
-        && (display == "true" || display == "block") {
-            return true;
-        }
+        && (display == "true" || display == "block")
+    {
+        return true;
+    }
     false
 }
 

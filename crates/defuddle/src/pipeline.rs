@@ -396,9 +396,10 @@ pub fn remove_hidden_elements(doc: &mut Document) {
                 // Skip elements inside callout containers (e.g. collapsed callout content)
                 if doc.closest(id, "[data-callout]").is_none()
                     && doc.closest(id, ".callout").is_none()
-                    && !to_remove.contains(&id) {
-                        to_remove.push(id);
-                    }
+                    && !to_remove.contains(&id)
+                {
+                    to_remove.push(id);
+                }
                 continue;
             }
         }
@@ -940,10 +941,11 @@ fn remove_byline_blocks(doc: &mut Document, content_id: NodeId) {
         let word_count = text.split_whitespace().count();
 
         if (class.contains("byline") || class.contains("author") || class.contains("meta"))
-            && word_count < 30 {
-                doc.remove(child);
-                continue;
-            }
+            && word_count < 30
+        {
+            doc.remove(child);
+            continue;
+        }
         // Also match patterns with author link + date text
         if (2..=20).contains(&word_count) {
             let has_author_link = class.contains("author")

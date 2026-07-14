@@ -302,6 +302,14 @@ fn get_best_title(
         return String::new();
     }
 
+    if domain.eq_ignore_ascii_case("chatgpt.com")
+        && let Some(title) = candidates
+            .iter()
+            .find(|candidate| candidate.eq_ignore_ascii_case("chatgpt"))
+    {
+        return title.clone();
+    }
+
     let author_meta = get_meta_content(meta_tags, "property", "author")
         .or_else(|| get_meta_content(meta_tags, "name", "author"))
         .map(|s| s.trim().to_lowercase())

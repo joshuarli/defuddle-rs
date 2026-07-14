@@ -537,9 +537,10 @@ fn unwrap_special_links(doc: &mut Document, content_id: NodeId) {
     let all_links = doc.query_selector_all_in_subtree(content_id, "a");
     for &id in &all_links {
         if let Some(href) = doc.get_attr(id, "href")
-            && href.trim().to_lowercase().starts_with("javascript:") {
-                doc.unwrap(id);
-            }
+            && href.trim().to_lowercase().starts_with("javascript:")
+        {
+            doc.unwrap(id);
+        }
     }
 }
 
@@ -1240,18 +1241,49 @@ fn normalize_codemirror_blocks(doc: &mut Document, content_id: NodeId) {
         .collect();
 
     for pre_id in pres {
-        // Look for language label in a header div above the CodeMirror content
+        // Look for the language label in the CodeMirror toolbar before inspecting code tokens.
         let mut language = String::new();
         let html = doc.inner_html(pre_id);
+        for id in doc.query_selector_all_in_subtree(pre_id, "div") {
+            let is_language_label = doc
+                .get_attr(id, "class")
+                .is_some_and(|class| class.split_whitespace().any(|part| part == "font-medium"));
+            if is_language_label {
+                let candidate = doc.text_content(id).trim().to_lowercase();
+                if !candidate.is_empty()
+                    && candidate
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '#' || c == '-')
+                {
+                    language = candidate;
+                    break;
+                }
+            }
+        }
         // Try to find language from text nodes near the top (e.g., "Python" in a div header)
-        let re =
-            regex_lite::Regex::new(r#"<div[^>]*class="[^"]*header[^"]*"[^>]*>\s*(\w+)\s*</div>"#)
-                .unwrap();
-        if let Some(caps) = re.captures(&html) {
-            language = caps
-                .get(1)
-                .map(|m| m.as_str().to_lowercase())
-                .unwrap_or_default();
+        if language.is_empty() {
+            let re = regex_lite::Regex::new(
+                r#"<div[^>]*class="[^"]*font-medium[^"]*"[^>]*>(?:<[^>]+>)*([A-Za-z][A-Za-z0-9+#.-]*)"#,
+            )
+            .unwrap();
+            if let Some(caps) = re.captures(&html) {
+                language = caps
+                    .get(1)
+                    .map(|m| m.as_str().to_lowercase())
+                    .unwrap_or_default();
+            }
+        }
+        if language.is_empty() {
+            let re = regex_lite::Regex::new(
+                r#"<div[^>]*class="[^"]*header[^"]*"[^>]*>\s*(\w+)\s*</div>"#,
+            )
+            .unwrap();
+            if let Some(caps) = re.captures(&html) {
+                language = caps
+                    .get(1)
+                    .map(|m| m.as_str().to_lowercase())
+                    .unwrap_or_default();
+            }
         }
         // Also try to find language from a dedicated language-label element
         if language.is_empty() {
@@ -1268,20 +1300,48 @@ fn normalize_codemirror_blocks(doc: &mut Document, content_id: NodeId) {
             }
         }
 
-        // Extract text content: CodeMirror uses <br> for line breaks and spans for syntax tokens
-        let mut text = doc.text_content(pre_id);
-        // The text_content may have runs of whitespace from the spans; clean it up
+        // Extract only the editor content. CodeMirror uses <br> for line breaks and spans for tokens.
+        let content_id = doc
+            .query_selector_all_in_subtree(pre_id, ".cm-content")
+            .first()
+            .copied();
+        let mut text = if let Some(content_id) = content_id {
+            let content_html = doc
+                .inner_html(content_id)
+                .replace("<br>", "\n")
+                .replace("<br/>", "\n")
+                .replace("<br />", "\n");
+            let fragment = Document::parse(&content_html);
+            fragment
+                .query_selector_all("body")
+                .first()
+                .map(|body| fragment.text_content(*body))
+                .unwrap_or(content_html)
+        } else {
+            doc.text_content(pre_id)
+        };
         text = text.trim().to_string();
+        let collapse_code_gaps = regex_lite::Regex::new(r"\n{3,}").unwrap();
+        text = collapse_code_gaps.replace_all(&text, "\n\n").to_string();
+
+        if language == "def"
+            && text
+                .lines()
+                .any(|line| line.trim_start().starts_with("def "))
+        {
+            language = "python".to_string();
+        }
 
         if text.is_empty() {
             continue;
         }
 
         // Build <pre><code> replacement
+        let escaped_text = crate::utils::escape_html(&text);
         let code_html = if !language.is_empty() {
-            format!("<pre><code class=\"language-{language}\">{text}</code></pre>")
+            format!("<pre><code class=\"language-{language}\">{escaped_text}</code></pre>")
         } else {
-            format!("<pre><code>{text}</code></pre>")
+            format!("<pre><code>{escaped_text}</code></pre>")
         };
 
         doc.replace_with_html(pre_id, &code_html);

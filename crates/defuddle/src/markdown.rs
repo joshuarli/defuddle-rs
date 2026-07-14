@@ -120,11 +120,43 @@ fn build_converter() -> HtmlToMarkdown {
                     text.push_str(contents.borrow().as_ref());
                 }
                 markup5ever_rcdom::NodeData::Element { .. } => {
-                    collect_rcdom_text(child, text);
+                    let is_backref =
+                        if let markup5ever_rcdom::NodeData::Element { attrs, .. } = &child.data {
+                            attrs
+                                .borrow()
+                                .iter()
+                                .find(|attr| attr.name.local.as_ref() == "href")
+                                .is_some_and(|attr| attr.value.as_ref().starts_with("#fnref:"))
+                        } else {
+                            false
+                        };
+                    if !is_backref {
+                        collect_rcdom_text(child, text);
+                    }
                 }
                 _ => {}
             }
         }
+    }
+
+    fn find_rcdom_link(node: &markup5ever_rcdom::Handle) -> Option<String> {
+        if let markup5ever_rcdom::NodeData::Element { attrs, .. } = &node.data {
+            if let Some(href) = attrs
+                .borrow()
+                .iter()
+                .find(|attr| attr.name.local.as_ref() == "href")
+                .map(|attr| attr.value.to_string())
+                && !href.starts_with("#fnref:")
+            {
+                return Some(href);
+            }
+        }
+        for child in &*node.children.borrow() {
+            if let Some(href) = find_rcdom_link(child) {
+                return Some(href);
+            }
+        }
+        None
     }
 
     // --- footnotes: <div id="footnotes"> <ol> <li id="fn:N"> → [^N]: text ---
@@ -196,6 +228,11 @@ fn build_converter() -> HtmlToMarkdown {
                                                 }
                                             } else {
                                                 // Collect text from other elements recursively
+                                                if url.is_empty()
+                                                    && let Some(href) = find_rcdom_link(lc)
+                                                {
+                                                    url = href;
+                                                }
                                                 collect_rcdom_text(lc, &mut text);
                                             }
                                         }
@@ -440,6 +477,10 @@ fn postprocess_markdown(md: &str) -> String {
 
     let md = fix_inline_spacing_outside_code(&md);
 
+    // htmd escapes the bracket syntax produced for extractor footnote references.
+    let footnote_escape_re = regex_lite::Regex::new(r#"\\(\[\^\d+)\\\]"#).unwrap();
+    let md = footnote_escape_re.replace_all(&md, "$1]").to_string();
+
     // Add a space between exclamation marks and image syntax ![
     // e.g. "Yey!![IMG](url)" becomes "Yey! ![IMG](url)" to prevent
     // the parser from misinterpreting the ! as part of the image markup.
@@ -487,8 +528,98 @@ fn postprocess_markdown(md: &str) -> String {
     // with a single-space paragraph. Must run after line-by-line cleanup
     // which would otherwise trim the space line.
     let result = result.replace("\n\n\u{00B7}\n\n", "\n\n \n\n");
+    let result = normalize_markdown_layout(&result);
 
     result.trim_end().to_string()
+}
+
+fn normalize_markdown_layout(md: &str) -> String {
+    let mut out = String::new();
+    let mut in_fenced_code = false;
+
+    for line in md.lines() {
+        if line.trim_start().starts_with("```") {
+            in_fenced_code = !in_fenced_code;
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        if in_fenced_code {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        let mut line = line.to_string();
+        let trimmed = line.trim().to_string();
+        if trimmed.starts_with('#') {
+            line = line.replace("**", "");
+        }
+        if trimmed.starts_with("✅ ") && trimmed.matches("✅ ").count() > 1 {
+            let items = trimmed
+                .split("✅ ")
+                .filter(|item| !item.is_empty())
+                .collect::<Vec<_>>();
+            for (index, item) in items.iter().enumerate() {
+                out.push('✅');
+                out.push(' ');
+                out.push_str(item.trim());
+                if index + 1 < items.len() {
+                    out.push_str("  \n");
+                } else {
+                    out.push('\n');
+                }
+            }
+            continue;
+        }
+        if trimmed.starts_with('|') {
+            let cells = trimmed
+                .trim_matches('|')
+                .split('|')
+                .map(|cell| {
+                    let cell = cell.trim();
+                    if cell.len() >= 3 && cell.chars().all(|c| c == '-') {
+                        "---"
+                    } else {
+                        cell
+                    }
+                })
+                .collect::<Vec<_>>();
+            line = format!("| {} |", cells.join(" | "));
+        }
+
+        if let Some((prefix, rest)) = trimmed.split_once(". ")
+            && !prefix.is_empty()
+            && prefix.chars().all(|c| c.is_ascii_digit())
+        {
+            line = format!("{prefix}. {}", rest.trim_start());
+        }
+        let is_list_item = trimmed.starts_with("- ")
+            || trimmed.starts_with("* ")
+            || trimmed.split_once(". ").is_some_and(|(prefix, _)| {
+                !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit())
+            });
+        let previous_nonempty = out.lines().rev().find(|line| !line.trim().is_empty());
+        let previous_is_list_item = previous_nonempty.is_some_and(|previous| {
+            previous.trim_start().starts_with("- ")
+                || previous.trim_start().starts_with("* ")
+                || previous
+                    .trim_start()
+                    .split_once(". ")
+                    .is_some_and(|(prefix, _)| {
+                        !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit())
+                    })
+        });
+        if is_list_item && previous_is_list_item && out.ends_with("\n\n") {
+            out.pop();
+        }
+        out.push_str(&line);
+        out.push('\n');
+    }
+
+    let result = out.trim_end_matches('\n').to_string();
+    let checklist_re = regex_lite::Regex::new(r"(?m)^(✅ .+)\n\n(✅ )").unwrap();
+    checklist_re.replace_all(&result, "$1  \n$2").to_string()
 }
 
 /// Escape tag-like sequences in text (e.g. "Monte<video>: A Real Place")
