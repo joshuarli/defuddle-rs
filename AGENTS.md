@@ -85,14 +85,13 @@ URL-pattern matching against a flat list of (domain, factory) pairs. Eight extra
 | Substack | substack.com | Notes via ProseMirror, custom-domain detection |
 | Mastodon | mastodon.* | Post + image + replies, self-reply thread detection |
 | BBCode Data | store.example.com | Steam-style BBCode → HTML conversion |
-| Twitter/X | — | Not implemented (requires async or complex DOM paths) |
+| Twitter/X | x.com, twitter.com | Static article and conversation extraction |
 
 All extractors are DOM-only (no network). No async extractors (YouTube, Bilibili) are implemented. The `Extractor` trait has `can_extract(&self, doc: &Document) -> bool` and `extract(&self, doc: &Document) -> ExtractorResult`.
 
 ### Site Extractors NOT Implemented
 
 The following upstream extractors are not ported:
-- Twitter/X (requires async + complex DOM)
 - YouTube (requires async + transcript API)
 - Bilibili (explicitly excluded)
 - Claude, Gemini, Grok, Medium, Wikipedia, LinkedIn, Threads, Bluesky, Discourse, LeetCode, LWN, C2 Wiki, NYTimes
@@ -121,7 +120,7 @@ No HTTP client, no TLS, no proxy, no async runtime, no browser automation, no Ja
 ## Test Suite
 
 ```
-56 tests total (5 suites, 0 failures)
+56 tests total (5 suites, with one known pre-existing markdown link-spacing failure)
 
 lib (13):        dom adapter spike, utils (5), sanitizer (3), markdown (3)
 fixtures (3):    harness discovery, exception manifest validation, golden runner
@@ -170,12 +169,13 @@ cargo test --test fixtures -- --nocapture 2>&1 | grep -A 20 "EXTRACTOR comments-
 
 ## Known Gaps
 
-- **Fixture parity**: 0/202 golden fixtures match byte-for-byte. Full parity requires:
-  - Complete port of `src/markdown.ts` custom rules (exclamation-mark spacing, ragged table columns, math conversion, tag-like text escaping, parenthesis escaping in links)
-  - Complete port of `src/standardize.ts` (headings, code blocks, images, callouts, footnotes, math, permalink anchors, attribute stripping, wrapper flattening, br normalization)
-- **Retry logic**: The upstream parse() retries with reduced aggressiveness when word count is low. Not ported.
-- **Schema text fallback**: When schema.org text is 1.5x longer than extracted content, re-extract from the schema-matched element. Not ported.
+- **Fixture parity**: 43/114 active golden fixtures match; 88 fixtures are explicitly excluded. Full parity requires:
+  - Complete port of `src/markdown.ts` custom rules (exclamation-mark spacing, ragged table columns, tag-like text escaping, parenthesis escaping in links)
+  - Complete port of `src/standardize.ts` (headings, code blocks, images, callouts, footnotes, permalink anchors, attribute stripping, wrapper flattening, br normalization)
+- **Retry logic**: Low-word-count retry behavior exists, but may still differ from upstream in its aggressiveness choices.
+- **Schema text fallback**: Schema text fallback exists, but its selection or Markdown conversion may still differ from upstream.
+- **Math parity**: Math extraction and rendered math HTML/MathML/KaTeX/MathJax fidelity are deferred.
 - **Mobile styles, shadow DOM, React SSR**: Browser-only features not ported (out of scope).
 - **Performance benchmarks**: Not implemented.
-- **Async extractors**: YouTube transcripts, Bilibili (excluded), X oEmbed not ported.
+- **Async extractors**: YouTube transcripts, Bilibili (excluded), and X oEmbed are not ported.
 - **:`not()` selectors**: Buggy in the simple CSS selector parser. Worked around manually for script/iframe/video/audio.

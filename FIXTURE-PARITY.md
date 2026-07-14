@@ -7,10 +7,10 @@ This is the working doc for closing the upstream fixture parity gap. Keep it foc
 Measured with `cargo test --test fixtures -- --nocapture`:
 
 - 202 vendored upstream fixtures.
-- 124 active fixtures.
-- 78 excluded fixtures in `tests/upstream-exceptions.toml`.
+- 114 active fixtures.
+- 88 excluded fixtures in `tests/upstream-exceptions.toml`.
 - 43 active fixtures match.
-- 81 active fixtures mismatch.
+- 71 active fixtures mismatch.
 
 The fixture runner is non-blocking by default and prints the current count. Use strict mode for a real parity gate:
 
@@ -24,15 +24,25 @@ Use a comma-separated filter when working a narrow set:
 DEFUDDLE_FIXTURE_FILTER=fixture-one,fixture-two cargo test --test fixtures -- --nocapture
 ```
 
+The full test suite also has one known pre-existing failure unrelated to fixture parity:
+`markdown_conversion::wraps_link_destinations_with_spaces_in_angle_brackets`. Until that is fixed,
+run the full suite for visibility and use this passing integration command as the regression gate:
+
+```bash
+cargo test --test integration -- --skip markdown_conversion::wraps_link_destinations_with_spaces_in_angle_brackets
+```
+
 ## Scope Rules
 
 Keep fixtures active when they exercise common static reader-mode behavior:
 
-- Markdown formatting, escaping, tables, code blocks, callouts, math, and footnotes.
+- Markdown formatting, escaping, tables, code blocks, callouts, and footnotes.
 - Standard DOM cleanup: headings, wrappers, attributes, empty elements, layout tables, `<br>` normalization, and permalink anchors.
-- Images, media, safe links, lazy/static fallback images, `srcset`, and URL resolution.
+- Images, safe links, lazy/static fallback images, `srcset`, and URL resolution.
 - Content boundary behavior: scoring, retries, hidden content, content-pattern removal, schema fallback, and metadata block removal.
 - Popular/general sites and extractors already present in this crate.
+
+Math fixtures are excluded from the core parity gate. Math extraction and rendered math fidelity are deferred.
 
 Exclude fixtures only for concrete out-of-scope requirements:
 
@@ -50,42 +60,47 @@ For each parity change:
 
 - Keep fixture scope stable unless the change intentionally promotes or excludes a named fixture.
 - Run the narrow fixture filter first, then `cargo test --test fixtures -- --nocapture`.
-- Run full `cargo test` before calling a tranche done.
-- Update the baseline counts in this file when the active surface changes or a tranche materially reduces mismatches.
+- Run full `cargo test` before calling a tranche done; the known link-spacing failure must remain the only unrelated failure.
+- Update the baseline counts when the active surface changes or a tranche materially reduces mismatches.
 - Add focused integration tests when the behavior is shared and easy to regress outside the golden diff.
 - Do not add HTTP, browser automation, JavaScript runtime, async runtime, or broad dependencies to `defuddle`.
+- Classify each mismatch before changing code.
+
+The useful mismatch categories are:
+
+- Metadata preamble.
+- Content HTML.
+- Markdown-only.
+- Extractor selection or extractor output.
+- URL/image normalization.
+- Fixture or exception bookkeeping.
+
+The harness currently reports only one aggregate count. Use its narrow filter and diff output to assign a category, and record the category in the tranche notes or issue. Measure progress by category as well as by total matched fixtures.
 
 ## Work Order
 
-### 1. Extractors Already In Core
+### 1. Shared Markdown Rules
 
-These mismatches are high-signal because extractor output bypasses much of the shared pipeline.
+Start with renderer behavior that affects many unrelated fixtures.
 
 Focus:
 
-- ChatGPT turn labels, hidden Thought blocks, CodeMirror extraction, citation footnotes, and Markdown spacing.
-- GitHub issue/PR content boundaries, author/date metadata, comment extraction, and page chrome removal.
-- Reddit old-reddit duplicate nested comments, blockquote spacing, and URL normalization.
-- Hacker News listing/comment parity if mismatches remain after shared Markdown fixes.
-- Substack app/custom-domain output if active mismatches remain.
-- X/Twitter static article and conversation extraction already has a core extractor; finish metadata, title/image preservation, and localized/status URL cases without network calls.
+- Tag-like text escaping.
+- Parentheses and spaces in link destinations.
+- Inline spacing around links, bold, code, punctuation, and images.
+- Ragged table padding.
+- Footnote reference/backref formatting.
+- Callout rendering.
+- Stable blank-line behavior outside fenced code.
 
 Representative fixtures:
 
-- `extractor--chatgpt-citations`
-- `extractor--chatgpt-post-thought-content`
-- `codeblocks--chatgpt-codemirror`
-- `general--github.com-issue-56`
-- `general--github.com-test-owner-test-repo-pull-42`
-- `comments--old.reddit.com-r-test-comments-abc123-test_post`
-- `comments--news.ycombinator.com-item-id=12345678`
-- `listing--news.ycombinator.com-news`
-- `general--substack-app`
-- `general--substack-custom-domain`
-- `general--x.com-article`
-- `general--x.com-article-2026-02-13`
-- `issues--161-x-status-url-author`
-- `issues--272-x-localized-conversation-timeline`
+- `issues--285-tag-like-title-escaping`
+- `elements--complex-tables`
+- `elements--data-table`
+- `callouts--obsidian-publish-callouts`
+- `elements--bootstrap-alerts`
+- `elements--hugo-admonitions`
 
 ### 2. Code Block Normalization
 
@@ -114,33 +129,9 @@ Representative fixtures:
 - `issues--167-partial-selector-inside-code`
 - `issues--168-links-inside-inline-code`
 
-### 3. Shared Markdown Rules
+### 3. Standardization And Content Boundaries
 
-After the DOM shape is correct, close renderer drift with targeted Markdown rules.
-
-Focus:
-
-- Tag-like text escaping.
-- Parentheses in link destinations.
-- Inline spacing around links, bold, code, punctuation, and images.
-- Ragged table padding.
-- Footnote reference/backref formatting.
-- Callout rendering.
-- Stable blank-line behavior outside fenced code.
-
-Representative fixtures:
-
-- `issues--285-tag-like-title-escaping`
-- `elements--complex-tables`
-- `elements--data-table`
-- `callouts--obsidian-publish-callouts`
-- `elements--bootstrap-alerts`
-- `elements--hugo-admonitions`
-- Footnote fixtures that remain active after extractor/code-block work.
-
-### 4. Standardization And Content Boundaries
-
-These should be capability changes in `standardize.rs`, `pipeline.rs`, or scoring, not one-fixture string rewrites.
+These are parity gaps in capabilities already present in the pipeline, not wholly unimplemented features. Make changes in `standardize.rs`, `pipeline.rs`, or scoring rather than adding one-fixture string rewrites.
 
 Focus:
 
@@ -150,8 +141,8 @@ Focus:
 - Layout table unwrapping without damaging data tables.
 - Permalink anchor removal.
 - Hidden content and `aria-hidden` handling.
-- Retry behavior for low word counts.
-- Schema text fallback when schema content is materially longer.
+- Retry behavior for low word counts when its choices differ from upstream.
+- Schema text fallback when its selection or Markdown conversion differs from upstream.
 - Content-pattern removal for TOCs, related posts, newsletters, cards, social counters, breadcrumbs, and metadata/date blocks.
 
 Representative fixtures:
@@ -173,9 +164,9 @@ Representative fixtures:
 - `scoring--related-posts-byline`
 - `scoring--table-with-links`
 
-### 5. Images, Media, URLs, Math, And Footnotes
+### 4. URLs And Images
 
-Much of this is implemented, but fixture parity still depends on exact ordering, attribute cleanup, and Markdown output.
+Keep URL and image normalization separate from media, math, and footnote work because it has a distinct parity surface and broad downstream impact.
 
 Focus:
 
@@ -184,9 +175,6 @@ Focus:
 - Lazy image and noscript fallback recovery.
 - Placeholder/base64 image removal.
 - Lightbox and duplicate image removal.
-- Embedded media conversion.
-- Static KaTeX/MathJax/raw-LaTeX extraction.
-- Footnote definition normalization without converting ordinary superscripts.
 
 Representative fixtures:
 
@@ -197,16 +185,60 @@ Representative fixtures:
 - `elements--javascript-links`
 - `elements--lazy-image`
 - `elements--lightbox-image-dedup`
-- `elements--embedded-videos`
 - `elements--srcset-normalization`
-- `math--katex`
-- `math--mathjax`
-- `math--mathjax-svg`
-- `math--mathjax-tex-scripts`
+
+### 5. Embedded Media
+
+Focus only on static, DOM-representable media behavior. Network-backed transcript or embed enrichment remains deferred.
+
+Representative fixtures:
+
+- `elements--embedded-videos`
+
+### 6. Footnotes
+
+Footnotes remain in scope when they affect readable Markdown output.
+
+Focus:
+
+- Footnote definition normalization without converting ordinary superscripts.
+
+Representative fixtures:
+
 - `footnotes--child-anchor-id`
 - `footnotes--heading-notes`
 - `footnotes--pulldown-cmark-footnote-definition`
 - `footnotes--wp-block-footnotes`
+
+### 7. Extractors Already In Core
+
+After shared behavior stabilizes, address extractor-specific mismatches. These extractors are implemented in the core crate; the remaining work is parity in boundaries, metadata, and output formatting.
+
+Focus:
+
+- ChatGPT turn labels, hidden Thought blocks, CodeMirror extraction, citation footnotes, and Markdown spacing.
+- GitHub issue/PR content boundaries, author/date metadata, comment extraction, and page chrome removal.
+- Reddit old-reddit duplicate nested comments, blockquote spacing, and URL normalization.
+- Hacker News listing/comment parity if mismatches remain after shared Markdown fixes.
+- Substack app/custom-domain output if active mismatches remain.
+- X/Twitter static article and conversation extraction: metadata, title/image preservation, and localized/status URL cases without network calls.
+
+Representative fixtures:
+
+- `extractor--chatgpt-citations`
+- `extractor--chatgpt-post-thought-content`
+- `codeblocks--chatgpt-codemirror`
+- `general--github.com-issue-56`
+- `general--github.com-test-owner-test-repo-pull-42`
+- `comments--old.reddit.com-r-test-comments-abc123-test_post`
+- `comments--news.ycombinator.com-item-id=12345678`
+- `listing--news.ycombinator.com-news`
+- `general--substack-app`
+- `general--substack-custom-domain`
+- `general--x.com-article`
+- `general--x.com-article-2026-02-13`
+- `issues--161-x-status-url-author`
+- `issues--272-x-localized-conversation-timeline`
 
 ## Deferred
 
@@ -218,4 +250,5 @@ These should not block the current core parity push:
 - React streaming SSR suspense execution.
 - Mobile style application.
 - Pixel-based small-image removal unless static dimensions are present.
+- Math extraction and rendered math HTML/MathML/KaTeX/MathJax fidelity.
 - New site extractors for Claude, Gemini, Grok, Medium, LinkedIn, Threads, Bluesky, Discourse, LeetCode, LWN, C2 Wiki, NYTimes, arXiv LaTeXML, Lean/Verso, or other niche formats.
