@@ -1,6 +1,7 @@
-use serde_json::Value;
+use miniserde::json::Value;
 
 use crate::dom::{Document, NodeId};
+use crate::schema::{as_str, is_container};
 use crate::utils::count_words;
 use rustc_hash::FxHashSet;
 
@@ -228,7 +229,7 @@ fn search_schema(
                 results.push(s.clone());
             }
             Value::Object(obj) => {
-                if let Some(name) = obj.get("name").and_then(|v| v.as_str()) {
+                if let Some(name) = obj.get("name").and_then(as_str) {
                     results.push(name.to_string());
                 }
             }
@@ -239,7 +240,7 @@ fn search_schema(
 
     match value {
         Value::String(_) if props.is_empty() => {
-            results.push(value.as_str().unwrap_or("").to_string());
+            results.push(as_str(value).unwrap_or("").to_string());
         }
         Value::Array(arr) => {
             let current = props[0];
@@ -262,7 +263,7 @@ fn search_schema(
                 search_schema(child, &props[1..], current, true, results);
             } else if !is_exact {
                 for val in obj.values() {
-                    if val.is_object() || val.is_array() {
+                    if is_container(val) {
                         search_schema(val, props, _full_path, false, results);
                     }
                 }

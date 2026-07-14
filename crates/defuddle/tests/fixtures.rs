@@ -4,19 +4,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use defuddle::{DefuddleOptions, DefuddleResult, parse_html};
-use serde::Deserialize;
+use miniserde::json::Value;
 use walkdir::WalkDir;
 
 const FIXTURES_DIR: &str = "../../tests/upstream/defuddle/fixtures";
 const EXPECTED_DIR: &str = "../../tests/upstream/defuddle/expected";
 const EXCEPTIONS_PATH: &str = "../../tests/upstream-exceptions.toml";
 
-#[derive(Debug, Deserialize)]
-struct ExceptionManifest {
-    exceptions: Vec<FixtureException>,
-}
-
-#[derive(Debug, Deserialize)]
 struct FixtureException {
     name: String,
     category: String,
@@ -24,6 +18,34 @@ struct FixtureException {
     required_capability: String,
     target: String,
     date_added: String,
+}
+
+struct ExceptionManifest {
+    exceptions: Vec<FixtureException>,
+}
+
+fn parse_exception_manifest(raw: &str) -> ExceptionManifest {
+    let mut exceptions = Vec::new();
+    for line in raw.lines() {
+        let Some(start) = line.find("{ ") else {
+            continue;
+        };
+        let field = |name: &str| {
+            let marker = format!("{name} = \"");
+            let start = line[start..].find(&marker).unwrap() + start + marker.len();
+            let end = line[start..].find('\"').unwrap() + start;
+            line[start..end].to_string()
+        };
+        exceptions.push(FixtureException {
+            name: field("name"),
+            category: field("category"),
+            reason: field("reason"),
+            required_capability: field("required_capability"),
+            target: field("target"),
+            date_added: field("date_added"),
+        });
+    }
+    ExceptionManifest { exceptions }
 }
 
 #[test]
@@ -40,7 +62,7 @@ fn fixture_harness_discovers_vendored_snapshot() {
 #[test]
 fn exception_manifest_is_valid() {
     let raw = fs::read_to_string(EXCEPTIONS_PATH).expect("exception manifest is readable");
-    let manifest: ExceptionManifest = toml::from_str(&raw).expect("exception manifest parses");
+    let manifest = parse_exception_manifest(&raw);
     let allowed = FxHashSet::from_iter([
         "browser_only",
         "network_only",
@@ -98,8 +120,7 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
 
     // Load exception manifest and build excluded name set
     let exceptions_raw = fs::read_to_string(EXCEPTIONS_PATH).expect("exception manifest readable");
-    let manifest: ExceptionManifest =
-        toml::from_str(&exceptions_raw).expect("exception manifest parses");
+    let manifest = parse_exception_manifest(&exceptions_raw);
     let excluded_names: FxHashSet<String> =
         manifest.exceptions.iter().map(|e| e.name.clone()).collect();
     let fixture_filter = fixture_filter();
@@ -136,7 +157,7 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
                 url: Some(url),
                 separate_markdown: true,
                 debug: true,
-                ..DefuddleOptions::default()
+                ..<DefuddleOptions as Default>::default()
             },
         )
         .expect("placeholder parser does not fail");
@@ -176,8 +197,14 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
             eprintln!("=== DIF {name} ===");
             eprintln!("COMP:{:?}", truncate_first_n(&comparable, 200));
             eprintln!("EXP: {:?}", truncate_first_n(&expected, 200));
-            eprintln!("\n--- FULL COMPUTED ({name}) ---\n{}\n--- END COMPUTED ---", truncate_first_n(&comparable, 5000));
-            eprintln!("\n--- FULL EXPECTED ({name}) ---\n{}\n--- END EXPECTED ---", truncate_first_n(&expected, 5000));
+            eprintln!(
+                "\n--- FULL COMPUTED ({name}) ---\n{}\n--- END COMPUTED ---",
+                truncate_first_n(&comparable, 5000)
+            );
+            eprintln!(
+                "\n--- FULL EXPECTED ({name}) ---\n{}\n--- END EXPECTED ---",
+                truncate_first_n(&expected, 5000)
+            );
         }
 
         let expected_html_path = expected_dir().join(format!("{name}.html"));
@@ -276,8 +303,9 @@ fn fixture_url(html: &str, path: &Path) -> String {
     {
         let comment = html[start + 4..start + 4 + end_offset].trim();
         if comment.starts_with('{')
-            && let Ok(value) = serde_json::from_str::<serde_json::Value>(comment)
-            && let Some(url) = value.get("url").and_then(|url| url.as_str())
+            && let Ok(value) = miniserde::json::from_str::<Value>(comment)
+            && let Value::Object(object) = value
+            && let Some(Value::String(url)) = object.get("url")
         {
             return url.to_string();
         }
@@ -311,10 +339,10 @@ fn fixture_url(html: &str, path: &Path) -> String {
 fn comparable_markdown(result: &DefuddleResult) -> String {
     let metadata = format!(
         "{{\n  \"title\": {},\n  \"author\": {},\n  \"site\": {},\n  \"published\": {}\n}}",
-        serde_json::to_string(&result.title).unwrap_or_default(),
-        serde_json::to_string(&result.author).unwrap_or_default(),
-        serde_json::to_string(&result.site).unwrap_or_default(),
-        serde_json::to_string(&result.published).unwrap_or_default(),
+        miniserde::json::to_string(&result.title),
+        miniserde::json::to_string(&result.author),
+        miniserde::json::to_string(&result.site),
+        miniserde::json::to_string(&result.published),
     );
     let content_markdown = result.content_markdown.as_deref().unwrap_or("");
     format!("```json\n{}\n```\n\n{}", metadata, content_markdown)

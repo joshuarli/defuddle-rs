@@ -488,7 +488,7 @@ fn standardize_headings(doc: &mut Document, content_id: NodeId, metadata_title: 
             // Strip permalink anchors from heading before comparison
             let permalink_anchors = doc.query_selector_all_in_subtree(
                 first_h2,
-                "a.headerlink, a.permalink, .headerlink, .permalink"
+                "a.headerlink, a.permalink, .headerlink, .permalink",
             );
             for &anchor_id in &permalink_anchors {
                 doc.remove(anchor_id);
@@ -536,11 +536,10 @@ fn unwrap_special_links(doc: &mut Document, content_id: NodeId) {
     // Use plain "a" selector since [href] attribute presence matching is buggy
     let all_links = doc.query_selector_all_in_subtree(content_id, "a");
     for &id in &all_links {
-        if let Some(href) = doc.get_attr(id, "href") {
-            if href.trim().to_lowercase().starts_with("javascript:") {
+        if let Some(href) = doc.get_attr(id, "href")
+            && href.trim().to_lowercase().starts_with("javascript:") {
                 doc.unwrap(id);
             }
-        }
     }
 }
 
@@ -1195,10 +1194,12 @@ fn wrap_preformatted_code(doc: &mut Document, content_id: NodeId) {
         }
         // Wrap in a <pre> element
         let _tag = doc.tag_name(code_id).to_string();
-        let attrs: Vec<(String, String)> = doc.attr_names(code_id)
+        let attrs: Vec<(String, String)> = doc
+            .attr_names(code_id)
             .iter()
             .filter_map(|name| {
-                doc.get_attr(code_id, name).map(|v| (name.clone(), v.to_string()))
+                doc.get_attr(code_id, name)
+                    .map(|v| (name.clone(), v.to_string()))
             })
             .collect();
         let inner = doc.inner_html(code_id);
@@ -1219,7 +1220,7 @@ fn wrap_preformatted_code(doc: &mut Document, content_id: NodeId) {
             }
         }
         pre_html.push('>');
-        pre_html.push_str(&trimmed);
+        pre_html.push_str(trimmed);
         pre_html.push_str("</code></pre>");
 
         doc.replace_with_html(code_id, &pre_html);

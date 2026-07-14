@@ -62,7 +62,8 @@ fn standardize_katex(doc: &mut Document, content_id: NodeId) {
             if latex.is_empty() {
                 // Try data-math on parent .math-inline / .math-block
                 if let Some(parent) = doc.closest(el_id, ".math-inline,.math-block") {
-                    latex = doc.get_attr(parent, "data-math")
+                    latex = doc
+                        .get_attr(parent, "data-math")
                         .map(|s| s.trim().to_string())
                         .unwrap_or_default();
                 }
@@ -126,20 +127,18 @@ fn standardize_raw_latex(doc: &mut Document, content_id: NodeId) {
         let mut new_text = text.to_string();
 
         // \[...\] block LaTeX → $$...$$
-        if let Ok(re_block) = regex_lite::Regex::new(r"\\\[([^\]]*)\\\]") {
-            if re_block.is_match(&new_text) {
+        if let Ok(re_block) = regex_lite::Regex::new(r"\\\[([^\]]*)\\\]")
+            && re_block.is_match(&new_text) {
                 new_text = re_block.replace_all(&new_text, "$$\n$1\n$$").to_string();
                 changed = true;
             }
-        }
 
         // \(...\) inline LaTeX → $...$
-        if let Ok(re_inline) = regex_lite::Regex::new(r"\\\(([^)]*)\\\)") {
-            if re_inline.is_match(&new_text) {
+        if let Ok(re_inline) = regex_lite::Regex::new(r"\\\(([^)]*)\\\)")
+            && re_inline.is_match(&new_text) {
                 new_text = re_inline.replace_all(&new_text, "$$1$").to_string();
                 changed = true;
             }
-        }
 
         if changed && new_text != text && !new_text.contains("$\\displaystyle") {
             doc.replace_with_html(el_id, &new_text);
@@ -201,11 +200,10 @@ fn is_block_math(doc: &Document, node: NodeId) -> bool {
 
 /// Check if a MathJax element is block display.
 fn is_block_mathjax(doc: &Document, node: NodeId) -> bool {
-    if let Some(display) = doc.get_attr(node, "display") {
-        if display == "true" || display == "block" {
+    if let Some(display) = doc.get_attr(node, "display")
+        && (display == "true" || display == "block") {
             return true;
         }
-    }
     false
 }
 

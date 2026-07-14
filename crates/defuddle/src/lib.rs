@@ -59,7 +59,8 @@ mod scoring;
 mod standardize;
 pub mod utils;
 
-use serde::{Deserialize, Serialize};
+use miniserde::json::{Array, Object, Value};
+use miniserde::{Deserialize, Serialize};
 
 pub use dom::{Document, NodeId};
 pub use metadata::Metadata;
@@ -104,7 +105,7 @@ pub struct DebugInfo {
     pub removals: Vec<DebugRemoval>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefuddleResult {
     pub content: String,
     pub content_markdown: Option<String>,
@@ -119,11 +120,11 @@ pub struct DefuddleResult {
     pub published: String,
     pub author: String,
     pub site: String,
-    pub schema_org_data: serde_json::Value,
+    pub schema_org_data: Value,
     pub word_count: usize,
     pub extractor_type: Option<String>,
     pub debug: Option<DebugInfo>,
-    pub variables: Option<serde_json::Map<String, serde_json::Value>>,
+    pub variables: Option<Object>,
 }
 
 impl Default for DefuddleResult {
@@ -142,7 +143,7 @@ impl Default for DefuddleResult {
             published: String::new(),
             author: String::new(),
             site: String::new(),
-            schema_org_data: serde_json::Value::Array(Vec::new()),
+            schema_org_data: Value::Array(Array::new()),
             word_count: 0,
             extractor_type: None,
             debug: None,
@@ -220,9 +221,9 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
         };
 
         let schema_val = if schema_org_data.is_empty() {
-            serde_json::Value::Array(Vec::new())
+            Value::Array(Array::new())
         } else {
-            serde_json::Value::Array(schema_org_data.to_vec())
+            Value::Array(Array::from_iter(schema_org_data.iter().cloned()))
         };
 
         DefuddleResult {
@@ -241,7 +242,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
             schema_org_data: schema_val,
             word_count,
             extractor_type,
-            ..DefuddleResult::default()
+            ..<DefuddleResult as Default>::default()
         }
     } else {
         parse_internal(
@@ -275,7 +276,7 @@ fn parse_internal(
     debug: bool,
     metadata: &Metadata,
     meta: &[MetaTagItem],
-    schema_org_data: &[serde_json::Value],
+    schema_org_data: &[Value],
     url: &str,
 ) -> DefuddleResult {
     // First attempt with full aggressiveness
@@ -373,7 +374,7 @@ fn parse_internal_once(
     debug: bool,
     metadata: &Metadata,
     meta: &[MetaTagItem],
-    schema_org_data: &[serde_json::Value],
+    schema_org_data: &[Value],
     url: &str,
 ) -> DefuddleResult {
     // Find main content first
@@ -432,16 +433,18 @@ fn parse_internal_once(
         };
 
         let schema_val = if schema_org_data.is_empty() {
-            serde_json::Value::Array(Vec::new())
+            Value::Array(Array::new())
         } else {
-            serde_json::Value::Array(schema_org_data.to_vec())
+            Value::Array(Array::from_iter(schema_org_data.iter().cloned()))
         };
 
         // Schema text fallback: if schema.org has significantly longer text
         let content_md = if word_count < 50 {
             let mut best_md = md.clone();
             for item in schema_org_data {
-                if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                if let Some(text) =
+                    crate::schema::object_value(item, "text").and_then(crate::schema::as_str)
+                {
                     let schema_words = text.split_whitespace().count();
                     if (schema_words as f64) > (word_count as f64) * 1.5 {
                         best_md = Some(markdown::html_to_markdown(text));
@@ -470,14 +473,14 @@ fn parse_internal_once(
             schema_org_data: schema_val,
             word_count,
             debug: debug_info,
-            ..DefuddleResult::default()
+            ..<DefuddleResult as Default>::default()
         }
     } else {
         let word_count = 0;
         let schema_val = if schema_org_data.is_empty() {
-            serde_json::Value::Array(Vec::new())
+            Value::Array(Array::new())
         } else {
-            serde_json::Value::Array(schema_org_data.to_vec())
+            Value::Array(Array::from_iter(schema_org_data.iter().cloned()))
         };
 
         DefuddleResult {
@@ -493,7 +496,7 @@ fn parse_internal_once(
             site: metadata.site.clone(),
             schema_org_data: schema_val,
             word_count,
-            ..DefuddleResult::default()
+            ..<DefuddleResult as Default>::default()
         }
     }
 }

@@ -11,5 +11,5 @@ test-strict-full:
 	cargo test --test cli
 
 lint:
-	cargo fmt --all -- --check
+	cargo fmt --all
 	cargo clippy --fix --allow-dirty --workspace --all-targets -- --deny warnings

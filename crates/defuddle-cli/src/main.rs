@@ -137,7 +137,7 @@ fn run() -> Result<(), String> {
 
     if json_output {
         let mut out = out;
-        let json = serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?;
+        let json = miniserde::json::to_string(&result);
         writeln!(out, "{json}").map_err(|e| e.to_string())?;
         return Ok(());
     }

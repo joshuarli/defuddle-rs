@@ -13,7 +13,7 @@ path = "src/main.rs"
 atty = "0.2.14"
 defuddle = { path = "../defuddle" }
 lexopt = "0.3"
-serde_json = "1"
+miniserde = "0.1"
 
 [lints]
 workspace = true

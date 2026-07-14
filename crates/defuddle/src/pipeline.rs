@@ -396,11 +396,9 @@ pub fn remove_hidden_elements(doc: &mut Document) {
                 // Skip elements inside callout containers (e.g. collapsed callout content)
                 if doc.closest(id, "[data-callout]").is_none()
                     && doc.closest(id, ".callout").is_none()
-                {
-                    if !to_remove.contains(&id) {
+                    && !to_remove.contains(&id) {
                         to_remove.push(id);
                     }
-                }
                 continue;
             }
         }
@@ -535,7 +533,11 @@ fn remove_eyebrow_label(doc: &mut Document, content_id: NodeId) {
         let children = doc.children(parent.unwrap_or(content_id));
         let pos = children.iter().position(|&c| c == current);
         pos.and_then(|p| {
-            children[..p].iter().rev().find(|&&c| doc.is_element(c)).copied()
+            children[..p]
+                .iter()
+                .rev()
+                .find(|&&c| doc.is_element(c))
+                .copied()
         })
     };
     let Some(prev) = prev else { return };
@@ -708,7 +710,11 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         }
         let class = doc.get_attr(id, "class").unwrap_or("").to_lowercase();
         // Remove subtitle/lede paragraphs near beginning of content
-        if class.contains("subtitle") || class.contains("lede") || class.contains("deck") || class.contains("article-deck") {
+        if class.contains("subtitle")
+            || class.contains("lede")
+            || class.contains("deck")
+            || class.contains("article-deck")
+        {
             let text = doc.text_content(id).trim().to_string();
             let word_count = text.split_whitespace().count();
             if word_count < 40 {
@@ -933,17 +939,19 @@ fn remove_byline_blocks(doc: &mut Document, content_id: NodeId) {
         let text = doc.text_content(child).trim().to_string();
         let word_count = text.split_whitespace().count();
 
-        if class.contains("byline") || class.contains("author") || class.contains("meta") {
-            if word_count < 30 {
+        if (class.contains("byline") || class.contains("author") || class.contains("meta"))
+            && word_count < 30 {
                 doc.remove(child);
                 continue;
             }
-        }
         // Also match patterns with author link + date text
-        if word_count <= 20 && word_count >= 2 {
+        if (2..=20).contains(&word_count) {
             let has_author_link = class.contains("author")
                 || class.contains("byline")
-                || doc.query_selector_all_in_subtree(child, "a[href*=\"/author/\"]").len() == 1;
+                || doc
+                    .query_selector_all_in_subtree(child, "a[href*=\"/author/\"]")
+                    .len()
+                    == 1;
             let has_date = crate::metadata::parse_date_text(&text).is_some()
                 || doc.query_selector_all_in_subtree(child, "time").len() == 1;
             if has_author_link && has_date {
@@ -992,7 +1000,7 @@ fn remove_table_of_contents(doc: &mut Document, content_id: NodeId) {
         if items.len() < 3 {
             continue;
         }
-        let list_text = doc.text_content(list_id).trim().to_string();
+        let _list_text = doc.text_content(list_id).trim().to_string();
         // Must be near the top of content — check via DOM position
         let mut ancestor = doc.parent(list_id);
         let mut depth = 0;
@@ -1011,9 +1019,10 @@ fn remove_table_of_contents(doc: &mut Document, content_id: NodeId) {
         if links.len() < 3 {
             continue;
         }
-        let anchor_count = links.iter().filter(|&&id| {
-            doc.get_attr(id, "href").is_some_and(|h| h.starts_with('#'))
-        }).count();
+        let anchor_count = links
+            .iter()
+            .filter(|&&id| doc.get_attr(id, "href").is_some_and(|h| h.starts_with('#')))
+            .count();
         if anchor_count < 3 || (anchor_count as f64) / (links.len() as f64) < 0.8 {
             continue;
         }
@@ -1022,10 +1031,16 @@ fn remove_table_of_contents(doc: &mut Document, content_id: NodeId) {
             let siblings = doc.children(pid).to_vec();
             let pos = siblings.iter().position(|&s| s == list_id);
             if let Some(p) = pos {
-                if p > 0 && doc.is_element(siblings[p - 1]) && doc.tag_name(siblings[p - 1]).eq_ignore_ascii_case("hr") {
+                if p > 0
+                    && doc.is_element(siblings[p - 1])
+                    && doc.tag_name(siblings[p - 1]).eq_ignore_ascii_case("hr")
+                {
                     doc.remove(siblings[p - 1]);
                 }
-                if p + 1 < siblings.len() && doc.is_element(siblings[p + 1]) && doc.tag_name(siblings[p + 1]).eq_ignore_ascii_case("hr") {
+                if p + 1 < siblings.len()
+                    && doc.is_element(siblings[p + 1])
+                    && doc.tag_name(siblings[p + 1]).eq_ignore_ascii_case("hr")
+                {
                     doc.remove(siblings[p + 1]);
                 }
             }

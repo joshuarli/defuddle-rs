@@ -1,4 +1,4 @@
-use serde_json::Value;
+use miniserde::json::{Array, Value};
 
 use crate::dom::Document;
 
@@ -16,9 +16,9 @@ pub fn extract_schema_org_data(doc: &Document) -> Vec<Value> {
         }
 
         let json_content = clean_json_content(text);
-        match serde_json::from_str::<Value>(&json_content) {
+        match miniserde::json::from_str::<Value>(&json_content) {
             Ok(data) => {
-                if let Some(graph) = data.get("@graph").and_then(|g| g.as_array()) {
+                if let Some(graph) = object_value(&data, "@graph").and_then(as_array) {
                     for item in graph {
                         items.push(decode_value_strings(item.clone()));
                     }
@@ -33,6 +33,31 @@ pub fn extract_schema_org_data(doc: &Document) -> Vec<Value> {
     }
 
     items
+}
+
+pub(crate) fn as_array(value: &Value) -> Option<&Array> {
+    match value {
+        Value::Array(array) => Some(array),
+        _ => None,
+    }
+}
+
+pub(crate) fn object_value<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+    match value {
+        Value::Object(object) => object.get(key),
+        _ => None,
+    }
+}
+
+pub(crate) fn as_str(value: &Value) -> Option<&str> {
+    match value {
+        Value::String(string) => Some(string),
+        _ => None,
+    }
+}
+
+pub(crate) fn is_container(value: &Value) -> bool {
+    matches!(value, Value::Array(_) | Value::Object(_))
 }
 
 fn clean_json_content(content: &str) -> String {

@@ -93,7 +93,6 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
         return;
     }
 
-
     // Phase 3: Build unified <div id="footnotes"><ol>...</ol></div>
     let mut ol_html = String::from("<div id=\"footnotes\">\n<ol>\n");
     for (num, def_html) in &definitions {
@@ -251,7 +250,6 @@ fn collect_heading_separated_defs(
     let re = regex_lite::Regex::new(FOOTNOTE_SECTION_RE).unwrap();
     let headings = doc.query_selector_all_in_subtree(content_id, "h2,h3,h4,h5,h6");
     let children = doc.children(content_id).to_vec();
-
 
     for &h_id in &headings {
         let text = doc.text_content(h_id).trim().to_string();

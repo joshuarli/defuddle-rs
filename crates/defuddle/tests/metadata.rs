@@ -1,7 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use miniserde::Deserialize;
+use miniserde::json::Value;
 
 use defuddle::{DefuddleOptions, parse_html};
 
@@ -31,7 +32,7 @@ fn metadata_extraction_on_simple_fixture() {
         DefuddleOptions {
             url: Some("https://stephango.com/buy-wisely".to_string()),
             separate_markdown: true,
-            ..DefuddleOptions::default()
+            ..<DefuddleOptions as Default>::default()
         },
     )
     .expect("parse succeeds");
@@ -66,7 +67,7 @@ fn metadata_extraction_og_title() {
         html,
         DefuddleOptions {
             url: Some("https://example.com/page".to_string()),
-            ..DefuddleOptions::default()
+            ..<DefuddleOptions as Default>::default()
         },
     )
     .expect("parse succeeds");
@@ -97,7 +98,7 @@ fn metadata_extraction_author_byline() {
         html,
         DefuddleOptions {
             url: Some("https://example.com/article".to_string()),
-            ..DefuddleOptions::default()
+            ..<DefuddleOptions as Default>::default()
         },
     )
     .expect("parse succeeds");
@@ -134,7 +135,7 @@ fn metadata_extraction_schema_org() {
         html,
         DefuddleOptions {
             url: Some("https://example.com/schema".to_string()),
-            ..DefuddleOptions::default()
+            ..<DefuddleOptions as Default>::default()
         },
     )
     .expect("parse succeeds");
@@ -164,7 +165,7 @@ fn metadata_language_extraction() {
         html,
         DefuddleOptions {
             url: Some("https://example.fr/page".to_string()),
-            ..DefuddleOptions::default()
+            ..<DefuddleOptions as Default>::default()
         },
     )
     .expect("parse succeeds");
@@ -189,7 +190,7 @@ fn metadata_favicon_detection() {
         html,
         DefuddleOptions {
             url: Some("https://example.com/page".to_string()),
-            ..DefuddleOptions::default()
+            ..<DefuddleOptions as Default>::default()
         },
     )
     .expect("parse succeeds");
@@ -218,7 +219,7 @@ fn metadata_date_published() {
         html,
         DefuddleOptions {
             url: Some("https://example.com/dated".to_string()),
-            ..DefuddleOptions::default()
+            ..<DefuddleOptions as Default>::default()
         },
     )
     .expect("parse succeeds");
@@ -249,7 +250,7 @@ fn metadata_preamble_parity_for_sample_fixtures() {
             DefuddleOptions {
                 url: Some(fixture_url_from_path(&html, &html_path)),
                 separate_markdown: true,
-                ..DefuddleOptions::default()
+                ..<DefuddleOptions as Default>::default()
             },
         )
         .expect("parse succeeds");
@@ -283,8 +284,9 @@ fn fixture_url_from_path(html: &str, path: &Path) -> String {
     {
         let comment = html[start + 4..start + 4 + end_offset].trim();
         if comment.starts_with('{')
-            && let Ok(value) = serde_json::from_str::<serde_json::Value>(comment)
-            && let Some(url) = value.get("url").and_then(|url| url.as_str())
+            && let Ok(value) = miniserde::json::from_str::<Value>(comment)
+            && let Value::Object(object) = value
+            && let Some(Value::String(url)) = object.get("url")
         {
             return url.to_string();
         }
@@ -302,5 +304,5 @@ fn parse_fixture_preamble(expected: &str) -> Option<ExpectedMetadata> {
     let json_start = expected.find("```json")? + 7;
     let json_end = expected[json_start..].find("```")?;
     let json_str = &expected[json_start..json_start + json_end];
-    serde_json::from_str::<ExpectedMetadata>(json_str).ok()
+    miniserde::json::from_str::<ExpectedMetadata>(json_str).ok()
 }

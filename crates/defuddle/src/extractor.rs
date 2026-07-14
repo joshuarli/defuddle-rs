@@ -975,7 +975,11 @@ pub mod chatgpt {
                         doc.closest(el, "[data-testid^=\"conversation-turn-\"]") == Some(turn_id)
                     })
                     .collect();
-                eprintln!("DEBUG: turn has {} msg_els, heading={:?}", msg_els.len(), heading);
+                eprintln!(
+                    "DEBUG: turn has {} msg_els, heading={:?}",
+                    msg_els.len(),
+                    heading
+                );
 
                 let content_parts: Vec<String> = if msg_els.is_empty() {
                     let fallback = doc
@@ -1002,7 +1006,11 @@ pub mod chatgpt {
                 };
 
                 let mut message_content = content_parts.join("\n");
-                eprintln!("DEBUG: content_parts.len()={}, joined_len={}", content_parts.len(), message_content.len());
+                eprintln!(
+                    "DEBUG: content_parts.len()={}, joined_len={}",
+                    content_parts.len(),
+                    message_content.len()
+                );
                 message_content = message_content.replace('\u{200B}', "");
 
                 // Process citations
@@ -1281,29 +1289,25 @@ pub mod substack {
                     }
                 }
                 let inner: String = chars[start..i].iter().collect();
-                if let Ok(json_str) = serde_json::from_str::<String>(&format!("\"{}\"", inner))
-                    && let Ok(data) = serde_json::from_str::<serde_json::Value>(&json_str)
-                    && let Some(post) = data
-                        .get("feedData")
-                        .and_then(|f| f.get("initialPost"))
-                        .and_then(|p| p.get("post"))
+                if let Ok(json_str) = miniserde::json::from_str::<String>(&format!("\"{}\"", inner))
+                    && let Ok(data) = miniserde::json::from_str::<miniserde::json::Value>(&json_str)
+                    && let Some(post) = crate::schema::object_value(&data, "feedData")
+                        .and_then(|f| crate::schema::object_value(f, "initialPost"))
+                        .and_then(|p| crate::schema::object_value(p, "post"))
                 {
-                    let title = post
-                        .get("title")
-                        .and_then(|v| v.as_str())
+                    let title = crate::schema::object_value(post, "title")
+                        .and_then(crate::schema::as_str)
                         .unwrap_or("")
                         .to_string();
-                    let author = post
-                        .get("publishedBylines")
-                        .and_then(|v| v.as_array())
+                    let author = crate::schema::object_value(post, "publishedBylines")
+                        .and_then(crate::schema::as_array)
                         .and_then(|arr| arr.first())
-                        .and_then(|b| b.get("name"))
-                        .and_then(|v| v.as_str())
+                        .and_then(|b| crate::schema::object_value(b, "name"))
+                        .and_then(crate::schema::as_str)
                         .unwrap_or("")
                         .to_string();
-                    let body = post
-                        .get("body_html")
-                        .and_then(|v| v.as_str())
+                    let body = crate::schema::object_value(post, "body_html")
+                        .and_then(crate::schema::as_str)
                         .unwrap_or("")
                         .to_string();
                     if !body.is_empty() {

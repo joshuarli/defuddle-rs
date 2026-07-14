@@ -112,7 +112,6 @@ fn build_converter() -> HtmlToMarkdown {
         },
     );
 
-    
     // Helper: recursively collect text from a markup5ever_rcdom node
     fn collect_rcdom_text(node: &markup5ever_rcdom::Handle, text: &mut String) {
         for child in &*node.children.borrow() {
@@ -128,7 +127,7 @@ fn build_converter() -> HtmlToMarkdown {
         }
     }
 
-// --- footnotes: <div id="footnotes"> <ol> <li id="fn:N"> → [^N]: text ---
+    // --- footnotes: <div id="footnotes"> <ol> <li id="fn:N"> → [^N]: text ---
     builder = builder.add_handler(
         vec!["div"],
         move |_h: &dyn Handlers, el: Element| -> Option<HandlerResult> {
@@ -168,7 +167,11 @@ fn build_converter() -> HtmlToMarkdown {
                                         markup5ever_rcdom::NodeData::Text { contents } => {
                                             text.push_str(contents.borrow().as_ref());
                                         }
-                                        markup5ever_rcdom::NodeData::Element { name, attrs, .. } => {
+                                        markup5ever_rcdom::NodeData::Element {
+                                            name,
+                                            attrs,
+                                            ..
+                                        } => {
                                             let tag = name.local.as_ref();
                                             if tag == "a" {
                                                 let a_attrs = attrs.borrow();
@@ -184,7 +187,10 @@ fn build_converter() -> HtmlToMarkdown {
                                                 url = href.to_string();
                                                 // Collect link text too
                                                 for tc in &*lc.children.borrow() {
-                                                    if let markup5ever_rcdom::NodeData::Text { ref contents } = tc.data {
+                                                    if let markup5ever_rcdom::NodeData::Text {
+                                                        ref contents,
+                                                    } = tc.data
+                                                    {
                                                         text.push_str(contents.borrow().as_ref());
                                                     }
                                                 }
@@ -199,7 +205,8 @@ fn build_converter() -> HtmlToMarkdown {
                                 let trimmed = text.trim();
                                 if !trimmed.is_empty() {
                                     if !url.is_empty() {
-                                        result.push_str(&format!("[^{num}]: [{trimmed}]({url})\n\n"));
+                                        result
+                                            .push_str(&format!("[^{num}]: [{trimmed}]({url})\n\n"));
                                     } else {
                                         result.push_str(&format!("[^{num}]: {trimmed}\n\n"));
                                     }
@@ -402,7 +409,7 @@ fn preprocess_html_for_markdown(html: &str) -> String {
 /// Postprocess markdown to clean up artifacts.
 /// Ported from TypeScript createMarkdownContent post-processing.
 fn postprocess_markdown(md: &str) -> String {
-    let md = escape_tag_like_text(&md);
+    let md = escape_tag_like_text(md);
 
     // Remove the page title h1 from the beginning if present.
     // Note: h1 was promoted to h2 by standardize_headings, so only
@@ -488,9 +495,7 @@ fn postprocess_markdown(md: &str) -> String {
 /// so CommonMark renderers don't parse them as raw HTML and swallow
 /// following content. Ported from upstream markdown.ts turndownService.escape.
 fn escape_tag_like_text(md: &str) -> String {
-    let tag_like_re = regex_lite::Regex::new(
-        r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^>]*)?/?>"
-    ).unwrap();
+    let tag_like_re = regex_lite::Regex::new(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^>]*)?/?>").unwrap();
     let mut result = String::new();
     let mut in_fenced = false;
     for line in md.lines() {
@@ -502,9 +507,11 @@ fn escape_tag_like_text(md: &str) -> String {
             result.push_str(line);
             result.push('\n');
         } else {
-            result.push_str(&tag_like_re.replace_all(line, |caps: &regex_lite::Captures| {
-                format!("\\{}", &caps[0])
-            }));
+            result.push_str(
+                &tag_like_re.replace_all(line, |caps: &regex_lite::Captures| {
+                    format!("\\{}", &caps[0])
+                }),
+            );
             result.push('\n');
         }
     }

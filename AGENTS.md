@@ -106,14 +106,14 @@ These are listed in `tests/upstream-exceptions.toml` as `site_extractor_out_of_s
 defuddle (core):
   html5ever, markup5ever_rcdom  — HTML parsing
   regex                          — BBCode conversion, metadata date parsing
-  serde, serde_json              — schema.org JSON-LD, serialization
+  miniserde                      — schema.org JSON-LD, serialization
   thiserror                      — error type derivation
   html-to-markdown-rs            — HTML → Markdown conversion
 
 defuddle-cli:
   lexopt                         — argument parsing (no clap, no commander)
   atty                           — TTY detection for stdin
-  serde_json                     — JSON output
+  miniserde                      — JSON output
 ```
 
 No HTTP client, no TLS, no proxy, no async runtime, no browser automation, no JavaScript engine. Verified via `cargo tree -p defuddle`.
