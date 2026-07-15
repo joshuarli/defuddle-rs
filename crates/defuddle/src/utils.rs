@@ -34,6 +34,36 @@ pub fn count_words(text: &str) -> usize {
     cjk_count + word_count
 }
 
+pub fn contains_ascii_case_insensitive(text: &str, needle: &str) -> bool {
+    text.as_bytes()
+        .windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
+}
+
+pub fn normalize_whitespace_into(text: &str, out: &mut String) {
+    out.clear();
+    let leading_space = text.chars().next().is_some_and(char::is_whitespace);
+    let trailing_space = text.chars().last().is_some_and(char::is_whitespace);
+    let mut pending_space = false;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            pending_space = true;
+        } else {
+            if pending_space && !out.is_empty() {
+                out.push(' ');
+            }
+            out.push(ch);
+            pending_space = false;
+        }
+    }
+    if leading_space {
+        out.insert(0, ' ');
+    }
+    if trailing_space && !out.ends_with(' ') {
+        out.push(' ');
+    }
+}
+
 /// Canonicalize text for title/heading comparison: normalize smart quotes,
 /// dashes, ellipses, and whitespace; lowercase.
 pub fn normalize_text(text: &str) -> String {

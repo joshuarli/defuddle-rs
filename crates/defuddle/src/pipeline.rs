@@ -771,11 +771,12 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         if !doc.is_element(id) {
             continue;
         }
-        let tag = doc.tag_name(id).to_lowercase();
-        if tag != "p" && tag != "span" && tag != "div" && tag != "time" && tag != "relative-time" {
+        let tag = doc.tag_name(id);
+        if !matches!(tag, "p" | "span" | "div" | "time" | "relative-time") {
             continue;
         }
-        let text = doc.text_content(id).trim().to_string();
+        let text = doc.text_content(id);
+        let text = text.trim();
         if share_author_re.is_match(&text) {
             // Remove the parent container (the widget)
             let mut target = id;
@@ -784,7 +785,8 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
                     if p == content_id {
                         break;
                     }
-                    let pt = doc.text_content(p).trim().to_string();
+                    let pt = doc.text_content(p);
+                    let pt = pt.trim();
                     if pt.split_whitespace().count() > 15 {
                         break;
                     }
@@ -802,27 +804,33 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         if !doc.is_element(id) {
             continue;
         }
-        let tag = doc.tag_name(id).to_lowercase();
-        if tag != "p" && tag != "span" && tag != "div" {
+        let tag = doc.tag_name(id);
+        if !matches!(tag, "p" | "span" | "div") {
             continue;
         }
-        let class = doc.get_attr(id, "class").unwrap_or("").to_lowercase();
+        let class = doc.get_attr(id, "class").unwrap_or("");
         // Remove subtitle/lede paragraphs near beginning of content
-        if class.contains("subtitle")
-            || class.contains("lede")
-            || class.contains("deck")
-            || class.contains("article-deck")
+        if crate::utils::contains_ascii_case_insensitive(class, "subtitle")
+            || crate::utils::contains_ascii_case_insensitive(class, "lede")
+            || crate::utils::contains_ascii_case_insensitive(class, "deck")
+            || crate::utils::contains_ascii_case_insensitive(class, "article-deck")
         {
-            let text = doc.text_content(id).trim().to_string();
+            let text = doc.text_content(id);
+            let text = text.trim();
             let word_count = text.split_whitespace().count();
             if word_count < 40 {
                 doc.remove(id);
                 continue;
             }
         }
-        let text = doc.text_content(id).trim().to_string();
-        let lower = text.to_lowercase();
-        if (lower.starts_with("by ") || lower.starts_with("written by ")) && text.len() < 80 {
+        let text = doc.text_content(id);
+        let text = text.trim();
+        if text.len() < 80
+            && (text.get(..3).is_some_and(|s| s.eq_ignore_ascii_case("by "))
+                || text
+                    .get(..11)
+                    .is_some_and(|s| s.eq_ignore_ascii_case("written by ")))
+        {
             let adjacent_heading = doc.parent(id).is_some_and(|parent| {
                 let siblings = doc.children(parent);
                 siblings.iter().position(|&s| s == id).is_some_and(|pos| {
@@ -847,24 +855,25 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
     )
     .unwrap();
     let min_read_re = regex_lite::Regex::new(r"^\d+\s*min\s*read$").unwrap();
+    let compact_read_meta_re = regex_lite::Regex::new(
+        r"(?i)(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}",
+    )
+    .unwrap();
     for &id in &doc.query_selector_all_in_subtree(content_id, "*") {
         if !doc.is_element(id) {
             continue;
         }
-        let tag = doc.tag_name(id).to_lowercase();
-        if tag != "p" && tag != "span" && tag != "div" && tag != "li" && tag != "time" {
+        let tag = doc.tag_name(id);
+        if !matches!(tag, "p" | "span" | "div" | "li" | "time") {
             continue;
         }
-        let text = doc.text_content(id).trim().to_string();
-        let compact_read_meta = text.to_lowercase().contains("min read")
+        let text = doc.text_content(id);
+        let text = text.trim();
+        let compact_read_meta = crate::utils::contains_ascii_case_insensitive(text, "min read")
             && text.split_whitespace().count() <= 12
-            && regex_lite::Regex::new(
-                r"(?i)(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}",
-            )
-            .unwrap()
-            .is_match(&text);
+            && compact_read_meta_re.is_match(text);
         if date_re.is_match(&text)
-            || min_read_re.is_match(&text.to_lowercase())
+            || min_read_re.is_match(text)
             || named_date_re.is_match(&text)
             || compact_read_meta
         {

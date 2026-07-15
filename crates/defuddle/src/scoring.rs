@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::dom::{Document, NodeId};
-use crate::utils::count_words;
+use crate::utils::{contains_ascii_case_insensitive, count_words};
 
 const CONTENT_INDICATORS: &[&str] = &[
     "admonition",
@@ -98,9 +98,12 @@ const SOCIAL_PROFILE_PATTERNS: &[&str] = &[
 ];
 
 pub fn score_element(doc: &Document, node: NodeId) -> f64 {
-    let mut score = 0.0;
-
     let text = doc.text_content(node);
+    score_element_with_text(doc, node, &text)
+}
+
+pub fn score_element_with_text(doc: &Document, node: NodeId, text: &str) -> f64 {
+    let mut score = 0.0;
     let words = count_words(&text) as f64;
     if words == 0.0 {
         return 0.0;
@@ -118,8 +121,10 @@ pub fn score_element(doc: &Document, node: NodeId) -> f64 {
     let image_density = img_count / words;
     score -= image_density * 3.0;
 
-    let class_val = doc.get_attr(node, "class").unwrap_or("").to_lowercase();
-    if class_val.contains("content") || class_val.contains("article") || class_val.contains("post")
+    let class_val = doc.get_attr(node, "class").unwrap_or("");
+    if contains_ascii_case_insensitive(class_val, "content")
+        || contains_ascii_case_insensitive(class_val, "article")
+        || contains_ascii_case_insensitive(class_val, "post")
     {
         score += 15.0;
     }
@@ -358,22 +363,16 @@ pub fn score_non_content_block_with_text(doc: &Document, node: NodeId, text: &st
     score
 }
 
-fn contains_ascii_case_insensitive(haystack: &str, needle: &str) -> bool {
-    haystack.char_indices().any(|(index, _)| {
-        haystack[index..]
-            .get(..needle.len())
-            .is_some_and(|candidate| candidate.eq_ignore_ascii_case(needle))
-    })
-}
-
 pub fn find_main_content(doc: &Document, entry_point_selectors: &[&str]) -> Option<NodeId> {
     let mut candidates: Vec<(NodeId, f64, usize)> = Vec::new();
 
     for (index, selector) in entry_point_selectors.iter().enumerate() {
         let elements = doc.query_selector_all(selector);
         for el in elements {
-            let score =
-                (entry_point_selectors.len() - index) as f64 * 40.0 + score_element(doc, el);
+            let mut text = String::new();
+            doc.text_content_into(el, &mut text);
+            let score = (entry_point_selectors.len() - index) as f64 * 40.0
+                + score_element_with_text(doc, el, &text);
             candidates.push((el, score, index));
         }
     }
@@ -394,9 +393,11 @@ pub fn find_main_content(doc: &Document, entry_point_selectors: &[&str]) -> Opti
     }
 
     let mut best = top;
+    let mut child_text = String::new();
     for i in 1..candidates.len() {
         let child = candidates[i];
-        let child_words = count_words(&doc.text_content(child.0));
+        doc.text_content_into(child.0, &mut child_text);
+        let child_words = count_words(&child_text);
         if child.2 < best.2 && doc.contains(best.0, child.0) && child_words > 50 {
             let tag = doc.tag_name(top.0).to_lowercase();
             if tag == "body" {

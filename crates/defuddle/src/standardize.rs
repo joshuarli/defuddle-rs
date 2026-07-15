@@ -1178,6 +1178,7 @@ fn remove_empty_text_nodes(doc: &mut Document, node: NodeId) {
         .into_iter()
         .filter(|&c| doc.is_text(c))
         .collect();
+    let mut normalized = String::new();
     for tc in text_children {
         let text = doc.text_content(tc);
         let is_invis = text.trim().is_empty()
@@ -1190,20 +1191,7 @@ fn remove_empty_text_nodes(doc: &mut Document, node: NodeId) {
         if is_invis {
             doc.remove(tc);
         } else {
-            let leading_space = text.chars().next().is_some_and(char::is_whitespace);
-            let trailing_space = text.chars().last().is_some_and(char::is_whitespace);
-            let new_text = text
-                .replace(['\n', '\r', '\t'], " ")
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ");
-            let mut normalized = new_text;
-            if leading_space {
-                normalized.insert(0, ' ');
-            }
-            if trailing_space {
-                normalized.push(' ');
-            }
+            crate::utils::normalize_whitespace_into(&text, &mut normalized);
             if normalized != text {
                 doc.set_text(tc, &normalized);
             }
