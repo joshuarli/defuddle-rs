@@ -80,6 +80,7 @@ pub struct DefuddleOptions {
     pub standardize: Option<bool>,
     pub remove_content_patterns: Option<bool>,
     pub content_selector: Option<String>,
+    pub extractor: Option<String>,
     pub language: Option<String>,
     pub profile: bool,
 }
@@ -185,10 +186,15 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
     let content_selector = options.content_selector.as_deref();
 
     let ext_registry = extractor::build_registry();
+    let found_extractor = if let Some(name) = options.extractor.as_deref() {
+        ext_registry.find_named(name, url, &doc)
+    } else {
+        ext_registry.find(url, &doc)
+    };
     let (extractor_result, extractor_type): (Option<extractor::ExtractorResult>, Option<String>) =
-        if let Some(ext) = ext_registry.find(url, &doc) {
+        if let Some((name, ext)) = found_extractor {
             let result = ext.extract(&doc);
-            (Some(result), Some(String::from("")))
+            (Some(result), Some(name))
         } else {
             (None, None)
         };

@@ -78,6 +78,7 @@ exceptions = [
     # Tier G: Edge cases and niche formats
     { name = "general--substack-note", category = "site_extractor_out_of_scope", reason = "Substack Notes feature", required_capability = "Substack Notes extractor", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "general--substack-note-permalink", category = "site_extractor_out_of_scope", reason = "Substack Notes permalink", required_capability = "Substack Notes extractor", target = "out_of_scope", date_added = "2026-07-06" },
+    { name = "general--substack-custom-domain", category = "intentional_api_difference", reason = "Custom-domain Substack requires explicit extractor selection", required_capability = "CLI extractor override", target = "post_v1", date_added = "2026-07-15" },
     { name = "general--svg-content-preservation", category = "intentional_api_difference", reason = "SVG content preservation edge case", required_capability = "SVG content handling", target = "post_v1", date_added = "2026-07-06" },
     { name = "general--svg-external-css-fallback", category = "intentional_api_difference", reason = "SVG CSS fallback edge case", required_capability = "SVG CSS handling", target = "post_v1", date_added = "2026-07-06" },
     { name = "general--inline-comments-and-link-lists", category = "intentional_api_difference", reason = "Inline comments and link lists edge case", required_capability = "Comment/link detection", target = "post_v1", date_added = "2026-07-06" },

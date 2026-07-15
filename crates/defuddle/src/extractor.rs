@@ -17,7 +17,7 @@ pub trait Extractor {
 type ExtractorFactory = fn(doc: &Document, url: &str) -> Option<Box<dyn Extractor>>;
 
 pub struct Registry {
-    mappings: Vec<(String, ExtractorFactory)>,
+    mappings: Vec<(String, String, ExtractorFactory)>,
 }
 
 impl Registry {
@@ -27,23 +27,40 @@ impl Registry {
         }
     }
 
-    pub fn register(&mut self, domain: &str, factory: ExtractorFactory) {
-        self.mappings.push((domain.to_string(), factory));
+    pub fn register(&mut self, domain: &str, name: &str, factory: ExtractorFactory) {
+        self.mappings
+            .push((domain.to_string(), name.to_string(), factory));
     }
 
-    pub fn find(&self, url: &str, doc: &Document) -> Option<Box<dyn Extractor>> {
+    pub fn find(&self, url: &str, doc: &Document) -> Option<(String, Box<dyn Extractor>)> {
         let hostname = extract_hostname(url);
-        for (domain, factory) in &self.mappings {
+        for (domain, name, factory) in &self.mappings {
             if (hostname.contains(domain.as_str())
                 || url.contains(domain.as_str())
                 || domain.is_empty())
                 && let Some(extractor) = factory(doc, url)
                 && extractor.can_extract(doc)
             {
-                return Some(extractor);
+                return Some((name.clone(), extractor));
             }
         }
         None
+    }
+
+    pub fn find_named(
+        &self,
+        name: &str,
+        url: &str,
+        doc: &Document,
+    ) -> Option<(String, Box<dyn Extractor>)> {
+        self.mappings
+            .iter()
+            .find(|(_, registered_name, _)| registered_name.eq_ignore_ascii_case(name))
+            .and_then(|(_, registered_name, factory)| {
+                factory(doc, url)
+                    .filter(|extractor| extractor.can_extract(doc))
+                    .map(|extractor| (registered_name.clone(), extractor))
+            })
     }
 }
 
@@ -65,16 +82,15 @@ fn extract_hostname(url: &str) -> String {
 pub fn build_registry() -> Registry {
     let mut registry = Registry::new();
 
-    registry.register("news.ycombinator.com", hackernews::create);
-    registry.register("old.reddit.com", reddit::create);
-    registry.register("reddit.com", reddit::create);
-    registry.register("github.com", github::create);
-    registry.register("chatgpt.com", chatgpt::create);
-    registry.register("substack.com", substack::create);
-    registry.register("mastodon", mastodon::create);
-    registry.register("x.com", twitter::create);
-    registry.register("twitter.com", twitter::create);
-    registry.register("", substack::create);
+    registry.register("news.ycombinator.com", "hackernews", hackernews::create);
+    registry.register("old.reddit.com", "reddit", reddit::create);
+    registry.register("reddit.com", "reddit", reddit::create);
+    registry.register("github.com", "github", github::create);
+    registry.register("chatgpt.com", "chatgpt", chatgpt::create);
+    registry.register("substack.com", "substack", substack::create);
+    registry.register("mastodon", "mastodon", mastodon::create);
+    registry.register("x.com", "twitter", twitter::create);
+    registry.register("twitter.com", "twitter", twitter::create);
 
     registry
 }

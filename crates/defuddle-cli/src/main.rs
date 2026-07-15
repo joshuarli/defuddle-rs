@@ -32,6 +32,7 @@ fn run() -> Result<(), String> {
     let mut url: Option<String> = None;
     let mut lang: Option<String> = None;
     let mut debug = false;
+    let mut extractor: Option<String> = None;
     let mut source: Option<String> = None;
 
     while let Some(arg) = parser.next().map_err(|e| e.to_string())? {
@@ -84,6 +85,15 @@ fn run() -> Result<(), String> {
             lexopt::Arg::Long("debug") => {
                 debug = true;
             }
+            lexopt::Arg::Long("extractor") => {
+                extractor = Some(
+                    parser
+                        .value()
+                        .map_err(|e| e.to_string())?
+                        .into_string()
+                        .map_err(|_| "invalid extractor value".to_string())?,
+                );
+            }
             lexopt::Arg::Short('h') | lexopt::Arg::Long("help") => {
                 print_help();
                 return Ok(());
@@ -118,6 +128,7 @@ fn run() -> Result<(), String> {
     let options = defuddle::DefuddleOptions {
         url,
         debug,
+        extractor,
         separate_markdown: markdown,
         language: lang,
         ..Default::default()
@@ -125,6 +136,10 @@ fn run() -> Result<(), String> {
 
     let result =
         defuddle::parse_html(&input.html, options).map_err(|e| format!("Parse error: {e}"))?;
+    eprintln!(
+        "defuddle: detected extractor: {}",
+        result.extractor_type.as_deref().unwrap_or("generic")
+    );
 
     let out: Box<dyn Write> = if let Some(ref path) = output {
         Box::new(fs::File::create(path).map_err(|e| format!("Cannot open output file: {e}"))?)
@@ -296,6 +311,7 @@ Options:
   --url <url>             Set document URL for metadata resolution
   -l, --lang <code>       Preferred language (BCP 47 tag)
   --debug                 Enable debug output
+  --extractor <name>      Force a named site extractor (e.g. substack)
   -h, --help              Show this help
 "#
     );
