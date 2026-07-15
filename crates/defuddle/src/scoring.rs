@@ -239,6 +239,15 @@ pub fn score_non_content_block(doc: &Document, node: NodeId) -> f64 {
     if words < 3 {
         return 0.0;
     }
+    let class_val = doc.get_attr(node, "class").unwrap_or("").to_lowercase();
+    if words >= 80
+        && (class_val.contains("content")
+            || class_val.contains("article")
+            || class_val.contains("post"))
+        && count_descendant_tag(doc, node, "p") >= 3
+    {
+        return 0.0;
+    }
 
     let mut score = 0.0;
 
@@ -248,6 +257,9 @@ pub fn score_non_content_block(doc: &Document, node: NodeId) -> f64 {
     let text_lower = text.to_lowercase();
     let mut indicator_matches = 0;
     for indicator in NAVIGATION_INDICATORS {
+        if *indicator == "sidebar" && words >= 80 {
+            continue;
+        }
         if text_lower.contains(*indicator) {
             indicator_matches += 1;
         }
@@ -293,9 +305,11 @@ pub fn score_non_content_block(doc: &Document, node: NodeId) -> f64 {
         }
     }
 
-    let class_val = doc.get_attr(node, "class").unwrap_or("").to_lowercase();
     let id_str = doc.get_attr(node, "id").unwrap_or("").to_lowercase();
     for pattern in NON_CONTENT_PATTERNS {
+        if *pattern == "sidebar" && words >= 80 && count_descendant_tag(doc, node, "p") >= 3 {
+            continue;
+        }
         if class_val.contains(pattern) || id_str.contains(pattern) {
             score -= 8.0;
         }

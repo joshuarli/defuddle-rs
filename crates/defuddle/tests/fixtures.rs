@@ -315,6 +315,61 @@ fn fixture_url(html: &str, path: &Path) -> String {
         .file_stem()
         .and_then(|stem| stem.to_str())
         .expect("fixture has UTF-8 stem");
+    let named_urls = [
+        (
+            "general--github.com-issue-56",
+            "https://github.com/kepano/defuddle/issues/56",
+        ),
+        (
+            "general--github.com-test-owner-test-repo-pull-42",
+            "https://github.com/test-owner/test-repo/pull/42",
+        ),
+        (
+            "comments--news.ycombinator.com-item-id=12345678",
+            "https://news.ycombinator.com/item?id=12345678",
+        ),
+        (
+            "general--news.ycombinator.com-item-id=12345678",
+            "https://news.ycombinator.com/item?id=12345678",
+        ),
+        (
+            "listing--news.ycombinator.com-news",
+            "https://news.ycombinator.com/news",
+        ),
+        (
+            "comments--old.reddit.com-r-test-comments-abc123-test_post",
+            "https://old.reddit.com/r/test/comments/abc123/test_post",
+        ),
+        (
+            "extractor--chatgpt-citations",
+            "https://chatgpt.com/share/citations",
+        ),
+        (
+            "extractor--chatgpt-post-thought-content",
+            "https://chatgpt.com/share/thoughts",
+        ),
+        (
+            "codeblocks--chatgpt-codemirror",
+            "https://chatgpt.com/share/codemirror",
+        ),
+        ("general--substack-app", "https://substack.com/app"),
+        (
+            "general--substack-custom-domain",
+            "https://example.substack.com/p/test-article",
+        ),
+        ("general--x.com-article", "https://x.com/article"),
+        (
+            "general--x.com-article-2026-02-13",
+            "https://x.com/article/2026-02-13",
+        ),
+        (
+            "content-patterns--content-list-with-internal-links",
+            "https://content-patterns--content-list-with-internal-links",
+        ),
+    ];
+    if let Some((_, url)) = named_urls.iter().find(|(name, _)| *name == stem) {
+        return (*url).to_string();
+    }
     if stem == "elements--lazy-image" {
         return "https://lazy-image".to_string();
     }

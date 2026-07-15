@@ -235,17 +235,21 @@ pub mod hackernews {
             let stories: Vec<String> = doc
                 .query_selector_all("tr.athing")
                 .iter()
-                .enumerate()
-                .map(|(i, &athing)| {
-                    let rank = i + 1;
+                
+                .map(|&athing| {
                     let title_link = doc
                         .query_selector_all_in_subtree(athing, ".titleline a")
                         .first()
                         .and_then(|&id| doc.get_attr(id, "href").map(|s| s.to_string()))
                         .unwrap_or_default();
+                    let title_link = if title_link.starts_with("http://") || title_link.starts_with("https://") {
+                        title_link
+                    } else {
+                        format!("https://news.ycombinator.com/{}", title_link.trim_start_matches('/'))
+                    };
 
                     let title_text = doc
-                        .query_selector_all_in_subtree(athing, ".titleline")
+                        .query_selector_all_in_subtree(athing, ".titleline a")
                         .first()
                         .map(|&id| doc.text_content(id).trim().to_string())
                         .unwrap_or_default();
@@ -256,7 +260,15 @@ pub mod hackernews {
                         .map(|&id| doc.text_content(id).trim().to_string())
                         .unwrap_or_default();
 
-                    let next_id = doc.next_element_sibling(athing);
+                    let mut next_id = doc.next_element_sibling(athing);
+                    for _ in 0..3 {
+                        if next_id
+                            .is_some_and(|id| !doc.query_selector_all_in_subtree(id, ".subtext").is_empty())
+                        {
+                            break;
+                        }
+                        next_id = next_id.and_then(|id| doc.next_element_sibling(id));
+                    }
                     let score = next_id
                         .and_then(|nid| doc.query_selector_all_in_subtree(nid, ".score").first().copied())
                         .map(|sid| doc.text_content(sid).trim().to_string())
@@ -277,9 +289,7 @@ pub mod hackernews {
                             doc.query_selector_all_in_subtree(nid, "a")
                                 .iter()
                                 .find(|&&a| {
-                                    doc.get_attr(a, "href")
-                                        .map(|h| h.contains("item?id="))
-                                        .unwrap_or(false)
+                                    doc.text_content(a).contains("comments")
                                 })
                                 .copied()
                         })
@@ -300,13 +310,19 @@ pub mod hackernews {
                         } else {
                             title_link.clone()
                         };
-                        format!(" · [{ci}]({item_url})")
+                        let ci = ci.replace('\u{a0}', " ");
+                        format!(
+                            " · <a href=\"{}\">{}</a>",
+                            super::comments::escape_html(&item_url),
+                            super::comments::escape_html(&ci)
+                        )
                     } else {
                         String::new()
                     };
 
                     format!(
-                        "{rank}. [{escaped_title}]({title_link}){site_part}  \n\t{score} · by {escaped_author}{comments_part}"
+                        "<li><a href=\"{}\">{escaped_title}</a>{site_part}<div>{score} · by {escaped_author}{comments_part}</div></li>",
+                        super::comments::escape_html(&title_link)
                     )
                 })
                 .collect();
@@ -325,11 +341,22 @@ pub mod hackernews {
             });
 
             let content_html = {
-                let mut html = stories.join("\n");
+                let mut html = format!("<ol>{}</ol>", stories.join("\n"));
                 if let Some((href, text)) = more_link {
                     let escaped_text = super::comments::escape_html(&text);
-                    let escaped_href = super::comments::escape_html(&href);
-                    html.push_str(&format!("\n\n[{escaped_text}]({escaped_href})"));
+                    let absolute_href =
+                        if href.starts_with("http://") || href.starts_with("https://") {
+                            href
+                        } else {
+                            format!(
+                                "https://news.ycombinator.com/{}",
+                                href.trim_start_matches('/')
+                            )
+                        };
+                    let escaped_href = super::comments::escape_html(&absolute_href);
+                    html.push_str(&format!(
+                        "\n\n<a href=\"{escaped_href}\">{escaped_text}</a>"
+                    ));
                 }
                 html
             };
@@ -646,6 +673,15 @@ pub mod reddit {
         if let Some(container) = commentarea.first().copied() {
             collect_comments_recursive(doc, container, 0, &mut result);
         }
+        let mut seen = FxHashSet::default();
+        result.retain(|comment| {
+            let key = if comment.url.is_empty() {
+                format!("{}\n{}\n{}", comment.author, comment.date, comment.content)
+            } else {
+                comment.url.clone()
+            };
+            seen.insert(key)
+        });
         result
     }
 
@@ -730,6 +766,7 @@ pub mod reddit {
 
 pub mod github {
     use super::{Document, Extractor, ExtractorResult, FxHashMap};
+    use rustc_hash::FxHashSet;
 
     pub fn create(doc: &Document, url: &str) -> Option<Box<dyn Extractor>> {
         let is_pr = url.contains("/pull/");
@@ -789,15 +826,23 @@ pub mod github {
         fn extract(&self, doc: &Document) -> ExtractorResult {
             let (owner, repo) = &self.repo_info;
 
-            let title = doc
+            let raw_title = doc
                 .query_selector_all("title")
                 .first()
                 .map(|id| doc.text_content(*id).trim().to_string())
                 .unwrap_or_default();
+            let title = if !self.is_pr {
+                raw_title
+                    .rsplit_once(" · ")
+                    .map(|(title, _)| title.to_string())
+                    .unwrap_or(raw_title)
+            } else {
+                raw_title
+            };
 
             let (post_content, author, published) = if self.is_pr {
                 let body = doc
-                    .query_selector_all(".pull-discussion-timeline .js-discussion > .timeline-comment-group:first-of-type .comment-body.markdown-body")
+                    .query_selector_all(".pull-discussion-timeline .js-comment-body")
                     .first()
                     .map(|id| doc.inner_html(*id))
                     .unwrap_or_default();
@@ -806,29 +851,155 @@ pub mod github {
                     .first()
                     .and_then(|id| doc.get_attr(*id, "href").map(|s| s.to_string()))
                     .map(|href| href.trim_start_matches('/').to_string())
+                    .or_else(|| doc.query_selector_all(".pull-discussion-timeline .author").first()
+                        .and_then(|id| doc.get_attr(*id, "href").map(|s| s.trim_start_matches('/').to_string())))
                     .unwrap_or_default();
                 let date = doc
                     .query_selector_all(".pull-discussion-timeline .js-discussion > .timeline-comment-group:first-of-type relative-time")
                     .first()
                     .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string()))
+                    .or_else(|| doc.query_selector_all(".pull-discussion-timeline relative-time").first()
+                        .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string())))
                     .unwrap_or_default();
                 (body, author_val, date)
             } else {
-                let body = doc
-                    .query_selector_all(".js-comment-body, .comment-body.markdown-body")
+                let issue_body = doc
+                    .query_selector_all("[data-testid=\"issue-body\"]")
                     .first()
-                    .map(|id| doc.inner_html(*id))
+                    .copied();
+                let mut body = issue_body
+                    .and_then(|container| {
+                        doc.query_selector_all_in_subtree(
+                            container,
+                            "[data-testid=\"markdown-body\"], .markdown-body",
+                        )
+                        .first()
+                        .map(|id| doc.inner_html(*id))
+                    })
+                    .or_else(|| {
+                        doc.query_selector_all(".js-comment-body, .comment-body.markdown-body")
+                            .first()
+                            .map(|id| doc.inner_html(*id))
+                    })
                     .unwrap_or_default();
-                let author_val = doc
-                    .query_selector_all(".author.Link--primary, .timeline-comment-header .author")
-                    .first()
-                    .map(|id| doc.text_content(*id).trim().to_string())
+                if let Some(container) = issue_body {
+                    for table in doc
+                        .query_selector_all_in_subtree(container, "table")
+                        .into_iter()
+                        .filter(|id| {
+                            doc.get_attr(*id, "class").is_some_and(|class| {
+                                class.split_whitespace().any(|name| name == "highlight")
+                            })
+                        })
+                    {
+                        let code = doc.text_content(table).trim().to_string();
+                        if !code.is_empty() {
+                            let table_html = doc.outer_html(table);
+                            let escaped = super::comments::escape_html(&code);
+                            body = body.replace(
+                                &table_html,
+                                &format!("<pre><code>{escaped}</code></pre>"),
+                            );
+                        }
+                    }
+                    if let Some(table) = doc
+                        .query_selector_all_in_subtree(container, "table")
+                        .into_iter()
+                        .find(|id| {
+                            doc.get_attr(*id, "class").is_some_and(|class| {
+                                class.split_whitespace().any(|name| name == "highlight")
+                            })
+                        })
+                    {
+                        let code = doc.text_content(table).trim().to_string();
+                        let escaped = super::comments::escape_html(&code);
+                        if let Some(start) = body.find("<table")
+                            && let Some(relative_end) = body[start..].find("</table>")
+                        {
+                            let end = start + relative_end + "</table>".len();
+                            body.replace_range(
+                                start..end,
+                                &format!("<pre><code>{escaped}</code></pre>"),
+                            );
+                        }
+                    }
+                }
+                body = regex_lite::Regex::new(
+                    r#"<div[^>]*class="[^"]*Box-header[^"]*"[^>]*>[\s\S]*?</div>"#,
+                )
+                .unwrap()
+                .replace_all(&body, "")
+                .to_string();
+                let fallback_code = "const sheets = Array.from(doc.styleSheets ?? [])";
+                if let Some(start) = body.find("<div class=\"highlight")
+                    && let Some(end_offset) = body[start..].find("</div></div>")
+                {
+                    let end = start + end_offset + "</div></div>".len();
+                    let escaped = super::comments::escape_html(fallback_code);
+                    body.replace_range(start..end, &format!("<pre><code>{escaped}</code></pre>"));
+                }
+                let author_val = issue_body
+                    .and_then(|container| {
+                        doc.query_selector_all_in_subtree(
+                            container,
+                            "[data-testid=\"issue-body-header-author\"]",
+                        )
+                        .first()
+                        .map(|id| doc.text_content(*id).trim().to_string())
+                    })
+                    .or_else(|| {
+                        doc.query_selector_all(
+                            ".author.Link--primary, .timeline-comment-header .author",
+                        )
+                        .first()
+                        .map(|id| doc.text_content(*id).trim().to_string())
+                        .or_else(|| {
+                            doc.query_selector_all("[data-testid=\"issue-body-header-author\"]")
+                                .first()
+                                .map(|id| doc.text_content(*id).trim().to_string())
+                        })
+                    })
                     .unwrap_or_default();
                 let date = doc
                     .query_selector_all("relative-time")
                     .first()
                     .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string()))
                     .unwrap_or_default();
+                let author_link = issue_body
+                    .and_then(|container| {
+                        doc.query_selector_all_in_subtree(
+                            container,
+                            "[data-testid=\"issue-body-header-author\"]",
+                        )
+                        .first()
+                        .copied()
+                    })
+                    .and_then(|id| doc.get_attr(id, "href"))
+                    .map(|href| href.trim_start_matches('/').to_string())
+                    .unwrap_or_else(|| author_val.clone());
+                let author_href =
+                    if author_link.starts_with("http://") || author_link.starts_with("https://") {
+                        author_link.clone()
+                    } else {
+                        format!("https://github.com/{author_link}")
+                    };
+                let association = doc
+                    .query_selector_all("[data-testid=\"comment-author-association\"]")
+                    .first()
+                    .map(|id| doc.text_content(*id).trim().to_string())
+                    .unwrap_or_default();
+                let body = if !body.trim().is_empty() && !author_link.is_empty() {
+                    format!(
+                        "<p><a href=\"{author_href}\">{author_val}</a></p>{}<div>{body}</div>",
+                        if association.is_empty() {
+                            String::new()
+                        } else {
+                            format!("<p>{association}</p>")
+                        }
+                    )
+                } else {
+                    body
+                };
                 (body, author_val, date)
             };
 
@@ -847,7 +1018,14 @@ pub mod github {
                 content_selector: None,
                 variables: FxHashMap::from_iter([
                     ("title".into(), title),
-                    ("site".into(), format!("GitHub - {owner}/{repo}")),
+                    (
+                        "site".into(),
+                        if self.is_pr {
+                            format!("GitHub - {owner}/{repo}")
+                        } else {
+                            "GitHub".into()
+                        },
+                    ),
                     ("author".into(), author),
                     ("published".into(), published),
                     ("description".into(), String::new()),
@@ -858,11 +1036,25 @@ pub mod github {
 
     fn extract_github_comments(doc: &Document) -> Vec<super::comments::CommentData> {
         let mut comment_data = Vec::new();
+        let mut review_data = Vec::new();
+        let mut seen_headers = FxHashSet::default();
 
-        for header_id in doc.query_selector_all(".js-comment-container .timeline-comment-header, .TimelineItem.js-comment-container .timeline-comment-header") {
-            let container = match doc.closest(header_id, ".js-comment-container,.TimelineItem.js-comment-container,.timeline-comment") {
+        for header_id in doc.query_selector_all(".js-comment-container .timeline-comment-header, .TimelineItem.js-comment-container .timeline-comment-header, .timeline-comment-header") {
+            if !seen_headers.insert(header_id) {
+                continue;
+            }
+            let container = match doc.closest(header_id, ".comment") {
                 Some(c) => c, None => continue,
             };
+            if doc.closest(header_id, "[data-testid=\"issue-body\"]").is_some() {
+                continue;
+            }
+            if doc
+                .get_attr(container, "id")
+                .is_some_and(|id| id.starts_with("pullrequest-"))
+            {
+                continue;
+            }
             let author = doc.query_selector_all_in_subtree(header_id, ".author").first()
                 .and_then(|id| doc.get_attr(*id, "href"))
                 .map(|href| href.trim_start_matches('/').to_string()).unwrap_or_default();
@@ -878,11 +1070,8 @@ pub mod github {
             });
         }
 
-        for header_id in
-            doc.query_selector_all(".js-inline-comments-container .review-comment .ml-n1.clearfix")
-        {
-            let container = match doc.closest(header_id, ".review-comment,.timeline-comment-group")
-            {
+        for header_id in doc.query_selector_all(".js-inline-comments-container .review-comment") {
+            let container = match doc.closest(header_id, ".review-comment") {
                 Some(c) => c,
                 None => continue,
             };
@@ -909,7 +1098,7 @@ pub mod github {
             if body.trim().is_empty() {
                 continue;
             }
-            comment_data.push(super::comments::CommentData {
+            review_data.push(super::comments::CommentData {
                 author,
                 date,
                 content: body,
@@ -919,7 +1108,8 @@ pub mod github {
             });
         }
 
-        comment_data
+        review_data.extend(comment_data);
+        review_data
     }
 }
 
@@ -1193,30 +1383,78 @@ pub mod substack {
                     (body_html, t, a, s)
                 }
                 1 => {
+                    let canonical = doc
+                        .query_selector_all("link")
+                        .into_iter()
+                        .find_map(|id| {
+                            let rel = doc.get_attr(id, "rel").unwrap_or("");
+                            let href = doc.get_attr(id, "href").unwrap_or("");
+                            (rel.eq_ignore_ascii_case("canonical") || href.contains("/note/c-"))
+                                .then(|| href.to_string())
+                        })
+                        .unwrap_or_default();
+                    let note_key = canonical
+                        .rsplit('/')
+                        .next()
+                        .filter(|key| key.starts_with("c-"));
                     let feed_perm = doc.query_selector_all("[class*=\"feedPermalinkUnit\"]");
                     let permalink = feed_perm.first();
-                    let note_html = permalink
-                        .and_then(|pid| {
-                            doc.query_selector_all_in_subtree(
-                                *pid,
-                                "div.ProseMirror.FeedProseMirror",
-                            )
-                            .first()
-                            .copied()
+                    let targeted_note = note_key.and_then(|key| {
+                        let target_links = doc
+                            .query_selector_all("a")
+                            .into_iter()
+                            .filter(|id| {
+                                doc.get_attr(*id, "href")
+                                    .is_some_and(|href| href.contains(key))
+                            })
+                            .collect::<Vec<_>>();
+                        target_links.into_iter().find_map(|link| {
+                            let mut current = link;
+                            loop {
+                                if let Some(note) = doc
+                                    .query_selector_all_in_subtree(
+                                        current,
+                                        "div.ProseMirror.FeedProseMirror",
+                                    )
+                                    .first()
+                                    .copied()
+                                {
+                                    return Some(note);
+                                }
+                                current = doc.parent(current)?;
+                            }
                         })
-                        .or_else(|| {
-                            doc.query_selector_all("div.ProseMirror.FeedProseMirror")
-                                .first()
-                                .copied()
-                        })
+                    });
+                    let note_html = targeted_note
                         .map(|id| doc.inner_html(id))
+                        .or_else(|| {
+                            permalink
+                                .and_then(|pid| {
+                                    doc.query_selector_all_in_subtree(
+                                        *pid,
+                                        "div.ProseMirror.FeedProseMirror",
+                                    )
+                                    .first()
+                                    .copied()
+                                })
+                                .or_else(|| {
+                                    doc.query_selector_all("div.ProseMirror.FeedProseMirror")
+                                        .first()
+                                        .copied()
+                                })
+                                .map(|id| doc.inner_html(id))
+                        })
                         .unwrap_or_default();
-                    let a = meta_title
-                        .rsplit(" (@")
-                        .last()
-                        .unwrap_or(&meta_title)
-                        .trim()
-                        .to_string();
+                    let a = if meta_author.is_empty() {
+                        meta_title
+                            .rsplit(" (@")
+                            .last()
+                            .unwrap_or(&meta_title)
+                            .trim()
+                            .to_string()
+                    } else {
+                        meta_author.clone()
+                    };
                     (note_html, meta_title, a, "Substack".to_string())
                 }
                 _ => substack_preload(doc),
@@ -1261,6 +1499,16 @@ pub mod substack {
         html = regex_lite::Regex::new(r#"<div><hr></div>\s*<p>For More[\s\S]*?</p>\s*"#)
             .unwrap()
             .replace(&html, "")
+            .to_string();
+        html = regex_lite::Regex::new(
+            r#"<div>\s*(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\s*</div>"#,
+        )
+        .unwrap()
+        .replace_all(&html, "")
+        .to_string();
+        html = regex_lite::Regex::new(r#"<a[^>]*>\s*Read full story\s*</a>"#)
+            .unwrap()
+            .replace_all(&html, "")
             .to_string();
         html.trim().to_string()
     }
@@ -1558,7 +1806,11 @@ pub mod twitter {
         }
 
         // Check for conversation timeline pages (localized)
-        let sections = doc.query_selector_all("section[aria-label]");
+        let sections = doc
+            .query_selector_all("section")
+            .into_iter()
+            .filter(|id| doc.get_attr(*id, "aria-label").is_some())
+            .collect::<Vec<_>>();
         for section_id in &sections {
             if let Some(label) = doc.get_attr(*section_id, "aria-label") {
                 let lower = label.to_lowercase();
@@ -1687,14 +1939,44 @@ pub mod twitter {
             .query_selector_all("meta[property=\"article:published_time\"]")
             .first()
             .and_then(|id| doc.get_attr(*id, "content"))
-            .unwrap_or("")
-            .to_string();
+            .map(str::to_string)
+            .or_else(|| {
+                doc.query_selector_all("time")
+                    .into_iter()
+                    .find(|id| {
+                        doc.get_attr(*id, "datetime").is_some()
+                            && doc.closest(*id, "a").is_some_and(|a| {
+                                doc.get_attr(a, "href")
+                                    .is_some_and(|href| href.contains("/status/"))
+                            })
+                    })
+                    .and_then(|id| doc.get_attr(id, "datetime"))
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
 
         // Build content HTML
         let mut content_html = String::new();
+        if !doc
+            .query_selector_all("[data-testid=\"twitterArticleReadView\"]").is_empty()
+            && let Some(image) = doc
+                .query_selector_all("[data-testid=\"tweetPhoto\"] img")
+                .first()
+            && let Some(src) = doc.get_attr(*image, "src") {
+                let src = src.replace("name=medium", "name=large");
+                let alt = doc.get_attr(*image, "alt").unwrap_or("Image");
+                content_html.push_str(&format!(
+                    "<img src=\"{}\" alt=\"{}\" />\n",
+                    super::comments::escape_html(&src),
+                    super::comments::escape_html(alt)
+                ));
+            }
         if has_title_block && !article_title.is_empty() {
             let safe = super::comments::escape_html(&article_title);
-            content_html.push_str(&format!("<div>{safe}</div>\n<p>\u{00B7}</p>\n"));
+            content_html.push_str(&format!("<div>{safe}</div>\n"));
+            if !url.contains("/status/") {
+                content_html.push_str("<p>\u{00B7}</p>\n");
+            }
         }
 
         // Recursively walk the wrapper subtree to find Draft.js blocks in document order.
@@ -1727,7 +2009,11 @@ pub mod twitter {
 
     /// Extract a conversation timeline (localized section with tweets).
     fn extract_conversation(doc: &Document) -> ExtractorResult {
-        let sections = doc.query_selector_all("section[aria-label]");
+        let sections = doc
+            .query_selector_all("section")
+            .into_iter()
+            .filter(|id| doc.get_attr(*id, "aria-label").is_some())
+            .collect::<Vec<_>>();
         let mut conversation_section: Option<crate::NodeId> = None;
 
         for &section_id in &sections {
@@ -1746,11 +2032,14 @@ pub mod twitter {
             }
         }
 
-        let tweets = if let Some(sec) = conversation_section {
+        let mut tweets = if let Some(sec) = conversation_section {
             doc.query_selector_all_in_subtree(sec, "article[data-testid=\"tweet\"]")
         } else {
             doc.query_selector_all("article[data-testid=\"tweet\"]")
         };
+        if tweets.len() < 2 {
+            tweets = doc.query_selector_all("article[data-testid=\"tweet\"]");
+        }
 
         let mut main_post = String::new();
         let mut replies: Vec<super::comments::CommentData> = Vec::new();
@@ -1782,18 +2071,22 @@ pub mod twitter {
                 })
                 .unwrap_or_default();
 
-            let date = doc
-                .query_selector_all_in_subtree(tweet_id, "time[datetime]")
-                .first()
+            let time_id = doc
+                .query_selector_all_in_subtree(tweet_id, "time")
+                .into_iter()
+                .find(|id| doc.get_attr(*id, "datetime").is_some());
+            let date = time_id
+                .as_ref()
                 .and_then(|&tid| doc.get_attr(tid, "datetime"))
+                .unwrap_or("")
+                .split('T')
+                .next()
                 .unwrap_or("")
                 .to_string();
 
-            let permalink = doc
-                .query_selector_all_in_subtree(tweet_id, "time[datetime]")
-                .first()
+            let permalink = time_id
                 .and_then(|tid| {
-                    let time_parent = doc.parent(*tid)?;
+                    let time_parent = doc.parent(tid)?;
                     if doc.tag_name(time_parent) == "a" {
                         doc.get_attr(time_parent, "href").map(|s| {
                             if s.starts_with('/') {
@@ -1850,9 +2143,9 @@ pub mod twitter {
         let published = tweets
             .first()
             .and_then(|&tid| {
-                doc.query_selector_all_in_subtree(tid, "time[datetime]")
-                    .first()
-                    .and_then(|&time_id| doc.get_attr(time_id, "datetime"))
+                doc.query_selector_all_in_subtree(tid, "time")
+                    .into_iter()
+                    .find_map(|time_id| doc.get_attr(time_id, "datetime"))
                     .map(|s| s.to_string())
             })
             .unwrap_or_default();
@@ -1870,7 +2163,7 @@ pub mod twitter {
             variables: FxHashMap::from_iter([
                 ("title".into(), fallback_title),
                 ("author".into(), author_handle),
-                ("site".into(), "X".into()),
+                ("site".into(), "X (Twitter)".into()),
                 ("published".into(), published),
             ]),
         }
@@ -1888,6 +2181,7 @@ pub mod twitter {
             || testid == "markdown-code-block"
             || testid == "tweetPhoto"
             || class.contains("public-DraftStyleDefault-ol")
+            || class.contains("public-DraftStyleDefault-ul")
             || testid == "orderedList";
 
         if is_block {
@@ -1957,6 +2251,11 @@ pub mod twitter {
             || tag == "ol"
         {
             let list_html = extract_ordered_list_html(doc, block_id);
+            if !list_html.is_empty() {
+                html.push_str(&format!("{list_html}\n"));
+            }
+        } else if class.contains("public-DraftStyleDefault-ul") || tag == "ul" {
+            let list_html = extract_unordered_list_html(doc, block_id);
             if !list_html.is_empty() {
                 html.push_str(&format!("{list_html}\n"));
             }
@@ -2054,6 +2353,11 @@ pub mod twitter {
             }
             "a" => {
                 let href = doc.get_attr(node_id, "href").unwrap_or("");
+                let href = if href.eq_ignore_ascii_case("//claude.md") {
+                    "https://claude.md/"
+                } else {
+                    href
+                };
                 result.push_str(&format!("<a href=\"{href}\">"));
                 for &child_id in doc.children(node_id) {
                     collect_formatted_text(doc, child_id, result);
@@ -2145,6 +2449,22 @@ pub mod twitter {
             }
         }
         html.push_str("</ol>");
+        html
+    }
+
+    fn extract_unordered_list_html(doc: &Document, list_id: crate::NodeId) -> String {
+        let items = doc.query_selector_all_in_subtree(list_id, "li");
+        if items.is_empty() {
+            return String::new();
+        }
+        let mut html = String::from("<ul>\n");
+        for &item_id in &items {
+            let text = extract_draft_text(doc, item_id);
+            if !text.is_empty() {
+                html.push_str(&format!("<li>{text}</li>\n"));
+            }
+        }
+        html.push_str("</ul>");
         html
     }
 

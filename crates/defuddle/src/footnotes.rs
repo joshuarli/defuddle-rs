@@ -170,6 +170,7 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
     collect_pulldown_cmark_defs(doc, content_id, &mut definitions);
     collect_hugo_defs(doc, content_id, &mut definitions);
     collect_easy_footnotes(doc, content_id, &mut definitions);
+    collect_google_docs_defs(doc, content_id, &mut definitions);
     collect_hr_separated_defs(doc, content_id, &mut definitions);
     collect_heading_separated_defs(doc, content_id, &mut definitions);
     collect_p_class_defs(doc, content_id, &mut definitions);
@@ -194,6 +195,23 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
     doc.append_html(content_id, &ol_html);
 
     // Phase 4: Convert inline refs to sup with anchor
+    let google_refs = doc
+        .query_selector_all_in_subtree(content_id, "sup")
+        .into_iter()
+        .filter_map(|id| {
+            let value = doc.get_attr(id, "id")?.to_string();
+            let num = value.strip_prefix("ftnt_ref")?.parse::<usize>().ok()?;
+            Some((id, num))
+        })
+        .collect::<Vec<_>>();
+    for (id, num) in google_refs {
+        if definitions.contains_key(&num) {
+            doc.replace_with_html(
+                id,
+                &format!("<sup id=\"fnref:{num}\"><a href=\"#fn:{num}\">{num}</a></sup>"),
+            );
+        }
+    }
     let special_refs = doc
         .query_selector_all_in_subtree(content_id, "*")
         .into_iter()
@@ -261,9 +279,8 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
                 } else {
                     sup_text
                 };
-                let html = format!(
-                    "<sup id=\"fnref:{num}\"><a href=\"#fn:{num}\" class=\"footnote-ref\">{display}</a></sup>"
-                );
+                let html =
+                    format!("<sup id=\"fnref:{num}\"><a href=\"#fn:{num}\">{display}</a></sup>");
                 doc.replace_with_html(el_id, &html);
             }
         }
@@ -284,10 +301,58 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
             } else {
                 sup_text
             };
-            let html = format!(
-                "<sup id=\"fnref:{num}\"><a href=\"#fn:{num}\" class=\"footnote-ref\">{display}</a></sup>"
-            );
+            let html = format!("<sup id=\"fnref:{num}\"><a href=\"#fn:{num}\">{display}</a></sup>");
             doc.replace_with_html(sup_id, &html);
+        }
+    }
+
+    for sup_id in doc
+        .query_selector_all_in_subtree(content_id, "sup")
+        .into_iter()
+        .filter(|id| {
+            doc.get_attr(*id, "class")
+                .unwrap_or("")
+                .split_whitespace()
+                .any(|class| class == "reference")
+                && !doc.query_selector_all_in_subtree(*id, "sup").is_empty()
+        })
+        .collect::<Vec<_>>()
+    {
+        doc.unwrap(sup_id);
+    }
+}
+
+fn collect_google_docs_defs(
+    doc: &mut Document,
+    content_id: NodeId,
+    defs: &mut FxHashMap<usize, String>,
+) {
+    let paragraphs = doc.query_selector_all_in_subtree(content_id, "p");
+    for paragraph in paragraphs {
+        let Some(id) = doc.get_attr(paragraph, "id") else {
+            continue;
+        };
+        let Some(num) = id
+            .strip_prefix("ftnt")
+            .and_then(|v| v.parse::<usize>().ok())
+        else {
+            continue;
+        };
+        for anchor in doc.query_selector_all_in_subtree(paragraph, "a") {
+            if doc
+                .get_attr(anchor, "href")
+                .is_some_and(|href| href.starts_with("#ftnt_ref"))
+            {
+                doc.remove(anchor);
+            }
+        }
+        defs.entry(num).or_insert_with(|| doc.inner_html(paragraph));
+        if let Some(parent) = doc.parent(paragraph)
+            && doc.tag_name(parent).eq_ignore_ascii_case("div")
+        {
+            doc.remove(parent);
+        } else {
+            doc.remove(paragraph);
         }
     }
 }
@@ -332,7 +397,11 @@ fn collect_pulldown_cmark_defs(
         if let Some(id_attr) = doc.get_attr(def_id, "id")
             && let Ok(num) = id_attr.trim().parse::<usize>()
         {
-            defs.entry(num).or_insert_with(|| doc.inner_html(def_id));
+            defs.entry(num).or_insert_with(|| {
+                let html = doc.inner_html(def_id);
+                let terminal_period = regex_lite::Regex::new(r"\.</p>\s*$").unwrap();
+                terminal_period.replace(&html, "</p>").to_string()
+            });
         }
         doc.remove(def_id);
     }
@@ -440,6 +509,34 @@ fn collect_anchor_definitions(
 ) -> Vec<(String, usize)> {
     let mut keys = Vec::new();
 
+    let wikipedia_items = doc
+        .query_selector_all_in_subtree(content_id, "li")
+        .into_iter()
+        .filter(|id| {
+            doc.get_attr(*id, "id")
+                .is_some_and(|value| value.starts_with("cite_note-"))
+        })
+        .collect::<Vec<_>>();
+    let has_wikipedia_items = !wikipedia_items.is_empty();
+    for item in wikipedia_items {
+        let Some(id) = doc.get_attr(item, "id").map(str::to_string) else {
+            continue;
+        };
+        let Some(number) = id
+            .rsplit('-')
+            .next()
+            .and_then(|value| value.parse::<usize>().ok())
+        else {
+            continue;
+        };
+        for backlink in doc.query_selector_all_in_subtree(item, ".mw-cite-backlink") {
+            doc.remove(backlink);
+        }
+        defs.insert(number, doc.inner_html(item));
+        keys.push((id, number));
+        doc.remove(item);
+    }
+
     let reference_blocks = doc
         .query_selector_all_in_subtree(content_id, "*")
         .into_iter()
@@ -480,7 +577,7 @@ fn collect_anchor_definitions(
         keys.push((key, number));
         doc.remove(block);
     }
-    if !keys.is_empty() {
+    if !keys.is_empty() && !has_wikipedia_items {
         for heading in doc.query_selector_all_in_subtree(content_id, "h2,h3,h4") {
             if doc
                 .text_content(heading)
@@ -620,7 +717,7 @@ fn collect_hr_separated_defs(
             }
         }
         if current_num.is_some() {
-            if tag == "ul" || tag == "ol" {
+            if tag == "p" || tag == "ul" || tag == "ol" {
                 current_html.push_str(&doc.outer_html(child));
             } else {
                 current_html.push_str(&doc.inner_html(child));
@@ -683,6 +780,37 @@ fn collect_heading_separated_defs(
                             doc.remove(child);
                             continue;
                         }
+                    }
+                }
+                if tag == "div" {
+                    let paragraph = doc
+                        .query_selector_all_in_subtree(child, "p")
+                        .into_iter()
+                        .find(|id| {
+                            doc.get_attr(*id, "id")
+                                .is_some_and(|v| v.starts_with("ftnt"))
+                        });
+                    if let Some(paragraph) = paragraph {
+                        let Some(id) = doc.get_attr(paragraph, "id") else {
+                            continue;
+                        };
+                        let Some(num) = id
+                            .strip_prefix("ftnt")
+                            .and_then(|v| v.parse::<usize>().ok())
+                        else {
+                            continue;
+                        };
+                        for anchor in doc.query_selector_all_in_subtree(paragraph, "a") {
+                            if doc
+                                .get_attr(anchor, "href")
+                                .is_some_and(|href| href.starts_with("#ftnt_ref"))
+                            {
+                                doc.remove(anchor);
+                            }
+                        }
+                        defs.entry(num).or_insert_with(|| doc.inner_html(paragraph));
+                        doc.remove(child);
+                        continue;
                     }
                 }
                 break;

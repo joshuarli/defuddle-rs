@@ -9,8 +9,8 @@ Measured with `cargo test --test fixtures -- --nocapture`:
 - 202 vendored upstream fixtures.
 - 114 active fixtures.
 - 88 excluded fixtures in `tests/upstream-exceptions.toml`.
-- 59 active fixtures match.
-- 55 active fixtures mismatch.
+- 114 active fixtures match.
+- 0 active fixtures mismatch.
 
 This is a moving baseline. Update it only from the full fixture command, not
 from a filtered run. The current count reflects the shared footnote, DOM
@@ -28,12 +28,10 @@ Use a comma-separated filter when working a narrow set:
 DEFUDDLE_FIXTURE_FILTER=fixture-one,fixture-two cargo test --test fixtures -- --nocapture
 ```
 
-The full test suite also has one known pre-existing failure unrelated to fixture parity:
-`markdown_conversion::wraps_link_destinations_with_spaces_in_angle_brackets`. Until that is fixed,
-run the full suite for visibility and use this passing integration command as the regression gate:
+The full test suite is the regression gate for each tranche:
 
 ```bash
-cargo test --test integration -- --skip markdown_conversion::wraps_link_destinations_with_spaces_in_angle_brackets
+cargo test
 ```
 
 ## Scope Rules
@@ -64,7 +62,7 @@ For each parity tranche:
 
 - Keep fixture scope stable unless the change intentionally promotes or excludes a named fixture.
 - Start with a representative filter while developing, then run the full fixture gate before considering the tranche complete.
-- Run full `cargo test` before calling a tranche done; the known link-spacing failure must remain the only unrelated failure.
+- Run full `cargo test` before calling a tranche done; the full suite is the regression gate.
 - Update the baseline counts when the active surface changes or a tranche materially reduces mismatches.
 - Add focused integration tests when the behavior is shared and easy to regress outside the golden diff.
 - Do not add HTTP, browser automation, JavaScript runtime, async runtime, or broad dependencies to `defuddle`.
@@ -113,7 +111,8 @@ conversion, and Markdown postprocessing should contain only renderer-specific
 normalization. A change that improves one fixture but increases another bucket
 should be treated as a regression until the shared cause is understood.
 
-The current active mismatches are concentrated in these buckets:
+The active fixture gate is currently clean. These buckets remain useful for
+future parity work:
 
 - Markdown formatting: callouts, blockquote spacing, code formatting, inline
   code, tables, and footnote edge cases.

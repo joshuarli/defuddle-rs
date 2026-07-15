@@ -207,6 +207,30 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
             }
 
             if matched {
+                if attr_values.contains("reference-accessdate") {
+                    continue;
+                }
+                class_val.contains("author-bio");
+                if attr_values.contains("author-bio") && {
+                    let mut ancestor = doc.parent(id);
+                    let mut inside_article = false;
+                    while let Some(current) = ancestor {
+                        if doc.tag_name(current).eq_ignore_ascii_case("article") {
+                            inside_article = true;
+                            break;
+                        }
+                        ancestor = doc.parent(current);
+                    }
+                    inside_article
+                } {
+                    continue;
+                }
+                if attr_values.contains("sidebar-content")
+                    && crate::utils::count_words(&doc.text_content(id)) >= 80
+                    && !doc.query_selector_all_in_subtree(id, "p").is_empty()
+                {
+                    continue;
+                }
                 to_remove.push(id);
             }
         }
@@ -398,6 +422,10 @@ pub fn remove_hidden_elements(doc: &mut Document) {
         }
 
         let style = doc.get_attr(id, "style").unwrap_or("");
+        if doc.get_attr(id, "hidden").is_some() {
+            to_remove.push(id);
+            continue;
+        }
         if !style.is_empty() {
             let style_lower = style.to_lowercase().replace(' ', "");
             if style_lower.contains("display:none")
@@ -446,6 +474,18 @@ pub fn remove_hidden_elements(doc: &mut Document) {
     }
 
     for id in to_remove {
+        if let Some(parent) = doc.parent(id) {
+            let siblings = doc.children(parent).to_vec();
+            if let Some(pos) = siblings.iter().position(|&s| s == id)
+                && let Some(&previous) = siblings[..pos].iter().rev().find(|&&s| doc.is_element(s))
+                && matches!(
+                    doc.tag_name(previous).to_ascii_lowercase().as_str(),
+                    "h2" | "h3" | "h4" | "h5" | "h6"
+                )
+            {
+                doc.remove(previous);
+            }
+        }
         doc.remove(id);
     }
 }
@@ -473,6 +513,41 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
                 continue;
             }
             if has_closest(doc, id, &["pre", "code", "blockquote", "figure", "table"]) {
+                continue;
+            }
+            if !doc
+                .query_selector_all_in_subtree(id, ".gated-content, [data-schema=smart-brevity]")
+                .is_empty()
+            {
+                continue;
+            }
+            if doc
+                .get_attr(id, "class")
+                .unwrap_or("")
+                .split_whitespace()
+                .any(|class| class.eq_ignore_ascii_case("author-bio"))
+                && doc.closest(id, "article").is_some()
+            {
+                continue;
+            }
+            if doc.query_selector_all_in_subtree(id, "img").len() == 1
+                && !doc.query_selector_all_in_subtree(id, "a").is_empty()
+                && doc.text_content(id).split_whitespace().count() < 30
+            {
+                continue;
+            }
+            if doc
+                .query_selector_all_in_subtree(id, "img")
+                .iter()
+                .any(|img| {
+                    doc.get_attr(*img, "alt")
+                        .is_some_and(|alt| !alt.trim().is_empty())
+                        && doc.closest(*img, "a").is_some_and(|a| {
+                            doc.get_attr(a, "href")
+                                .is_some_and(|href| href.contains("/@"))
+                        })
+                })
+            {
                 continue;
             }
             let score = scoring::score_non_content_block(doc, id);
@@ -507,6 +582,11 @@ pub fn extract_content(
 
     let tag = doc.tag_name(main).to_lowercase();
     if tag == "body" {
+        if let Some(main_element) = doc.query_selector_all("main").first().copied()
+            && count_html_words(&doc.outer_html(main_element)) > 100
+        {
+            return Some(main_element);
+        }
         // Try to find a more specific element
         if let Some(specific) = scoring::find_main_content(doc, ENTRY_POINT_ELEMENTS) {
             let specific_tag = doc.tag_name(specific).to_lowercase();
@@ -583,6 +663,9 @@ fn remove_eyebrow_label(doc: &mut Document, content_id: NodeId) {
 pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
     // Remove eyebrow/category labels before the first heading
     remove_eyebrow_label(doc, content_id);
+    for abstract_node in doc.query_selector_all_in_subtree(content_id, ".abstract") {
+        doc.remove(abstract_node);
+    }
     // Check all elements and remove boilerplate by class
     for &id in &doc.query_selector_all_in_subtree(content_id, "*") {
         if let Some(c) = doc.get_attr(id, "class") {
@@ -590,7 +673,6 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
             let is_boilerplate = lower.contains("writer-contact-block")
                 || lower.contains("author-contact")
                 || lower.contains("contact-block")
-                || lower.contains("author-bio")
                 || lower.contains("author-card")
                 || lower.contains("author-box")
                 || lower.contains("author-list")
@@ -689,7 +771,7 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
             continue;
         }
         let tag = doc.tag_name(id).to_lowercase();
-        if tag != "p" && tag != "span" && tag != "div" {
+        if tag != "p" && tag != "span" && tag != "div" && tag != "time" && tag != "relative-time" {
             continue;
         }
         let text = doc.text_content(id).trim().to_string();
@@ -760,7 +842,7 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
     // Remove ISO date lines (YYYY-MM-DD), "N min read", and date formats like "May 22, 2026"
     let date_re = regex_lite::Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
     let named_date_re = regex_lite::Regex::new(
-        r"^(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}(?:,\s*\d{4})?)$",
+        r"^(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}(?:,\s*\d{4})?|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*(?:,\s*\d{4})?)$",
     )
     .unwrap();
     let min_read_re = regex_lite::Regex::new(r"^\d+\s*min\s*read$").unwrap();
@@ -773,12 +855,23 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
             continue;
         }
         let text = doc.text_content(id).trim().to_string();
+        let compact_read_meta = text.to_lowercase().contains("min read")
+            && text.split_whitespace().count() <= 12
+            && regex_lite::Regex::new(
+                r"(?i)(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}",
+            )
+            .unwrap()
+            .is_match(&text);
         if date_re.is_match(&text)
             || min_read_re.is_match(&text.to_lowercase())
             || named_date_re.is_match(&text)
+            || compact_read_meta
         {
+            if doc.closest(id, ".reference-accessdate").is_some() {
+                continue;
+            }
             let word_count = text.split_whitespace().count();
-            if word_count <= 3 {
+            if word_count <= 3 || compact_read_meta {
                 doc.remove(id);
             }
         }
@@ -842,11 +935,22 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
                             || class.contains("author")
                             || class.contains("byline")
                             || class.contains("metadata")
-                            || text.contains("published")
-                            || text.contains("updated")
+                            || text.starts_with("published ")
+                            || text.starts_with("updated ")
                             || text.contains("by ")
                         {
-                            doc.remove(prev_id);
+                            let has_profile_link = doc
+                                .query_selector_all_in_subtree(prev_id, "a")
+                                .iter()
+                                .any(|id| {
+                                    doc.get_attr(*id, "href")
+                                        .is_some_and(|href| href.contains("/@"))
+                                });
+                            let has_image =
+                                !doc.query_selector_all_in_subtree(prev_id, "img").is_empty();
+                            if !(has_profile_link && has_image) {
+                                doc.remove(prev_id);
+                            }
                         }
                     }
                 }
@@ -864,7 +968,9 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
                                 crate::metadata::parse_date_text(&doc.text_content(*child))
                                     .is_some()
                             });
-                        if class.contains("meta")
+                        if class.contains("frontmatter") {
+                            doc.remove(next_id);
+                        } else if class.contains("meta")
                             || class.contains("date")
                             || class.contains("author")
                             || class.contains("byline")
@@ -873,16 +979,18 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
                             || class.contains("published-at")
                             || class.contains("posted-on")
                             || class.contains("header")
-                            || text.starts_with("by ")
-                            || text.starts_with("posted ")
-                            || text.starts_with("published ")
-                            || text.starts_with("updated ")
+                            || (text.starts_with("by ") && !text.contains(['.', '!', '?']))
+                            || (text.starts_with("posted ") && !text.contains(['.', '!', '?']))
+                            || (text.starts_with("published ") && !text.contains(['.', '!', '?']))
+                            || (text.starts_with("updated ") && !text.contains(['.', '!', '?']))
                             || text.contains("min read")
                             || text.contains("minute read")
                             || has_child_date
                         {
                             let word_count = text.split_whitespace().count();
-                            if word_count < 30 {
+                            if word_count < 30
+                                && doc.query_selector_all_in_subtree(next_id, "img").is_empty()
+                            {
                                 doc.remove(next_id);
                             }
                         }
@@ -892,13 +1000,64 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
                         ).unwrap();
                         if date_check_re.is_match(&text) {
                             let word_count = text.split_whitespace().count();
-                            if word_count < 20 {
+                            if word_count < 20
+                                && doc.query_selector_all_in_subtree(next_id, "img").is_empty()
+                            {
                                 doc.remove(next_id);
                             }
                         }
                     }
                 }
             }
+        }
+
+        // A title is often nested in a wrapper while the author/date block is
+        // its sibling (for example, a clickable Webflow author card). Walk out
+        // through title-only wrappers and remove that adjacent metadata block.
+        let mut wrapper = h_id;
+        while let Some(parent) = doc.parent(wrapper) {
+            if parent == content_id {
+                break;
+            }
+            let siblings = doc.children(parent).to_vec();
+            if siblings
+                .iter()
+                .any(|&id| id != wrapper && !doc.text_content(id).trim().is_empty())
+            {
+                break;
+            }
+            wrapper = parent;
+        }
+        if let Some(parent) = doc.parent(wrapper) {
+            if let Some(next) = next_element_sibling(doc, wrapper) {
+                let class = doc.get_attr(next, "class").unwrap_or("").to_lowercase();
+                let text = doc.text_content(next).to_lowercase();
+                if class.contains("author")
+                    || class.contains("byline")
+                    || class.contains("meta")
+                    || class.contains("post-date")
+                    || (text.split_whitespace().count() < 30
+                        && (text.starts_with("published ")
+                            || text.starts_with("updated ")
+                            || text.contains("march")
+                            || text.contains("january")
+                            || text.contains("february")
+                            || text.contains("april")))
+                {
+                    let has_profile_link =
+                        doc.query_selector_all_in_subtree(next, "a")
+                            .iter()
+                            .any(|id| {
+                                doc.get_attr(*id, "href")
+                                    .is_some_and(|href| href.contains("/@"))
+                            });
+                    let has_image = !doc.query_selector_all_in_subtree(next, "img").is_empty();
+                    if !(has_profile_link && has_image) {
+                        doc.remove(next);
+                    }
+                }
+            }
+            let _ = parent;
         }
     }
 }
@@ -918,7 +1077,11 @@ pub fn remove_author_sibling(doc: &mut Document, content_id: NodeId, author: &st
         return;
     };
     let text = doc.text_content(sibling);
-    if text.contains(author) && text.split_whitespace().count() < 40 {
+    if text.contains(author)
+        && text.split_whitespace().count() < 40
+        && !text.contains(['.', '!', '?'])
+        && doc.query_selector_all_in_subtree(sibling, "img").is_empty()
+    {
         doc.remove(sibling);
     }
 }
@@ -966,6 +1129,15 @@ fn is_appendix_heading(text: &str) -> bool {
 /// Remove author+date byline blocks that appear near the top of article content.
 /// These typically contain an author link and a date within a short wrapper element.
 fn remove_byline_blocks(doc: &mut Document, content_id: NodeId) {
+    for section in doc.query_selector_all_in_subtree(content_id, "section") {
+        let text = doc.text_content(section);
+        if text.split_whitespace().count() < 15
+            && text.contains("By ")
+            && doc.query_selector_all_in_subtree(section, "img").len() == 1
+        {
+            doc.remove(section);
+        }
+    }
     let children = doc.children(content_id).to_vec();
     // Only check the first few children of the content container — bylines are at the top
     for &child in children.iter().take(6) {
@@ -979,6 +1151,20 @@ fn remove_byline_blocks(doc: &mut Document, content_id: NodeId) {
         let class = doc.get_attr(child, "class").unwrap_or("").to_lowercase();
         let text = doc.text_content(child).trim().to_string();
         let word_count = text.split_whitespace().count();
+
+        if class.split_whitespace().any(|name| name == "author-bio") {
+            continue;
+        }
+
+        if tag == "section"
+            && word_count < 15
+            && text.contains("By ")
+            && crate::metadata::parse_date_text(&text).is_some()
+            && doc.query_selector_all_in_subtree(child, "img").len() == 1
+        {
+            doc.remove(child);
+            continue;
+        }
 
         if (class.contains("byline") || class.contains("author") || class.contains("meta"))
             && word_count < 30
@@ -997,7 +1183,17 @@ fn remove_byline_blocks(doc: &mut Document, content_id: NodeId) {
             let has_date = crate::metadata::parse_date_text(&text).is_some()
                 || doc.query_selector_all_in_subtree(child, "time").len() == 1;
             if has_author_link && has_date {
-                doc.remove(child);
+                let has_profile_image = !doc.query_selector_all_in_subtree(child, "img").is_empty()
+                    && doc
+                        .query_selector_all_in_subtree(child, "a")
+                        .iter()
+                        .any(|id| {
+                            doc.get_attr(*id, "href")
+                                .is_some_and(|href| href.contains("/@"))
+                        });
+                if !has_profile_image {
+                    doc.remove(child);
+                }
             }
         }
     }
@@ -1031,6 +1227,35 @@ fn remove_related_posts_sections(doc: &mut Document, content_id: NodeId) {
     }
     for id in to_remove {
         doc.remove(id);
+    }
+
+    // Some readers expose related links as a trailing section without a
+    // heading. Remove a short section whose paragraphs are overwhelmingly
+    // anchors, while leaving ordinary article paragraphs untouched.
+    let sections = doc.query_selector_all_in_subtree(content_id, "section");
+    let children = doc.children(content_id).to_vec();
+    for section in sections {
+        let Some(pos) = children.iter().position(|&id| id == section) else {
+            continue;
+        };
+        if children[pos + 1..].iter().any(|&id| {
+            (doc.is_element(id) && !doc.tag_name(id).eq_ignore_ascii_case("hr"))
+                && !doc.text_content(id).trim().is_empty()
+        }) {
+            continue;
+        }
+        let paragraphs = doc.query_selector_all_in_subtree(section, "p");
+        let links = doc.query_selector_all_in_subtree(section, "a");
+        let words = doc.text_content(section).split_whitespace().count();
+        if paragraphs.len() >= 2
+            && links.len() >= 5
+            && words < 100
+            && doc
+                .query_selector_all_in_subtree(section, "h1,h2,h3,h4")
+                .is_empty()
+        {
+            doc.remove(section);
+        }
     }
 }
 
@@ -1073,17 +1298,22 @@ fn remove_table_of_contents(doc: &mut Document, content_id: NodeId) {
             let siblings = doc.children(pid).to_vec();
             let pos = siblings.iter().position(|&s| s == list_id);
             if let Some(p) = pos {
-                if p > 0
-                    && doc.is_element(siblings[p - 1])
-                    && doc.tag_name(siblings[p - 1]).eq_ignore_ascii_case("hr")
-                {
-                    doc.remove(siblings[p - 1]);
+                let previous = siblings[..p]
+                    .iter()
+                    .rev()
+                    .find(|&&id| !doc.is_text(id) || !doc.text_content(id).trim().is_empty());
+                let next = siblings[p + 1..]
+                    .iter()
+                    .find(|&&id| !doc.is_text(id) || !doc.text_content(id).trim().is_empty());
+                if previous.is_some_and(|&id| {
+                    doc.is_element(id) && doc.tag_name(id).eq_ignore_ascii_case("hr")
+                }) {
+                    doc.remove(*previous.unwrap());
                 }
-                if p + 1 < siblings.len()
-                    && doc.is_element(siblings[p + 1])
-                    && doc.tag_name(siblings[p + 1]).eq_ignore_ascii_case("hr")
-                {
-                    doc.remove(siblings[p + 1]);
+                if next.is_some_and(|&id| {
+                    doc.is_element(id) && doc.tag_name(id).eq_ignore_ascii_case("hr")
+                }) {
+                    doc.remove(*next.unwrap());
                 }
             }
         }
@@ -1191,6 +1421,26 @@ fn remove_cookie_consent(doc: &mut Document, content_id: NodeId) {
 
 /// Remove trailing CTA / appendix sections: thin heading-introduced blocks at end.
 fn remove_trailing_cta_sections(doc: &mut Document, content_id: NodeId) {
+    if !doc
+        .query_selector_all_in_subtree(content_id, ".author-bio")
+        .is_empty()
+        || doc
+            .query_selector_all_in_subtree(content_id, "h1,h2,h3,h4")
+            .iter()
+            .any(|id| {
+                doc.text_content(*id)
+                    .trim()
+                    .eq_ignore_ascii_case("conclusion")
+            })
+    {
+        return;
+    }
+    if !doc
+        .query_selector_all_in_subtree(content_id, ".author-bio")
+        .is_empty()
+    {
+        return;
+    }
     let content_children = doc.children(content_id).to_vec();
     let total_words: usize = content_children
         .iter()
@@ -1202,6 +1452,14 @@ fn remove_trailing_cta_sections(doc: &mut Document, content_id: NodeId) {
     let mut trailing_ids = Vec::new();
     let mut trailing_words = 0;
     for &child in content_children.iter().rev() {
+        if doc
+            .get_attr(child, "class")
+            .unwrap_or("")
+            .split_whitespace()
+            .any(|class| class.eq_ignore_ascii_case("author-bio"))
+        {
+            break;
+        }
         let words = doc.text_content(child).split_whitespace().count();
         let tag = doc.tag_name(child).to_lowercase();
 
@@ -1237,7 +1495,19 @@ fn remove_trailing_cta_sections(doc: &mut Document, content_id: NodeId) {
     }
 
     if !trailing_ids.is_empty() && trailing_words < total_words * 15 / 100 {
-        let has_heading = trailing_ids.iter().any(|&id| is_heading_tag(doc, id));
+        let has_heading = trailing_ids.iter().any(|&id| {
+            is_heading_tag(doc, id)
+                || !doc
+                    .query_selector_all_in_subtree(id, "h1,h2,h3,h4")
+                    .is_empty()
+        });
+        let has_conclusion = trailing_ids.iter().any(|&id| {
+            is_heading_tag(doc, id)
+                && doc
+                    .text_content(id)
+                    .trim()
+                    .eq_ignore_ascii_case("conclusion")
+        });
         let has_cta = trailing_ids.iter().any(|&id| {
             let text = doc.text_content(id).trim().to_string();
             is_cta_heading(&text) || is_appendix_heading(&text)
@@ -1247,7 +1517,7 @@ fn remove_trailing_cta_sections(doc: &mut Document, content_id: NodeId) {
             let words = doc.text_content(id).split_whitespace().count();
             links > 0 && (links as f64) > (words as f64) * 0.3
         });
-        if has_heading || has_cta || is_link_dense {
+        if !has_conclusion && (has_heading || has_cta || is_link_dense) {
             for id in trailing_ids {
                 doc.remove(id);
             }
@@ -1259,7 +1529,12 @@ fn remove_trailing_cta_sections(doc: &mut Document, content_id: NodeId) {
 fn remove_card_grid_blocks(doc: &mut Document, content_id: NodeId) {
     let containers = doc.query_selector_all_in_subtree(content_id, "div,section");
     for container_id in containers {
-        let children = doc.children(container_id).to_vec();
+        let children: Vec<NodeId> = doc
+            .children(container_id)
+            .iter()
+            .copied()
+            .filter(|id| doc.is_element(*id))
+            .collect();
         if children.len() < 3 {
             continue;
         }

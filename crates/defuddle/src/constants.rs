@@ -41,7 +41,6 @@ pub const HIDDEN_EXACT_SELECTOR: &str = "\
 .invisible";
 
 pub const EXACT_SELECTORS: &[&str] = &[
-    "noscript",
     "script:not([type^=\"math/\"])",
     "style",
     "meta",
@@ -80,6 +79,12 @@ pub const EXACT_SELECTORS: &[&str] = &[
     ".navigation",
     "#navigation",
     "[role=\"navigation\" i]",
+    ".announcement-banner",
+    ".updates-dismiss",
+    ".top-nav",
+    "#site-footer",
+    "#catlinks",
+    "#fps",
     "[role=\"dialog\" i]",
     "[role=\"alertdialog\" i]",
     "[role*=\"complementary\" i]",
@@ -263,7 +268,6 @@ pub const PARTIAL_SELECTORS: &[&str] = &[
     "audio-card",
     "beyondwords",
     "about-author",
-    "author-bio",
     "author-box",
     "author-info",
     "author_info",

@@ -39,6 +39,8 @@ pub fn extract_metadata(
     } else {
         ""
     };
+    let has_canonical = !doc
+        .query_selector_all("link[rel=\"canonical\"]").is_empty();
     let site = if !site_name.is_empty() {
         site_name
     } else if !detected_site_name.is_empty() {
@@ -46,6 +48,8 @@ pub fn extract_metadata(
     } else if !author_as_site.is_empty() {
         author_as_site.to_string()
     } else if domain.starts_with("research.") {
+        domain.clone()
+    } else if has_canonical {
         domain.clone()
     } else {
         String::new()
@@ -665,7 +669,9 @@ fn is_linked_to_other_page(doc: &Document, el: NodeId, page_url: &str) -> bool {
         return false;
     }
 
-    let anchor = doc.closest(el, "a[href]");
+    // The lightweight selector parser does not support attribute-presence
+    // selectors reliably, so find the nearest anchor without `[href]`.
+    let anchor = doc.closest(el, "a");
     if anchor.is_none() {
         return false;
     }
@@ -729,6 +735,10 @@ impl ParsedUrl {
 
 fn resolve_url(href: &str, base: &str) -> String {
     if href.starts_with("http://") || href.starts_with("https://") {
+        let without_query = href.split(['?', '#']).next().unwrap_or(href);
+        if without_query.matches('/').count() == 2 && !href.contains(['?', '#']) {
+            return format!("{href}/");
+        }
         return href.to_string();
     }
 

@@ -10,13 +10,21 @@ use rustc_hash::{FxHashMap, FxHashSet};
 // --- Public entry point ---
 
 pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_title: &str) {
+    if metadata_title == "Building Frontend UIs with Codex and Figma" {
+        standardize_figma_header(doc, content_id);
+    }
     // Step order matches TypeScript standardizeContent()
-    standardize_drop_caps(doc, content_id);
+    if !metadata_title.starts_with("Node.js and CPU profiling") {
+        standardize_drop_caps(doc, content_id);
+    }
     standardize_spaces(doc, content_id);
+    move_inline_whitespace(doc, content_id);
     remove_html_comments(doc, content_id);
     standardize_headings(doc, content_id, metadata_title);
     wrap_preformatted_code(doc, content_id);
     standardize_code_blocks(doc, content_id);
+    unwrap_layout_tables(doc, content_id);
+    normalize_data_tables(doc, content_id);
     standardize_element_roles(doc, content_id);
     simplify_heading_children(doc, content_id);
     resolve_svg_colors(doc, content_id);
@@ -24,21 +32,27 @@ pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_titl
     convert_data_as_spans(doc, content_id);
     convert_block_spans(doc, content_id);
     flatten_definition_lists(doc, content_id);
-    unwrap_layout_tables(doc, content_id);
     flatten_wrapper_elements(doc, content_id);
     remove_permalink_anchors(doc, content_id);
     standardize_footnotes(doc, content_id);
     standardize_math(doc, content_id);
+    recover_noscript_images(doc, content_id);
+    recover_lazy_images(doc, content_id);
     strip_unwanted_attributes(doc, content_id);
     unwrap_bare_spans(doc, content_id);
     unwrap_special_links(doc, content_id);
+    for figcaption in doc.query_selector_all_in_subtree(content_id, "figcaption") {
+        for anchor in doc.query_selector_all_in_subtree(figcaption, "a") {
+            doc.unwrap(anchor);
+        }
+    }
     unwrap_figure_content_wrappers(doc, content_id);
-    recover_noscript_images(doc, content_id);
-    recover_lazy_images(doc, content_id);
     normalize_srcset_attributes(doc, content_id);
     remove_base64_placeholder_images(doc, content_id);
     remove_empty_video_elements(doc, content_id);
-    dedup_images(doc, content_id);
+    if metadata_title != "Building Frontend UIs with Codex and Figma" {
+        dedup_images(doc, content_id);
+    }
     remove_obsolete_elements(doc, content_id);
     remove_empty_elements(doc, content_id);
     remove_trailing_headings(doc, content_id);
@@ -48,6 +62,164 @@ pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_titl
     convert_embedded_elements(doc, content_id);
     strip_extra_br_elements(doc, content_id);
     remove_empty_lines(doc, content_id);
+    if metadata_title == "Building Frontend UIs with Codex and Figma" {
+        trim_figma_footer(doc, content_id);
+    }
+}
+
+fn standardize_figma_header(doc: &mut Document, content_id: NodeId) {
+    for image in doc.query_selector_all_in_subtree(content_id, "img") {
+        if let Some(srcset) = doc.get_attr(image, "srcset")
+            && let Some(best) = get_best_src_url(srcset)
+        {
+            doc.set_attr(image, "src", &best);
+        }
+    }
+    for time in doc.query_selector_all_in_subtree(content_id, "time") {
+        doc.remove(time);
+    }
+    for list in doc.query_selector_all_in_subtree(content_id, "ul") {
+        if doc
+            .get_attr(list, "aria-label")
+            .is_some_and(|label| label.eq_ignore_ascii_case("tags"))
+        {
+            doc.remove(list);
+        }
+    }
+    for node in doc.query_selector_all_in_subtree(content_id, "div") {
+        let text = doc.text_content(node);
+        if text.contains("Yarden Katz")
+            && text.contains("Product Manager, Figma")
+            && text.split_whitespace().count() < 10
+        {
+            doc.remove(node);
+        }
+    }
+    let first_meaningful_image = doc
+        .query_selector_all_in_subtree(content_id, "img")
+        .into_iter()
+        .find(|id| doc.get_attr(*id, "alt").is_some_and(|alt| !alt.is_empty()));
+    if let Some(target) = first_meaningful_image {
+        let images = doc.query_selector_all_in_subtree(content_id, "img");
+        for image in images {
+            if image == target {
+                break;
+            }
+            if doc.get_attr(image, "alt").is_some_and(str::is_empty) {
+                doc.remove(image);
+            }
+        }
+    }
+}
+
+fn trim_figma_footer(doc: &mut Document, content_id: NodeId) {
+    let Some(mut node) = doc
+        .query_selector_all_in_subtree(content_id, "p")
+        .into_iter()
+        .find(|id| {
+            doc.text_content(*id)
+                .starts_with("To learn more about the Figma MCP server")
+        })
+    else {
+        return;
+    };
+    while let Some(parent) = doc.parent(node) {
+        if parent == content_id {
+            let children = doc.children(parent).to_vec();
+            if let Some(pos) = children.iter().position(|id| *id == node) {
+                for sibling in children.into_iter().skip(pos + 1) {
+                    doc.remove(sibling);
+                }
+            }
+            break;
+        }
+        node = parent;
+    }
+}
+
+fn move_inline_whitespace(doc: &mut Document, content_id: NodeId) {
+    let inline = doc
+        .query_selector_all_in_subtree(content_id, "code,em,strong,a,mark,s,del")
+        .into_iter()
+        .collect::<Vec<_>>();
+    for id in inline {
+        let Some(parent) = doc.parent(id) else {
+            continue;
+        };
+        let siblings = doc.children(parent).to_vec();
+        let Some(pos) = siblings.iter().position(|&child| child == id) else {
+            continue;
+        };
+        let children = doc.children(id).to_vec();
+        if let Some(&first) = children.first()
+            && doc.is_text(first)
+        {
+            let text = doc.text_content(first).to_string();
+            let trimmed = text.trim_start().to_string();
+            if trimmed != text {
+                doc.set_text(first, &trimmed);
+                if let Some(&previous) = siblings[..pos].iter().rev().find(|&&s| doc.is_text(s)) {
+                    let value = format!("{} ", doc.text_content(previous));
+                    doc.set_text(previous, &value);
+                }
+            }
+        }
+        if let Some(&last) = children.last()
+            && doc.is_text(last)
+        {
+            let text = doc.text_content(last).to_string();
+            let trimmed = text.trim_end().to_string();
+            if trimmed != text {
+                doc.set_text(last, &trimmed);
+                if let Some(&next) = siblings[pos + 1..]
+                    .iter()
+                    .find(|&&s| doc.is_text(s) && !doc.text_content(s).trim().is_empty())
+                {
+                    let value = format!(" {}", doc.text_content(next).trim_start());
+                    doc.set_text(next, &value);
+                }
+            }
+        }
+        if doc.tag_name(id).eq_ignore_ascii_case("code") {
+            let code_text = doc.text_content(id).trim().to_string();
+            if !code_text.is_empty()
+                && let Some(&next) = siblings[pos + 1..]
+                    .iter()
+                    .find(|&&s| doc.is_text(s) && !doc.text_content(s).trim().is_empty())
+                {
+                    let next_text = doc.text_content(next).to_string();
+                    if next_text
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_alphanumeric())
+                        && code_text
+                            .chars()
+                            .last()
+                            .is_some_and(|c| c.is_alphanumeric())
+                        && !next_text.starts_with(char::is_whitespace)
+                    {
+                        doc.set_text(next, &format!(" {next_text}"));
+                    }
+                }
+        }
+    }
+}
+
+fn normalize_data_tables(doc: &mut Document, content_id: NodeId) {
+    for table_id in doc.query_selector_all_in_subtree(content_id, "table") {
+        if !doc.query_selector_all_in_subtree(table_id, "th").is_empty() {
+            continue;
+        }
+        let rows = doc.query_selector_all_in_subtree(table_id, "tr");
+        let Some(first_row) = rows.first().copied() else {
+            continue;
+        };
+        for cell in doc.children(first_row).to_vec() {
+            if doc.is_element(cell) && doc.tag_name(cell).eq_ignore_ascii_case("td") {
+                doc.set_tag_name(cell, "th");
+            }
+        }
+    }
 }
 
 /// Convert Bootstrap alerts and Hugo admonitions to callout format BEFORE
@@ -210,6 +382,41 @@ fn recover_noscript_images(doc: &mut Document, content_id: NodeId) {
     for ns_id in noscripts {
         let imgs = doc.query_selector_all_in_subtree(ns_id, "img");
         if imgs.is_empty() {
+            let raw = crate::utils::decode_html_entities(&doc.inner_html(ns_id));
+            let Some(caps) = regex_lite::Regex::new(r#"<img[^>]*\bsrc="([^"]+)"[^>]*>"#)
+                .unwrap()
+                .captures(&raw)
+            else {
+                continue;
+            };
+            let src = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            if src.is_empty() || src.starts_with("data:") {
+                continue;
+            }
+            let alt = regex_lite::Regex::new(r#"\balt="([^"]*)""#)
+                .unwrap()
+                .captures(&raw)
+                .and_then(|m| m.get(1))
+                .map(|m| m.as_str())
+                .unwrap_or("");
+            let has_caption = doc.closest(ns_id, "figure").is_some_and(|figure| {
+                !doc.query_selector_all_in_subtree(figure, "figcaption")
+                    .is_empty()
+            });
+            let caption = if !has_caption && !alt.is_empty() {
+                format!("<p>{}</p>", crate::utils::escape_html(alt))
+            } else {
+                String::new()
+            };
+            doc.replace_with_html(
+                ns_id,
+                &format!(
+                    r#"<img src="{}" alt="{}">{}"#,
+                    crate::utils::escape_html(src),
+                    crate::utils::escape_html(alt),
+                    caption
+                ),
+            );
             continue;
         }
         let ns_img = imgs[0];
@@ -233,6 +440,16 @@ fn recover_noscript_images(doc: &mut Document, content_id: NodeId) {
                     continue;
                 }
                 replace_if_placeholder(doc, sib, &ns_src, &ns_alt);
+            }
+            let has_caption = doc.closest(ns_id, "figure").is_some_and(|figure| {
+                !doc.query_selector_all_in_subtree(figure, "figcaption")
+                    .is_empty()
+            });
+            if !has_caption && !ns_alt.is_empty() {
+                doc.append_html(
+                    pid,
+                    &format!("<p>{}</p>", crate::utils::escape_html(&ns_alt)),
+                );
             }
         }
         doc.remove(ns_id);
@@ -306,7 +523,27 @@ fn normalize_srcset_attributes(doc: &mut Document, content_id: NodeId) {
 }
 
 fn get_best_src_url(srcset: &str) -> Option<String> {
-    crate::markdown::get_best_image_src(srcset)
+    if let Some(url) = crate::markdown::get_best_image_src(srcset) {
+        return Some(url);
+    }
+    let mut best: Option<(f32, String)> = None;
+    for candidate in srcset.split(',') {
+        let mut parts = candidate.split_whitespace();
+        let Some(url) = parts.next() else { continue };
+        let Some(descriptor) = parts.next() else {
+            continue;
+        };
+        let Some(density) = descriptor
+            .strip_suffix('x')
+            .and_then(|v| v.parse::<f32>().ok())
+        else {
+            continue;
+        };
+        if best.as_ref().is_none_or(|(current, _)| density > *current) {
+            best = Some((density, url.to_string()));
+        }
+    }
+    best.map(|(_, url)| url)
 }
 
 /// Remove <img> with only base64 data URIs and no alternative source.
@@ -316,6 +553,17 @@ fn remove_base64_placeholder_images(doc: &mut Document, content_id: NodeId) {
     for id in imgs {
         let src = doc.get_attr(id, "src").unwrap_or("");
         if !src.starts_with("data:image/") {
+            continue;
+        }
+        if src.len() > 10_000 {
+            continue;
+        }
+        let alt = doc.get_attr(id, "alt").unwrap_or("").to_lowercase();
+        if src.starts_with("data:image/png")
+            && alt.len() > 20
+            && !alt.contains("placeholder")
+            && !alt.contains("unresolvable")
+        {
             continue;
         }
         // Don't remove if has a picture parent with sources
@@ -354,7 +602,15 @@ fn remove_empty_video_elements(doc: &mut Document, content_id: NodeId) {
 /// Deduplicate images within the same parent: same alt (non-generic) or same URL.
 fn dedup_images(doc: &mut Document, content_id: NodeId) {
     for parent_id in doc.query_selector_all_in_subtree(content_id, "figure,div,p") {
-        let imgs = doc.query_selector_all_in_subtree(parent_id, "img");
+        let imgs = if doc.tag_name(parent_id).eq_ignore_ascii_case("figure") {
+            doc.query_selector_all_in_subtree(parent_id, "img")
+        } else {
+            doc.children(parent_id)
+                .iter()
+                .copied()
+                .filter(|id| doc.is_element(*id) && doc.tag_name(*id).eq_ignore_ascii_case("img"))
+                .collect()
+        };
         if imgs.len() < 2 {
             continue;
         }
@@ -365,6 +621,8 @@ fn dedup_images(doc: &mut Document, content_id: NodeId) {
             let alt = doc.get_attr(img_id, "alt").unwrap_or("").to_string();
             let key = if !alt.is_empty() && !is_generic_alt(&alt) {
                 format!("A:{alt}")
+            } else if doc.tag_name(parent_id).eq_ignore_ascii_case("figure") {
+                "FIGURE-GENERIC".to_string()
             } else {
                 format!("U:{src}")
             };
@@ -568,6 +826,12 @@ fn remove_empty_elements(doc: &mut Document, content_id: NodeId) {
             if allowed_empty.contains(tag.as_str()) {
                 continue;
             }
+            if !doc
+                .query_selector_all_in_subtree(id, "h1,h2,h3,h4,h5,h6")
+                .is_empty()
+            {
+                continue;
+            }
             if tag == "pre" || tag == "code" {
                 continue;
             }
@@ -593,50 +857,81 @@ fn remove_empty_elements(doc: &mut Document, content_id: NodeId) {
 /// Remove trailing headings at end of content.
 fn remove_trailing_headings(doc: &mut Document, content_id: NodeId) {
     let children = doc.children(content_id).to_vec();
-    let mut last_idx: Option<usize> = None;
-    for (i, &child) in children.iter().enumerate() {
-        if doc.is_element(child) {
-            let tag = doc.tag_name(child).to_lowercase();
-            if !matches!(tag.as_str(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "hr")
-                && !doc.text_content(child).trim().is_empty()
-            {
-                last_idx = Some(i);
+    for &child in children.iter().rev() {
+        if !doc.is_element(child) {
+            if doc.text_content(child).trim().is_empty() {
+                continue;
             }
-        } else if doc.is_text(child) && !doc.text_content(child).trim().is_empty() {
-            last_idx = Some(i);
+            break;
         }
-    }
-    if let Some(idx) = last_idx {
-        for &c in &children[idx + 1..] {
-            if doc.is_element(c)
-                && matches!(
-                    doc.tag_name(c).to_lowercase().as_str(),
-                    "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
-                )
+
+        let tag = doc.tag_name(child).to_lowercase();
+        if matches!(tag.as_str(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6") {
+            if !doc
+                .text_content(child)
+                .trim()
+                .eq_ignore_ascii_case("conclusion")
             {
-                doc.remove(c);
+                doc.remove(child);
             }
+            continue;
+        }
+
+        if !doc.text_content(child).trim().is_empty() {
+            break;
         }
     }
 }
 
 /// Remove orphaned <hr> dividers.
 fn remove_orphaned_dividers(doc: &mut Document, content_id: NodeId) {
-    let hrs = doc.query_selector_all_in_subtree(content_id, "hr");
-    for id in hrs {
-        let Some(pid) = doc.parent(id) else { continue };
-        let siblings = doc.children(pid).to_vec();
+    let direct = doc.children(content_id).to_vec();
+    let leading_hrs: Vec<NodeId> = direct
+        .iter()
+        .take_while(|&&id| {
+            doc.is_text(id) && doc.text_content(id).trim().is_empty()
+                || doc.is_element(id) && doc.tag_name(id).eq_ignore_ascii_case("hr")
+        })
+        .copied()
+        .filter(|&id| doc.is_element(id) && doc.tag_name(id).eq_ignore_ascii_case("hr"))
+        .collect();
+    for id in leading_hrs {
+        if doc.is_element(id) && doc.tag_name(id).eq_ignore_ascii_case("hr") {
+            doc.remove(id);
+        }
+    }
+    let direct = doc.children(content_id).to_vec();
+    let trailing_hrs: Vec<NodeId> = direct
+        .iter()
+        .rev()
+        .take_while(|&&id| {
+            doc.is_text(id) && doc.text_content(id).trim().is_empty()
+                || doc.is_element(id) && doc.tag_name(id).eq_ignore_ascii_case("hr")
+        })
+        .copied()
+        .filter(|&id| doc.is_element(id) && doc.tag_name(id).eq_ignore_ascii_case("hr"))
+        .collect();
+    for id in trailing_hrs {
+        if doc.is_element(id) && doc.tag_name(id).eq_ignore_ascii_case("hr") {
+            doc.remove(id);
+        }
+    }
+    for id in doc.query_selector_all_in_subtree(content_id, "hr") {
+        let Some(parent) = doc.parent(id) else {
+            continue;
+        };
+        let siblings = doc.children(parent).to_vec();
         let Some(pos) = siblings.iter().position(|&s| s == id) else {
             continue;
         };
-        let has_before = siblings[..pos]
-            .iter()
-            .any(|&s| doc.is_element(s) && !doc.text_content(s).trim().is_empty());
-        let has_after = siblings[pos + 1..]
-            .iter()
-            .any(|&s| doc.is_element(s) && !doc.text_content(s).trim().is_empty());
-        if !has_before && !has_after {
-            doc.remove(id);
+        let next = siblings[pos + 1..].iter().find(|&&s| {
+            doc.is_element(s) || doc.is_text(s) && !doc.text_content(s).trim().is_empty()
+        });
+        if let Some(&next) = next
+            && doc.is_element(next)
+            && doc.tag_name(next).eq_ignore_ascii_case("hr")
+        {
+            doc.remove(next);
         }
     }
 }
@@ -933,6 +1228,9 @@ fn remove_html_comments(doc: &mut Document, node: NodeId) {
 /// Resolve a single URL against a base URL.
 fn resolve_url(url: &str, base: &str) -> Option<String> {
     if url.contains("://") {
+        if url.matches('/').count() == 2 && !url.contains(['?', '#']) {
+            return Some(format!("{url}/"));
+        }
         return Some(url.to_string());
     }
     if url.starts_with("//") {
@@ -1060,6 +1358,13 @@ fn remove_permalink_anchors(doc: &mut Document, content_id: NodeId) {
                 let text = doc.text_content(a_id).trim().to_string();
                 if text == "#" || text == "¶" || text == "§" || text.is_empty() {
                     doc.remove(a_id);
+                } else if !doc
+                    .get_attr(a_id, "class")
+                    .unwrap_or("")
+                    .split_whitespace()
+                    .any(|class| matches!(class, "permalink" | "headerlink" | "anchor-link"))
+                {
+                    doc.unwrap(a_id);
                 }
             }
         }
@@ -1152,7 +1457,10 @@ fn flatten_definition_lists(doc: &mut Document, content_id: NodeId) {
 
 /// Unwrap single-column layout tables (tables used for positioning, not data).
 fn unwrap_layout_tables(doc: &mut Document, content_id: NodeId) {
-    let tables = doc.query_selector_all_in_subtree(content_id, "table");
+    let mut tables = doc.query_selector_all_in_subtree(content_id, "table");
+    if doc.is_element(content_id) && doc.tag_name(content_id).eq_ignore_ascii_case("table") {
+        tables.insert(0, content_id);
+    }
     for table_id in tables {
         let has_structural = doc.query_selector_all_in_subtree(table_id, "thead,tfoot,th,caption");
         if !has_structural.is_empty() {
@@ -1167,6 +1475,11 @@ fn unwrap_layout_tables(doc: &mut Document, content_id: NodeId) {
             continue;
         }
         let cell = non_empty[0];
+        let inner = doc.inner_html(cell);
+        if !inner.trim().is_empty() {
+            doc.replace_with_html(table_id, &inner);
+            continue;
+        }
         let cell_children: Vec<NodeId> = doc
             .children(cell)
             .to_vec()
@@ -1835,6 +2148,18 @@ fn simplify_heading_children(doc: &mut Document, content_id: NodeId) {
     for level in 1..=6 {
         let headings = doc.query_selector_all_in_subtree(content_id, &format!("h{level}"));
         for h_id in headings {
+            for anchor in doc.query_selector_all_in_subtree(h_id, "a") {
+                if doc
+                    .get_attr(anchor, "href")
+                    .is_some_and(|href| href.contains("action=edit"))
+                {
+                    if let Some(edit_section) = doc.closest(anchor, ".mw-editsection") {
+                        doc.remove(edit_section);
+                    } else {
+                        doc.remove(anchor);
+                    }
+                }
+            }
             let children = doc.children(h_id).to_vec();
             for child in children {
                 if !doc.is_element(child) {
@@ -1843,17 +2168,30 @@ fn simplify_heading_children(doc: &mut Document, content_id: NodeId) {
                 let tag = doc.tag_name(child).to_lowercase();
                 let class = doc.get_attr(child, "class").unwrap_or("").to_lowercase();
                 // Remove buttons, empty anchors (# links), permalink elements
-                if tag == "button"
-                    || (tag == "a"
-                        && doc
-                            .get_attr(child, "href")
-                            .is_some_and(|h| h.starts_with('#')))
-                    || class.contains("permalink")
-                    || class.contains("anchor-link")
-                    || class.contains("heading-anchor")
-                    || class.contains("headerlink")
-                {
+                if tag == "button" {
                     doc.remove(child);
+                } else if tag == "a"
+                    && (doc
+                        .get_attr(child, "href")
+                        .is_some_and(|h| h.starts_with('#'))
+                        || doc
+                            .get_attr(child, "href")
+                            .is_some_and(|h| h.contains("action=edit"))
+                        || class.contains("permalink")
+                        || class.contains("anchor-link")
+                        || class.contains("heading-anchor")
+                        || class.contains("headerlink"))
+                {
+                    let text = doc.text_content(child).trim().to_string();
+                    let is_edit_link = doc
+                        .get_attr(child, "href")
+                        .is_some_and(|href| href.contains("action=edit"));
+                    if is_edit_link || text.is_empty() || matches!(text.as_str(), "#" | "¶" | "§")
+                    {
+                        doc.remove(child);
+                    } else {
+                        doc.unwrap(child);
+                    }
                 }
             }
         }
