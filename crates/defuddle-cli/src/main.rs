@@ -1,7 +1,12 @@
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, Cursor, Read, Write};
 use std::path::PathBuf;
 use std::process;
+
+struct Input {
+    html: String,
+    url: Option<String>,
+}
 
 fn main() {
     if let Err(e) = run() {
@@ -98,7 +103,10 @@ fn run() -> Result<(), String> {
             );
     }
 
-    let html = read_input(&source)?;
+    let input = read_input(&source)?;
+    if url.is_none() {
+        url = input.url;
+    }
 
     let options = defuddle::DefuddleOptions {
         url,
@@ -108,7 +116,8 @@ fn run() -> Result<(), String> {
         ..Default::default()
     };
 
-    let result = defuddle::parse_html(&html, options).map_err(|e| format!("Parse error: {e}"))?;
+    let result =
+        defuddle::parse_html(&input.html, options).map_err(|e| format!("Parse error: {e}"))?;
 
     let out: Box<dyn Write> = if let Some(ref path) = output {
         Box::new(fs::File::create(path).map_err(|e| format!("Cannot open output file: {e}"))?)
@@ -175,27 +184,89 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-fn read_input(source: &Option<String>) -> Result<String, String> {
-    match source {
+fn read_input(source: &Option<String>) -> Result<Input, String> {
+    let bytes = match source {
         Some(path) if path == "-" || path.is_empty() => {
-            let mut buf = String::new();
+            let mut buf = Vec::new();
             io::stdin()
-                .read_to_string(&mut buf)
+                .read_to_end(&mut buf)
                 .map_err(|e| format!("Cannot read stdin: {e}"))?;
-            Ok(buf)
+            buf
         }
-        Some(path) => fs::read_to_string(path).map_err(|e| format!("Cannot read file {path}: {e}")),
+        Some(path) => fs::read(path).map_err(|e| format!("Cannot read file {path}: {e}"))?,
         None => {
             if atty::is(atty::Stream::Stdin) {
                 return Err("No input provided. Pass an HTML file path, `-` for stdin, or pipe HTML to stdin.".to_string());
             }
-            let mut buf = String::new();
+            let mut buf = Vec::new();
             io::stdin()
-                .read_to_string(&mut buf)
+                .read_to_end(&mut buf)
                 .map_err(|e| format!("Cannot read stdin: {e}"))?;
-            Ok(buf)
+            buf
         }
+    };
+
+    if is_single_file_archive(&bytes) {
+        return read_single_file_archive(&bytes);
     }
+
+    let html = String::from_utf8(bytes).map_err(|e| format!("Input is not valid UTF-8: {e}"))?;
+    Ok(Input { html, url: None })
+}
+
+fn is_single_file_archive(bytes: &[u8]) -> bool {
+    bytes
+        .windows(b"data-sfz".len())
+        .any(|window| window == b"data-sfz")
+        && bytes
+            .windows(b"sfz-extra-data".len())
+            .any(|window| window == b"sfz-extra-data")
+}
+
+fn read_single_file_archive(bytes: &[u8]) -> Result<Input, String> {
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
+        .map_err(|e| format!("Cannot read SingleFile ZIP archive: {e}"))?;
+
+    let (index_name, archive_url) = {
+        let manifest = archive.by_name("manifest.json").ok().and_then(|mut file| {
+            let mut contents = String::new();
+            file.read_to_string(&mut contents).ok()?;
+            let value = miniserde::json::from_str::<miniserde::json::Value>(&contents).ok()?;
+            let object = match value {
+                miniserde::json::Value::Object(object) => object,
+                _ => return None,
+            };
+            let index_name = object
+                .get("indexFilename")
+                .and_then(|value| match value {
+                    miniserde::json::Value::String(value) => Some(value.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| "index.html".to_string());
+            let archive_url = object.get("originalUrl").and_then(|value| match value {
+                miniserde::json::Value::String(value) if !value.is_empty() => Some(value.clone()),
+                _ => None,
+            });
+            Some((index_name, archive_url))
+        });
+
+        manifest.unwrap_or_else(|| ("index.html".to_string(), None))
+    };
+
+    let mut index = archive
+        .by_name(&index_name)
+        .map_err(|e| format!("SingleFile archive does not contain {index_name}: {e}"))?;
+    let mut html_bytes = Vec::new();
+    index
+        .read_to_end(&mut html_bytes)
+        .map_err(|e| format!("Cannot read {index_name} from SingleFile archive: {e}"))?;
+    let html = String::from_utf8(html_bytes)
+        .map_err(|e| format!("SingleFile index is not valid UTF-8: {e}"))?;
+
+    Ok(Input {
+        html,
+        url: archive_url,
+    })
 }
 
 fn print_help() {

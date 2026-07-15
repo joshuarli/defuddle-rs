@@ -235,7 +235,6 @@ pub mod hackernews {
             let stories: Vec<String> = doc
                 .query_selector_all("tr.athing")
                 .iter()
-                
                 .map(|&athing| {
                     let title_link = doc
                         .query_selector_all_in_subtree(athing, ".titleline a")
@@ -1958,19 +1957,21 @@ pub mod twitter {
         // Build content HTML
         let mut content_html = String::new();
         if !doc
-            .query_selector_all("[data-testid=\"twitterArticleReadView\"]").is_empty()
+            .query_selector_all("[data-testid=\"twitterArticleReadView\"]")
+            .is_empty()
             && let Some(image) = doc
                 .query_selector_all("[data-testid=\"tweetPhoto\"] img")
                 .first()
-            && let Some(src) = doc.get_attr(*image, "src") {
-                let src = src.replace("name=medium", "name=large");
-                let alt = doc.get_attr(*image, "alt").unwrap_or("Image");
-                content_html.push_str(&format!(
-                    "<img src=\"{}\" alt=\"{}\" />\n",
-                    super::comments::escape_html(&src),
-                    super::comments::escape_html(alt)
-                ));
-            }
+            && let Some(src) = doc.get_attr(*image, "src")
+        {
+            let src = src.replace("name=medium", "name=large");
+            let alt = doc.get_attr(*image, "alt").unwrap_or("Image");
+            content_html.push_str(&format!(
+                "<img src=\"{}\" alt=\"{}\" />\n",
+                super::comments::escape_html(&src),
+                super::comments::escape_html(alt)
+            ));
+        }
         if has_title_block && !article_title.is_empty() {
             let safe = super::comments::escape_html(&article_title);
             content_html.push_str(&format!("<div>{safe}</div>\n"));

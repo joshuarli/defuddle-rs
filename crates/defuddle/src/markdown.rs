@@ -1240,19 +1240,21 @@ fn normalize_footnote_spacing(line: &str) -> String {
             cursor += 1;
             continue;
         }
-        if !in_code && rest.starts_with("[^")
-            && let Some(end_rel) = rest.find(']') {
-                let end = cursor + end_rel + 1;
-                if output.ends_with('"') {
-                    output.push(' ');
-                }
-                output.push_str(&line[cursor..end]);
-                if line[end..].starts_with('*') || line[end..].starts_with("[^") {
-                    output.push(' ');
-                }
-                cursor = end;
-                continue;
+        if !in_code
+            && rest.starts_with("[^")
+            && let Some(end_rel) = rest.find(']')
+        {
+            let end = cursor + end_rel + 1;
+            if output.ends_with('"') {
+                output.push(' ');
             }
+            output.push_str(&line[cursor..end]);
+            if line[end..].starts_with('*') || line[end..].starts_with("[^") {
+                output.push(' ');
+            }
+            cursor = end;
+            continue;
+        }
         let character = rest.chars().next().expect("cursor is within line");
         output.push(character);
         cursor += character.len_utf8();

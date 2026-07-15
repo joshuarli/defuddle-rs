@@ -186,21 +186,21 @@ fn move_inline_whitespace(doc: &mut Document, content_id: NodeId) {
                 && let Some(&next) = siblings[pos + 1..]
                     .iter()
                     .find(|&&s| doc.is_text(s) && !doc.text_content(s).trim().is_empty())
-                {
-                    let next_text = doc.text_content(next).to_string();
-                    if next_text
+            {
+                let next_text = doc.text_content(next).to_string();
+                if next_text
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphanumeric())
+                    && code_text
                         .chars()
-                        .next()
+                        .last()
                         .is_some_and(|c| c.is_alphanumeric())
-                        && code_text
-                            .chars()
-                            .last()
-                            .is_some_and(|c| c.is_alphanumeric())
-                        && !next_text.starts_with(char::is_whitespace)
-                    {
-                        doc.set_text(next, &format!(" {next_text}"));
-                    }
+                    && !next_text.starts_with(char::is_whitespace)
+                {
+                    doc.set_text(next, &format!(" {next_text}"));
                 }
+            }
         }
     }
 }

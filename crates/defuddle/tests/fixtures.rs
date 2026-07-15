@@ -123,19 +123,7 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
     let manifest = parse_exception_manifest(&exceptions_raw);
     let excluded_names: FxHashSet<String> =
         manifest.exceptions.iter().map(|e| e.name.clone()).collect();
-    let fixture_filter = fixture_filter();
-
-    let fixtures = fixture_paths()
-        .into_iter()
-        .filter(|path| {
-            let Some(filter) = &fixture_filter else {
-                return true;
-            };
-            path.file_stem()
-                .and_then(|stem| stem.to_str())
-                .is_some_and(|name| filter.contains(name))
-        })
-        .collect::<Vec<_>>();
+    let fixtures = fixture_paths();
     let total = fixtures.len();
 
     for fixture in &fixtures {
@@ -230,33 +218,11 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
     }
     eprintln!("=== END MISMATCH LIST ===");
 
-    if strict_fixture_mode() {
-        assert!(
-            mismatches.is_empty(),
-            "strict fixture parity failed: {} mismatches across {active_count} active fixtures. all mismatches: {mismatches:?}",
-            mismatches.len()
-        );
-    }
-}
-
-fn strict_fixture_mode() -> bool {
-    env::var("DEFUDDLE_STRICT_FIXTURES").is_ok_and(|value| {
-        matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    })
-}
-
-fn fixture_filter() -> Option<FxHashSet<String>> {
-    let raw = env::var("DEFUDDLE_FIXTURE_FILTER").ok()?;
-    let names = raw
-        .split(',')
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(String::from)
-        .collect::<FxHashSet<_>>();
-    if names.is_empty() { None } else { Some(names) }
+    assert!(
+        mismatches.is_empty(),
+        "fixture parity failed: {} mismatches across {active_count} active fixtures. all mismatches: {mismatches:?}",
+        mismatches.len()
+    );
 }
 
 fn fixture_debug_mode() -> bool {

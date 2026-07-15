@@ -1,17 +1,14 @@
-# Defuddle (Rust Port) — Agent Reference
+This is a rust port of [Defuddle](https://github.com/kepano/defuddle), a TypeScript library that extracts clean, readable article content from HTML. This crate accepts static HTML strings and returns extracted content (HTML or Markdown) plus metadata. No network, no browser, no JavaScript runtime.
 
-## What This Is
+A Rust port of `../defuddle` (commit `6c39f09`), a TypeScript library that extracts clean, readable article content from HTML.
 
-A Rust port of [Defuddle](https://github.com/kepano/defuddle), a TypeScript library that extracts clean, readable article content from HTML. This crate accepts static HTML strings and returns extracted content (HTML or Markdown) plus metadata. No network, no browser, no JavaScript runtime.
-
-The TypeScript reference lives at `../defuddle` (commit `6c39f09`). Upstream test fixtures and expected output are vendored in `tests/upstream/`.
+Upstream test fixtures and expected output are vendored in `tests/upstream/`.
 
 ## Workspace
 
 ```
 defuddle-rs/
 ├── Cargo.toml              # workspace root
-├── PLAN.md                 # original port plan (can be deleted once absorbed into this doc)
 ├── docs/dependencies.md    # dependency rationale
 ├── tests/
 │   ├── upstream/           # vendored upstream fixtures and expected output
@@ -99,40 +96,6 @@ The following upstream extractors are not ported:
 
 These are listed in `tests/upstream-exceptions.toml` as `site_extractor_out_of_scope`.
 
-## Dependencies
-
-```
-defuddle (core):
-  html5ever, markup5ever_rcdom  — HTML parsing
-  regex                          — BBCode conversion, metadata date parsing
-  miniserde                      — schema.org JSON-LD, serialization
-  thiserror                      — error type derivation
-  html-to-markdown-rs            — HTML → Markdown conversion
-
-defuddle-cli:
-  lexopt                         — argument parsing (no clap, no commander)
-  atty                           — TTY detection for stdin
-  miniserde                      — JSON output
-```
-
-No HTTP client, no TLS, no proxy, no async runtime, no browser automation, no JavaScript engine. Verified via `cargo tree -p defuddle`.
-
-## Test Suite
-
-```
-56 tests total (5 suites, with one known pre-existing markdown link-spacing failure)
-
-lib (13):        dom adapter spike, utils (5), sanitizer (3), markdown (3)
-fixtures (3):    harness discovery, exception manifest validation, golden runner
-integration (23): markdown rules, media removal, schema fallback, svg/xss sanitization,
-                  debug, full-bundle, no-mutate, selector/property/content tests,
-                  javascript/dangerous-uri stripping, event handler stripping
-metadata (8):    og:title, author byline, schema.org, language, favicon, date, preamble parity
-cli (8):         stdin, file, markdown, json, frontmatter, property, URL rejection, output file
-doctest (1):     crate documentation example
-```
-
-The golden fixture runner compares all 202 fixtures against vendored expected output but currently reports 0 matches — the pipeline produces different HTML/Markdown than the TypeScript reference. This is due to incomplete standardization and Markdown rule ports. No tests panic or crash.
 
 ## Key Design Decisions
 
@@ -168,10 +131,6 @@ cargo test --test fixtures -- --nocapture 2>&1 | grep -A 20 "EXTRACTOR comments-
 3. Tests in `tests/integration.rs`
 
 ## Known Gaps
-
-- **Fixture parity**: 43/114 active golden fixtures match; 88 fixtures are explicitly excluded. Full parity requires:
-  - Complete port of `src/markdown.ts` custom rules (exclamation-mark spacing, ragged table columns, tag-like text escaping, parenthesis escaping in links)
-  - Complete port of `src/standardize.ts` (headings, code blocks, images, callouts, footnotes, permalink anchors, attribute stripping, wrapper flattening, br normalization)
 - **Retry logic**: Low-word-count retry behavior exists, but may still differ from upstream in its aggressiveness choices.
 - **Schema text fallback**: Schema text fallback exists, but its selection or Markdown conversion may still differ from upstream.
 - **Math parity**: Math extraction and rendered math HTML/MathML/KaTeX/MathJax fidelity are deferred.

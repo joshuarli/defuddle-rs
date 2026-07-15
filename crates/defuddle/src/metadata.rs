@@ -39,8 +39,7 @@ pub fn extract_metadata(
     } else {
         ""
     };
-    let has_canonical = !doc
-        .query_selector_all("link[rel=\"canonical\"]").is_empty();
+    let has_canonical = !doc.query_selector_all("link[rel=\"canonical\"]").is_empty();
     let site = if !site_name.is_empty() {
         site_name
     } else if !detected_site_name.is_empty() {
