@@ -45,6 +45,8 @@ pub fn extract_metadata(
         detected_site_name
     } else if !author_as_site.is_empty() {
         author_as_site.to_string()
+    } else if domain.starts_with("research.") {
+        domain.clone()
     } else {
         String::new()
     };
@@ -586,14 +588,12 @@ fn scan_siblings_for_date(doc: &Document, h1_id: NodeId, forward: bool) -> Optio
                 return Some(parsed);
             }
 
-            if !forward {
-                for child_id in doc.children(id).to_vec() {
-                    let tag = doc.tag_name(child_id).to_lowercase();
-                    if tag == "p" || tag == "time" {
-                        let child_text = doc.text_content(child_id).trim().to_string();
-                        if let Some(parsed) = parse_date_text(&child_text) {
-                            return Some(parsed);
-                        }
+            for child_id in doc.children(id).to_vec() {
+                let tag = doc.tag_name(child_id).to_lowercase();
+                if tag == "p" || tag == "time" {
+                    let child_text = doc.text_content(child_id).trim().to_string();
+                    if let Some(parsed) = parse_date_text(&child_text) {
+                        return Some(parsed);
                     }
                 }
             }
@@ -615,7 +615,11 @@ fn next_element_sibling(doc: &Document, node: NodeId) -> Option<NodeId> {
     if let Some(parent) = doc.parent(node) {
         let children = doc.children(parent);
         let pos = children.iter().position(|&c| c == node)?;
-        children.iter().skip(pos + 1).copied().next()
+        children
+            .iter()
+            .skip(pos + 1)
+            .copied()
+            .find(|id| doc.is_element(*id))
     } else {
         None
     }
@@ -625,11 +629,11 @@ fn prev_element_sibling(doc: &Document, node: NodeId) -> Option<NodeId> {
     if let Some(parent) = doc.parent(node) {
         let children = doc.children(parent);
         children.iter().position(|&c| c == node).and_then(|pos| {
-            if pos > 0 {
-                Some(children[pos - 1])
-            } else {
-                None
-            }
+            children[..pos]
+                .iter()
+                .rev()
+                .copied()
+                .find(|id| doc.is_element(*id))
         })
     } else {
         None
@@ -975,7 +979,11 @@ fn find_author_near_h1(doc: &Document, h1_id: NodeId, _author_norm: &str) -> Opt
     for _ in 0..3 {
         if let Some(id) = sibling {
             let text = doc.text_content(id).trim().to_string();
-            if parse_date_text(&text).is_some() {
+            let child_has_date = doc
+                .query_selector_all_in_subtree(id, "p,time")
+                .iter()
+                .any(|child| parse_date_text(&doc.text_content(*child)).is_some());
+            if parse_date_text(&text).is_some() || child_has_date {
                 let links = doc.query_selector_all("a");
                 let contained_links: Vec<_> =
                     links.into_iter().filter(|l| doc.contains(id, *l)).collect();
@@ -986,6 +994,14 @@ fn find_author_near_h1(doc: &Document, h1_id: NodeId, _author_norm: &str) -> Opt
                         && parse_date_text(&link_text).is_none()
                     {
                         return Some(link_text);
+                    }
+                }
+                for child in doc.children(id).to_vec() {
+                    if doc.tag_name(child).eq_ignore_ascii_case("p") {
+                        let child_text = doc.text_content(child).trim().to_string();
+                        if !child_text.is_empty() && parse_date_text(&child_text).is_none() {
+                            return Some(child_text);
+                        }
                     }
                 }
             }

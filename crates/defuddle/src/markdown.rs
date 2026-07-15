@@ -139,24 +139,59 @@ fn build_converter() -> HtmlToMarkdown {
         }
     }
 
-    fn find_rcdom_link(node: &markup5ever_rcdom::Handle) -> Option<String> {
-        if let markup5ever_rcdom::NodeData::Element { attrs, .. } = &node.data {
-            if let Some(href) = attrs
-                .borrow()
-                .iter()
-                .find(|attr| attr.name.local.as_ref() == "href")
-                .map(|attr| attr.value.to_string())
-                && !href.starts_with("#fnref:")
-            {
-                return Some(href);
+    fn collect_rcdom_markdown(node: &markup5ever_rcdom::Handle, output: &mut String) {
+        match &node.data {
+            markup5ever_rcdom::NodeData::Text { contents } => {
+                output.push_str(contents.borrow().as_ref());
+            }
+            markup5ever_rcdom::NodeData::Element { name, attrs, .. } => {
+                let mut inner = String::new();
+                for child in &*node.children.borrow() {
+                    collect_rcdom_markdown(child, &mut inner);
+                }
+                let tag = name.local.as_ref();
+                match tag {
+                    "em" | "i" => output.push_str(&format!("*{}*", inner.trim())),
+                    "strong" | "b" => output.push_str(&format!("**{}**", inner.trim())),
+                    "code" => output.push_str(&format!("`{}`", inner)),
+                    "ul" | "ol" => {
+                        let mut first = true;
+                        for child in &*node.children.borrow() {
+                            if let markup5ever_rcdom::NodeData::Element { name, .. } = &child.data
+                                && name.local.as_ref() == "li"
+                            {
+                                let mut item = String::new();
+                                collect_rcdom_markdown(child, &mut item);
+                                output.push_str(&format!(
+                                    "{}- {}",
+                                    if first { "\n\n" } else { "\n" },
+                                    item.trim()
+                                ));
+                                first = false;
+                            }
+                        }
+                        if !first {
+                            output.push_str("\n\n");
+                        }
+                    }
+                    "a" => {
+                        let href = attrs
+                            .borrow()
+                            .iter()
+                            .find(|attr| attr.name.local.as_ref() == "href")
+                            .map(|attr| attr.value.to_string())
+                            .unwrap_or_default();
+                        output.push_str(&format!("[{}]({})", inner.trim(), href));
+                    }
+                    _ => output.push_str(&inner),
+                }
+            }
+            _ => {
+                for child in &*node.children.borrow() {
+                    collect_rcdom_markdown(child, output);
+                }
             }
         }
-        for child in &*node.children.borrow() {
-            if let Some(href) = find_rcdom_link(child) {
-                return Some(href);
-            }
-        }
-        None
     }
 
     // --- footnotes: <div id="footnotes"> <ol> <li id="fn:N"> → [^N]: text ---
@@ -193,7 +228,7 @@ fn build_converter() -> HtmlToMarkdown {
                             if let Some(num) = lid.strip_prefix("fn:") {
                                 // Collect text from all children, skipping backref <a> links
                                 let mut text = String::new();
-                                let mut url = String::new();
+                                let url = String::new();
                                 for lc in &*li.children.borrow() {
                                     match &lc.data {
                                         markup5ever_rcdom::NodeData::Text { contents } => {
@@ -216,24 +251,20 @@ fn build_converter() -> HtmlToMarkdown {
                                                     // Backref link — skip
                                                     continue;
                                                 }
-                                                url = href.to_string();
-                                                // Collect link text too
-                                                for tc in &*lc.children.borrow() {
-                                                    if let markup5ever_rcdom::NodeData::Text {
-                                                        ref contents,
-                                                    } = tc.data
-                                                    {
-                                                        text.push_str(contents.borrow().as_ref());
-                                                    }
+                                                if !text.is_empty() && !text.ends_with(' ') {
+                                                    text.push(' ');
                                                 }
+                                                let mut link_text = String::new();
+                                                collect_rcdom_text(lc, &mut link_text);
+                                                text.push_str(&format!(
+                                                    "[{}]({})",
+                                                    link_text.trim(),
+                                                    href
+                                                ));
+                                                text.push(' ');
                                             } else {
                                                 // Collect text from other elements recursively
-                                                if url.is_empty()
-                                                    && let Some(href) = find_rcdom_link(lc)
-                                                {
-                                                    url = href;
-                                                }
-                                                collect_rcdom_text(lc, &mut text);
+                                                collect_rcdom_markdown(lc, &mut text);
                                             }
                                         }
                                         _ => {}
@@ -529,6 +560,10 @@ fn postprocess_markdown(md: &str) -> String {
     // which would otherwise trim the space line.
     let result = result.replace("\n\n\u{00B7}\n\n", "\n\n \n\n");
     let result = normalize_markdown_layout(&result);
+    let result = regex_lite::Regex::new(r"\*([^*\n]+) \*")
+        .unwrap()
+        .replace_all(&result, "*$1*")
+        .to_string();
 
     result.trim_end().to_string()
 }
@@ -719,6 +754,54 @@ fn fix_inline_spacing_line(line: &str) -> String {
             format!("{} {}", &c[1], &c[2])
         })
         .to_string();
+    let line = regex_lite::Regex::new(r"([a-zA-Z0-9])(\*[^*]+\*)")
+        .unwrap()
+        .replace_all(&line, |c: &regex_lite::Captures| {
+            format!("{} {}", &c[1], &c[2])
+        })
+        .to_string();
+    let line = regex_lite::Regex::new(r"(\*[^*]+\*)([a-zA-Z0-9])")
+        .unwrap()
+        .replace_all(&line, |c: &regex_lite::Captures| {
+            format!("{} {}", &c[1], &c[2])
+        })
+        .to_string();
+    let line = regex_lite::Regex::new(r"\*([^*\n]+) \*")
+        .unwrap()
+        .replace_all(&line, "*$1*")
+        .to_string();
+    let line = regex_lite::Regex::new(r"\* +([^*\n]+?) +\*")
+        .unwrap()
+        .replace_all(&line, "*$1*")
+        .to_string();
+    let line = regex_lite::Regex::new(r"\* ([^*\n]+)\*")
+        .unwrap()
+        .replace_all(&line, "*$1*")
+        .to_string();
+    let line = regex_lite::Regex::new(r" (\* )([A-Za-z])")
+        .unwrap()
+        .replace_all(&line, " *$2")
+        .to_string();
+    let line = regex_lite::Regex::new(r"(\*[^*\n]+\*) ([.,;:!?])")
+        .unwrap()
+        .replace_all(&line, "$1$2")
+        .to_string();
+    let line = regex_lite::Regex::new(r"([A-Za-z0-9,.;:!?])(\*[^*\n]+\*)")
+        .unwrap()
+        .replace_all(&line, "$1 $2")
+        .to_string();
+    let line = regex_lite::Regex::new(r"\*([^*\n]+)\*([A-Za-z0-9(])")
+        .unwrap()
+        .replace_all(&line, "*$1* $2")
+        .to_string();
+    let line = regex_lite::Regex::new(r"(\[\^\d+\]) ([.,;:!?])")
+        .unwrap()
+        .replace_all(&line, "$1$2")
+        .to_string();
+    let line = regex_lite::Regex::new(r"\\(-)( )")
+        .unwrap()
+        .replace_all(&line, "$1$2")
+        .to_string();
     let line = regex_lite::Regex::new(r"([a-zA-Z0-9:;,.!?])(`[^`]+`)")
         .unwrap()
         .replace_all(&line, |c: &regex_lite::Captures| {
@@ -743,9 +826,53 @@ fn fix_inline_spacing_line(line: &str) -> String {
             format!("{} {}", &c[1], &c[2])
         })
         .to_string();
-    regex_lite::Regex::new(r"\\<([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})>")
+    let line = regex_lite::Regex::new(r"(\[[^\]]+\]\([^)]+\))(- )")
         .unwrap()
-        .replace_all(&line, |c: &regex_lite::Captures| format!("<{}>", &c[1]))
+        .replace_all(&line, "$1 $2")
+        .to_string();
+    let line = regex_lite::Regex::new(r"(\[[^\]]+\]\([^)]+\)) {2,}")
+        .unwrap()
+        .replace_all(&line, "$1 ")
+        .to_string();
+    let line = regex_lite::Regex::new(r#"([A-Za-z0-9"])(\[\^\d+\])"#)
+        .unwrap()
+        .replace_all(&line, "$1 $2")
+        .to_string();
+    let line = regex_lite::Regex::new(r"(`[^`]+`)(\[\^\d+\])")
+        .unwrap()
+        .replace_all(&line, "$1 $2")
+        .to_string();
+    let line = regex_lite::Regex::new(r"(\S) \* ([A-Z])")
+        .unwrap()
+        .replace_all(&line, "$1 *$2")
+        .to_string();
+    let line = regex_lite::Regex::new(r"([A-Za-z])(\*\*\*)")
+        .unwrap()
+        .replace_all(&line, "$1 $2")
+        .to_string();
+    let line = regex_lite::Regex::new(r"(,)(\*\[)")
+        .unwrap()
+        .replace_all(&line, "$1 $2")
+        .to_string();
+    let line = regex_lite::Regex::new(r"` +([^`\n]*?)`")
+        .unwrap()
+        .replace_all(&line, "`$1`")
+        .to_string();
+    let line = regex_lite::Regex::new(r"`([^`\n]*?) +`")
+        .unwrap()
+        .replace_all(&line, "`$1`")
+        .to_string();
+    let line = regex_lite::Regex::new(r"`([^`\n]*)`([A-Za-z])")
+        .unwrap()
+        .replace_all(&line, "`$1` $2")
+        .to_string();
+    let line = regex_lite::Regex::new(r"` +([^`\n]*)`")
+        .unwrap()
+        .replace_all(&line, "`$1`")
+        .to_string();
+    regex_lite::Regex::new(r"\\\\<([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})>")
+        .unwrap()
+        .replace_all(&line, |c: &regex_lite::Captures| format!("\\<{}>", &c[1]))
         .to_string()
 }
 

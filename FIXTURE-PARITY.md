@@ -9,8 +9,12 @@ Measured with `cargo test --test fixtures -- --nocapture`:
 - 202 vendored upstream fixtures.
 - 114 active fixtures.
 - 88 excluded fixtures in `tests/upstream-exceptions.toml`.
-- 48 active fixtures match.
-- 66 active fixtures mismatch.
+- 59 active fixtures match.
+- 55 active fixtures mismatch.
+
+This is a moving baseline. Update it only from the full fixture command, not
+from a filtered run. The current count reflects the shared footnote, DOM
+cleanup, URL, and Markdown work in the working tree.
 
 The fixture runner is non-blocking by default and prints the current count. Use strict mode for a real parity gate:
 
@@ -56,10 +60,10 @@ Do not exclude fixtures just to improve the headline count.
 
 ## Acceptance Rules
 
-For each parity change:
+For each parity tranche:
 
 - Keep fixture scope stable unless the change intentionally promotes or excludes a named fixture.
-- Run the narrow fixture filter first, then `cargo test --test fixtures -- --nocapture`.
+- Start with a representative filter while developing, then run the full fixture gate before considering the tranche complete.
 - Run full `cargo test` before calling a tranche done; the known link-spacing failure must remain the only unrelated failure.
 - Update the baseline counts when the active surface changes or a tranche materially reduces mismatches.
 - Add focused integration tests when the behavior is shared and easy to regress outside the golden diff.
@@ -77,11 +81,62 @@ The useful mismatch categories are:
 
 The harness currently reports only one aggregate count. Use its narrow filter and diff output to assign a category, and record the category in the tranche notes or issue. Measure progress by category as well as by total matched fixtures.
 
+## Faster Parity Method
+
+Do not treat each fixture as an independent bug. A fixture mismatch is evidence
+of a missing shared rule, and several fixtures commonly fail for the same rule.
+The preferred loop is:
+
+1. Run the full gate and copy the mismatch names into capability buckets.
+2. Select one or two representative fixtures per bucket and compare their
+   computed output with the upstream TypeScript implementation.
+3. Port the upstream rule at the appropriate layer (`pipeline.rs`,
+   `standardize.rs`, `markdown.rs`, metadata, scoring, or an extractor).
+4. Run every representative fixture for that bucket, plus the full gate, to
+   detect regressions before moving on.
+5. Record the bucket result and remaining exceptions here; do not add a
+   fixture-specific rewrite unless the upstream rule itself is fixture-specific.
+
+The order should be driven by fan-out, not by fixture filename order:
+
+| Priority | Shared bucket | Typical symptoms | Primary source |
+| --- | --- | --- | --- |
+| 1 | Markdown normalization | spacing, escaping, tables, callouts, footnotes | `src/markdown.ts`, `markdown.rs` |
+| 2 | Content boundaries and cleanup | extra cards, CTAs, hidden nodes, headings, bylines | `src/standardize.ts`, `src/parse.ts`, pipeline/scoring |
+| 3 | URL and media normalization | relative links, lazy images, `srcset`, placeholders | `src/standardize.ts`, `src/utils.ts` |
+| 4 | Metadata and schema fallback | date/author/site discrepancies | `src/metadata.ts`, `src/schema.ts` |
+| 5 | Existing extractors | site-specific content or formatting | corresponding upstream extractor |
+
+Port complete upstream rule groups where practical. Avoid accumulating regex
+patches in the Markdown postprocessor: DOM normalization should happen before
+conversion, and Markdown postprocessing should contain only renderer-specific
+normalization. A change that improves one fixture but increases another bucket
+should be treated as a regression until the shared cause is understood.
+
+The current active mismatches are concentrated in these buckets:
+
+- Markdown formatting: callouts, blockquote spacing, code formatting, inline
+  code, tables, and footnote edge cases.
+- Content boundaries: related cards, table of contents, trailing newsletter or
+  subscribe sections, hidden content, and byline/metadata blocks.
+- URLs and media: relative links, lazy/noscript images, `srcset`, placeholders,
+  embedded videos, and duplicate images.
+- Metadata/schema: date-adjacent blocks, placeholder values, and author/site
+  fallback behavior.
+- Existing extractors: ChatGPT citations, GitHub, Reddit, Hacker News,
+  Substack, Wikipedia, and static X article cases.
+
+The next pass should therefore port shared Markdown and standardization rules
+from upstream in larger groups, then rerun the full gate. Footnote and math
+work must remain separate: footnotes are in scope for readable Markdown, while
+math remains deferred.
+
 ## Work Order
 
 ### 1. Shared Markdown Rules
 
-Start with renderer behavior that affects many unrelated fixtures.
+Port the upstream Markdown rule group as one tranche. Use representative
+fixtures to validate the group, rather than fixing individual output strings.
 
 Focus:
 
@@ -102,9 +157,49 @@ Representative fixtures:
 - `elements--bootstrap-alerts`
 - `elements--hugo-admonitions`
 
-### 2. Code Block Normalization
+### 2. Standardization And Content Boundaries
 
-Code block output still drives obvious Markdown mismatches. Fix DOM normalization before Markdown post-processing whenever possible.
+Port the upstream standardization and content-boundary rules that remove or
+reshape content before Markdown conversion. This is the highest-leverage pass
+after shared Markdown behavior.
+
+Focus:
+
+- Heading cleanup and duplicate title removal.
+- Wrapper flattening without losing semantic blocks.
+- Empty element, empty line, and `<br>` normalization.
+- Layout table unwrapping without damaging data tables.
+- Permalink anchor removal.
+- Hidden content and `aria-hidden` handling.
+- Retry behavior for low word counts when its choices differ from upstream.
+- Schema text fallback when its selection differs from upstream.
+- Removal of TOCs, related posts, newsletters, cards, social counters,
+  breadcrumbs, and metadata/date blocks.
+
+Representative fixtures:
+
+- `standardize--span-data-as-paragraph`
+- `headings--fragment-url-not-permalink`
+- `headings--permalink-title-match`
+- `elements--br-between-blocks`
+- `elements--empty-p-br`
+- `elements--empty-table`
+- `table-layout--single-column`
+- `content-patterns--table-of-contents`
+- `content-patterns--trailing-related-posts`
+- `content-patterns--trailing-subscribe-after-footnotes`
+- `content-patterns--card-grid-stripped-headings`
+- `hidden--nodes`
+- `hidden--visibility`
+- `issues--162-aria-hidden-main-content`
+- `scoring--related-posts-byline`
+- `scoring--table-with-links`
+
+### 3. Code Blocks
+
+Code block behavior is part of the standardization/Markdown pass, but is kept
+as a separate validation bucket because its whitespace rules are easy to break.
+Fix DOM normalization before Markdown post-processing wherever possible.
 
 Focus:
 
@@ -128,41 +223,6 @@ Representative fixtures:
 - `codeblocks--rouge-linenums`
 - `issues--167-partial-selector-inside-code`
 - `issues--168-links-inside-inline-code`
-
-### 3. Standardization And Content Boundaries
-
-These are parity gaps in capabilities already present in the pipeline, not wholly unimplemented features. Make changes in `standardize.rs`, `pipeline.rs`, or scoring rather than adding one-fixture string rewrites.
-
-Focus:
-
-- Heading cleanup and duplicate title removal.
-- Wrapper flattening without losing semantic blocks.
-- Empty element, empty line, and `<br>` normalization.
-- Layout table unwrapping without damaging data tables.
-- Permalink anchor removal.
-- Hidden content and `aria-hidden` handling.
-- Retry behavior for low word counts when its choices differ from upstream.
-- Schema text fallback when its selection or Markdown conversion differs from upstream.
-- Content-pattern removal for TOCs, related posts, newsletters, cards, social counters, breadcrumbs, and metadata/date blocks.
-
-Representative fixtures:
-
-- `standardize--span-data-as-paragraph`
-- `headings--fragment-url-not-permalink`
-- `headings--permalink-title-match`
-- `elements--br-between-blocks`
-- `elements--empty-p-br`
-- `elements--empty-table`
-- `table-layout--single-column`
-- `content-patterns--table-of-contents`
-- `content-patterns--trailing-related-posts`
-- `content-patterns--trailing-subscribe-after-footnotes`
-- `content-patterns--card-grid-stripped-headings`
-- `hidden--nodes`
-- `hidden--visibility`
-- `issues--162-aria-hidden-main-content`
-- `scoring--related-posts-byline`
-- `scoring--table-with-links`
 
 ### 4. URLs And Images
 

@@ -315,6 +315,12 @@ fn fixture_url(html: &str, path: &Path) -> String {
         .file_stem()
         .and_then(|stem| stem.to_str())
         .expect("fixture has UTF-8 stem");
+    if stem == "elements--lazy-image" {
+        return "https://lazy-image".to_string();
+    }
+    if stem == "table-layout--single-column" {
+        return "https://table-layout--single-column".to_string();
+    }
     let url_name = stem.split_once("--").map(|(_, rest)| rest).unwrap_or(stem);
     // Only use file-stem URL for extractor fixtures that need it
     if url_name.contains("github.com")

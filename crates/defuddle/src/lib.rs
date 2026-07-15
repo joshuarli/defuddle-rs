@@ -404,6 +404,7 @@ fn parse_internal_once(
 
         // Remove metadata blocks adjacent to the first heading
         pipeline::remove_metadata_blocks(&mut doc, content);
+        pipeline::remove_author_sibling(&mut doc, content, &metadata.author);
 
         // Resolve relative URLs before standardization
         standardize::resolve_urls(&mut doc, content, url);

@@ -666,6 +666,9 @@ fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
         if doc.is_svg_element(id) || preserve.contains(tag.as_str()) {
             return true;
         }
+        if doc.get_attr(id, "id") == Some("footnotes") {
+            return true;
+        }
         if doc.get_attr(id, "data-callout").is_some() {
             return true;
         }
@@ -895,13 +898,22 @@ fn remove_empty_text_nodes(doc: &mut Document, node: NodeId) {
         if is_invis {
             doc.remove(tc);
         } else {
+            let leading_space = text.chars().next().is_some_and(char::is_whitespace);
+            let trailing_space = text.chars().last().is_some_and(char::is_whitespace);
             let new_text = text
                 .replace(['\n', '\r', '\t'], " ")
                 .split_whitespace()
                 .collect::<Vec<_>>()
                 .join(" ");
-            if new_text != text {
-                doc.set_text(tc, &new_text);
+            let mut normalized = new_text;
+            if leading_space {
+                normalized.insert(0, ' ');
+            }
+            if trailing_space {
+                normalized.push(' ');
+            }
+            if normalized != text {
+                doc.set_text(tc, &normalized);
             }
         }
     }
@@ -933,7 +945,7 @@ fn resolve_url(url: &str, base: &str) -> Option<String> {
             if let Some(slash) = after.find('/') {
                 return Some(format!("{}{}", &base[..end + 3 + slash], url));
             }
-            return Some(format!("{}{}", &base[..end + 3], url));
+            return Some(format!("{}{}", base, url));
         }
         return None;
     }
@@ -990,7 +1002,13 @@ fn convert_data_as_spans(doc: &mut Document, content_id: NodeId) {
         .iter()
         .copied()
         .collect();
-    let spans = doc.query_selector_all_in_subtree(content_id, "span[data-as]");
+    let spans = doc
+        .query_selector_all_in_subtree(content_id, "*")
+        .into_iter()
+        .filter(|id| {
+            doc.tag_name(*id).eq_ignore_ascii_case("span") && doc.get_attr(*id, "data-as").is_some()
+        })
+        .collect::<Vec<_>>();
     for id in spans {
         if let Some(target) = doc.get_attr(id, "data-as") {
             let target = target.to_lowercase();

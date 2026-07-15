@@ -15,11 +15,22 @@ fn prev_element_sibling(doc: &Document, node: NodeId) -> Option<NodeId> {
     let parent = doc.parent(node)?;
     let children = doc.children(parent);
     let pos = children.iter().position(|&c| c == node)?;
-    if pos > 0 {
-        Some(children[pos - 1])
-    } else {
-        None
-    }
+    children[..pos]
+        .iter()
+        .rev()
+        .copied()
+        .find(|id| doc.is_element(*id))
+}
+
+fn next_element_sibling(doc: &Document, node: NodeId) -> Option<NodeId> {
+    let parent = doc.parent(node)?;
+    let children = doc.children(parent);
+    let pos = children.iter().position(|&c| c == node)?;
+    children
+        .iter()
+        .skip(pos + 1)
+        .copied()
+        .find(|id| doc.is_element(*id))
 }
 
 pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial: bool) {
@@ -393,6 +404,9 @@ pub fn remove_hidden_elements(doc: &mut Document) {
                 || style_lower.contains("visibility:hidden")
                 || style_lower.contains("opacity:0")
             {
+                if doc.closest(id, "span.inline-footnote").is_some() {
+                    continue;
+                }
                 // Skip elements inside callout containers (e.g. collapsed callout content)
                 if doc.closest(id, "[data-callout]").is_none()
                     && doc.closest(id, ".callout").is_none()
@@ -816,10 +830,9 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
             let siblings = doc.children(pid).to_vec();
             let h_pos = siblings.iter().position(|&s| s == h_id);
 
-            if let Some(pos) = h_pos {
+            if h_pos.is_some() {
                 // Remove metadata elements immediately before the first heading
-                if pos > 0 {
-                    let prev_id = siblings[pos - 1];
+                if let Some(prev_id) = prev_element_sibling(doc, h_id) {
                     let tag = doc.tag_name(prev_id).to_lowercase();
                     let class = doc.get_attr(prev_id, "class").unwrap_or("").to_lowercase();
                     if tag == "div" || tag == "p" || tag == "span" {
@@ -839,12 +852,18 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
                 }
 
                 // Remove metadata elements immediately after the first heading
-                if pos + 1 < siblings.len() {
-                    let next_id = siblings[pos + 1];
+                if let Some(next_id) = next_element_sibling(doc, h_id) {
                     let tag = doc.tag_name(next_id).to_lowercase();
                     let class = doc.get_attr(next_id, "class").unwrap_or("").to_lowercase();
                     if tag == "div" || tag == "p" || tag == "span" {
                         let text = doc.text_content(next_id).to_lowercase();
+                        let has_child_date = doc
+                            .query_selector_all_in_subtree(next_id, "p,time")
+                            .iter()
+                            .any(|child| {
+                                crate::metadata::parse_date_text(&doc.text_content(*child))
+                                    .is_some()
+                            });
                         if class.contains("meta")
                             || class.contains("date")
                             || class.contains("author")
@@ -860,6 +879,7 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
                             || text.starts_with("updated ")
                             || text.contains("min read")
                             || text.contains("minute read")
+                            || has_child_date
                         {
                             let word_count = text.split_whitespace().count();
                             if word_count < 30 {
@@ -880,6 +900,26 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
                 }
             }
         }
+    }
+}
+
+pub fn remove_author_sibling(doc: &mut Document, content_id: NodeId, author: &str) {
+    if author.trim().is_empty() || author.split_whitespace().count() < 2 {
+        return;
+    }
+    let Some(heading) = doc
+        .query_selector_all_in_subtree(content_id, "h1,h2")
+        .into_iter()
+        .next()
+    else {
+        return;
+    };
+    let Some(sibling) = next_element_sibling(doc, heading) else {
+        return;
+    };
+    let text = doc.text_content(sibling);
+    if text.contains(author) && text.split_whitespace().count() < 40 {
+        doc.remove(sibling);
     }
 }
 
