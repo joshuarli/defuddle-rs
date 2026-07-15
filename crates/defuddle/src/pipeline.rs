@@ -39,14 +39,15 @@ fn next_element_sibling(doc: &Document, node: NodeId) -> Option<NodeId> {
 }
 
 pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial: bool) {
+    let mut matches = Vec::new();
     if remove_exact {
         // Remove dangerous elements and clutter
         for selector in EXACT_SELECTORS {
             if selector.contains(":not(") || selector.contains(":has(") {
                 continue;
             }
-            let matches = doc.query_selector_all(selector);
-            for id in matches {
+            doc.query_selector_all_into(selector, &mut matches);
+            for &id in &matches {
                 if doc.tag_name(id).is_empty() {
                     continue;
                 }
@@ -63,8 +64,8 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
 
         // Handle :not() selectors manually
         // Remove all scripts EXCEPT those with type starting with "math/"
-        let scripts = doc.query_selector_all("script");
-        for id in scripts {
+        doc.query_selector_all_into("script", &mut matches);
+        for &id in &matches {
             let type_attr = doc.get_attr(id, "type").unwrap_or("");
             if !type_attr.starts_with("math/") {
                 doc.remove(id);
@@ -72,23 +73,23 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
         }
 
         // Remove iframes without src, video/audio without src
-        let iframes = doc.query_selector_all("iframe");
-        for id in iframes {
+        doc.query_selector_all_into("iframe", &mut matches);
+        for &id in &matches {
             if doc.get_attr(id, "src").is_none() || doc.get_attr(id, "src").unwrap_or("").is_empty()
             {
                 doc.remove(id);
             }
         }
 
-        let videos = doc.query_selector_all("video");
-        for id in videos {
+        doc.query_selector_all_into("video", &mut matches);
+        for &id in &matches {
             if doc.get_attr(id, "src").is_none() && !doc.has_selector_in_subtree(id, "source") {
                 doc.remove(id);
             }
         }
 
-        let audios = doc.query_selector_all("audio");
-        for id in audios {
+        doc.query_selector_all_into("audio", &mut matches);
+        for &id in &matches {
             if doc.get_attr(id, "src").is_none() && !doc.has_selector_in_subtree(id, "source") {
                 doc.remove(id);
             }
@@ -107,10 +108,12 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
             "data-cy",
         ];
 
-        let elements: Vec<NodeId> = test_attrs
-            .iter()
-            .flat_map(|attr| doc.query_selector_all(&format!("[{attr}]")))
-            .collect();
+        let mut elements = Vec::new();
+        for attr in test_attrs {
+            let selector = format!("[{attr}]");
+            doc.query_selector_all_into(&selector, &mut matches);
+            elements.extend(matches.iter().copied());
+        }
 
         let mut seen = FxHashSet::default();
         let mut to_remove = Vec::new();
@@ -662,36 +665,45 @@ fn remove_eyebrow_label(doc: &mut Document, content_id: NodeId) {
 
 /// Remove common boilerplate and content patterns from the document.
 pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
+    let mut matches = Vec::new();
+    let mut text = String::new();
+
     // Remove eyebrow/category labels before the first heading
     remove_eyebrow_label(doc, content_id);
-    for abstract_node in doc.query_selector_all_in_subtree(content_id, ".abstract") {
+    doc.query_selector_all_in_subtree_into(content_id, ".abstract", &mut matches);
+    for &abstract_node in &matches {
         doc.remove(abstract_node);
     }
     // Check all elements and remove boilerplate by class
-    for &id in &doc.query_selector_all_in_subtree(content_id, "*") {
+    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
+    for &id in &matches {
         if let Some(c) = doc.get_attr(id, "class") {
-            let lower = c.to_lowercase();
-            let is_boilerplate = lower.contains("writer-contact-block")
-                || lower.contains("author-contact")
-                || lower.contains("contact-block")
-                || lower.contains("author-card")
-                || lower.contains("author-box")
-                || lower.contains("author-list")
-                || lower.contains("about-author")
-                || lower.contains("article-author")
-                || lower.contains("share-widget")
-                || lower.contains("share-block")
-                || lower.contains("social-share")
-                || lower.contains("publish-date")
-                || lower.contains("published-date")
-                || lower.contains("post-date")
-                || lower.contains("article-date")
-                || lower.contains("date-published")
-                || lower.contains("time-published")
-                || lower.contains("publish-time")
-                || lower.contains("pencraft");
+            let is_boilerplate = [
+                "writer-contact-block",
+                "author-contact",
+                "contact-block",
+                "author-card",
+                "author-box",
+                "author-list",
+                "about-author",
+                "article-author",
+                "share-widget",
+                "share-block",
+                "social-share",
+                "publish-date",
+                "published-date",
+                "post-date",
+                "article-date",
+                "date-published",
+                "time-published",
+                "publish-time",
+                "pencraft",
+            ]
+            .iter()
+            .any(|pattern| crate::utils::contains_ascii_case_insensitive(c, pattern));
             if is_boilerplate {
-                let text = doc.text_content(id);
+                text.clear();
+                doc.text_content_into(id, &mut text);
                 if text.split_whitespace().count() < 50 {
                     doc.remove(id);
                 }
@@ -716,7 +728,8 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
     ];
     for pattern in &read_time_patterns {
         let selector = format!("[class*=\"{pattern}\" i], [id*=\"{pattern}\" i]");
-        for id in doc.query_selector_all_in_subtree(content_id, &selector) {
+        doc.query_selector_all_in_subtree_into(content_id, &selector, &mut matches);
+        for &id in &matches {
             if !has_closest(doc, id, &["pre", "code"]) {
                 doc.remove(id);
             }
@@ -725,28 +738,32 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
 
     // Remove eyebrow/breadcrumb labels: short divs with single-word text
     // like "Blog", "News", "Home" that appear before headings
-    for &id in &doc.query_selector_all_in_subtree(content_id, "*") {
+    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
+    for &id in &matches {
         if !doc.is_element(id) {
             continue;
         }
-        let tag = doc.tag_name(id).to_lowercase();
-        if tag != "div" && tag != "span" && tag != "p" && tag != "nav" && tag != "ol" && tag != "ul"
-        {
+        let tag = doc.tag_name(id);
+        if !matches!(tag, "div" | "span" | "p" | "nav" | "ol" | "ul") {
             continue;
         }
-        let class = doc.get_attr(id, "class").unwrap_or("").to_lowercase();
-        let text = doc.text_content(id).trim().to_string();
+        let class = doc.get_attr(id, "class").unwrap_or("");
+        text.clear();
+        doc.text_content_into(id, &mut text);
+        let text = text.trim();
         let word_count = text.split_whitespace().count();
         // Breadcrumb containers — remove if class indicates breadcrumb
-        if class.contains("breadcrumb") || class.contains("nav") {
+        if crate::utils::contains_ascii_case_insensitive(class, "breadcrumb")
+            || crate::utils::contains_ascii_case_insensitive(class, "nav")
+        {
             doc.remove(id);
             continue;
         }
         // List/nav elements with breadcrumb-like patterns
         if (tag == "ol" || tag == "ul" || tag == "nav") && text.len() < 200 {
             // Check if this looks like a breadcrumb (short items, links, text- classes)
-            let link_count = doc.query_selector_all_in_subtree(id, "a").len();
-            if link_count >= 1 && class.contains("text-") {
+            let link_count = doc.count_selector_in_subtree(id, "a");
+            if link_count >= 1 && crate::utils::contains_ascii_case_insensitive(class, "text-") {
                 doc.remove(id);
                 continue;
             }
@@ -754,10 +771,10 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         // Single-word labels that are common breadcrumbs/eyebrows
         if word_count <= 3
             && text.len() < 100
-            && (class.contains("text-")
-                || class.contains("eyebrow")
-                || class.contains("overline")
-                || class.contains("kicker"))
+            && (crate::utils::contains_ascii_case_insensitive(class, "text-")
+                || crate::utils::contains_ascii_case_insensitive(class, "eyebrow")
+                || crate::utils::contains_ascii_case_insensitive(class, "overline")
+                || crate::utils::contains_ascii_case_insensitive(class, "kicker"))
         {
             doc.remove(id);
         }
@@ -767,7 +784,8 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
     // "Follow", "Written by" — common sidebar widget labels
     let share_author_re =
         regex_lite::Regex::new(r"(?i)^(share|follow|authors?|written\s+by)$").unwrap();
-    for &id in &doc.query_selector_all_in_subtree(content_id, "*") {
+    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
+    for &id in &matches {
         if !doc.is_element(id) {
             continue;
         }
@@ -775,9 +793,10 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         if !matches!(tag, "p" | "span" | "div" | "time" | "relative-time") {
             continue;
         }
-        let text = doc.text_content(id);
-        let text = text.trim();
-        if share_author_re.is_match(&text) {
+        text.clear();
+        doc.text_content_into(id, &mut text);
+        let text_value = text.trim();
+        if share_author_re.is_match(text_value) {
             // Remove the parent container (the widget)
             let mut target = id;
             for _ in 0..3 {
@@ -785,8 +804,9 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
                     if p == content_id {
                         break;
                     }
-                    let pt = doc.text_content(p);
-                    let pt = pt.trim();
+                    text.clear();
+                    doc.text_content_into(p, &mut text);
+                    let pt = text.trim();
                     if pt.split_whitespace().count() > 15 {
                         break;
                     }
@@ -800,7 +820,8 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
     }
 
     // Remove "by Author" byline patterns when adjacent to headings
-    for &id in &doc.query_selector_all_in_subtree(content_id, "*") {
+    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
+    for &id in &matches {
         if !doc.is_element(id) {
             continue;
         }
@@ -815,7 +836,8 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
             || crate::utils::contains_ascii_case_insensitive(class, "deck")
             || crate::utils::contains_ascii_case_insensitive(class, "article-deck")
         {
-            let text = doc.text_content(id);
+            text.clear();
+            doc.text_content_into(id, &mut text);
             let text = text.trim();
             let word_count = text.split_whitespace().count();
             if word_count < 40 {
@@ -823,7 +845,8 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
                 continue;
             }
         }
-        let text = doc.text_content(id);
+        text.clear();
+        doc.text_content_into(id, &mut text);
         let text = text.trim();
         if text.len() < 80
             && (text.get(..3).is_some_and(|s| s.eq_ignore_ascii_case("by "))
@@ -859,7 +882,8 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         r"(?i)(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}",
     )
     .unwrap();
-    for &id in &doc.query_selector_all_in_subtree(content_id, "*") {
+    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
+    for &id in &matches {
         if !doc.is_element(id) {
             continue;
         }
@@ -867,14 +891,15 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         if !matches!(tag, "p" | "span" | "div" | "li" | "time") {
             continue;
         }
-        let text = doc.text_content(id);
+        text.clear();
+        doc.text_content_into(id, &mut text);
         let text = text.trim();
         let compact_read_meta = crate::utils::contains_ascii_case_insensitive(text, "min read")
             && text.split_whitespace().count() <= 12
             && compact_read_meta_re.is_match(text);
-        if date_re.is_match(&text)
+        if date_re.is_match(text)
             || min_read_re.is_match(text)
-            || named_date_re.is_match(&text)
+            || named_date_re.is_match(text)
             || compact_read_meta
         {
             if doc.closest(id, ".reference-accessdate").is_some() {
@@ -1367,16 +1392,19 @@ fn remove_newsletter_blocks(doc: &mut Document, content_id: NodeId) {
         r"(?i)\bsubscribe\b[\s\S]{0,40}\bnewsletter\b|\bnewsletter\b[\s\S]{0,40}\bsubscribe\b|\bsign[- ]up\b[\s\S]{0,80}\b(?:newsletter|email alert)|\b(?:don['\u2019]?t (?:want to )?miss|never miss)\b"
     ).unwrap();
     let els = doc.query_selector_all_in_subtree(content_id, "div,p,section,aside,span");
+    let mut text = String::new();
     for id in els {
         if has_closest(doc, id, &["pre", "code"]) {
             continue;
         }
-        let text = doc.text_content(id).trim().to_string();
+        text.clear();
+        doc.text_content_into(id, &mut text);
+        let text = text.trim();
         let word_count = text.split_whitespace().count();
         if !(2..=50).contains(&word_count) {
             continue;
         }
-        if newsletter_re.is_match(&text) {
+        if newsletter_re.is_match(text) {
             doc.remove(id);
         }
     }
@@ -1389,15 +1417,20 @@ fn remove_social_counters(doc: &mut Document, content_id: NodeId) {
     )
     .unwrap();
     let els = doc.query_selector_all_in_subtree(content_id, "div,p,span,a,button");
+    let mut text = String::new();
     for id in els {
         if has_closest(doc, id, &["pre", "code"]) {
             continue;
         }
-        let text = doc.text_content(id).trim().to_string();
-        if social_re.is_match(&text)
+        text.clear();
+        doc.text_content_into(id, &mut text);
+        let text_value = text.trim();
+        if social_re.is_match(text_value)
             && let Some(pid) = doc.parent(id)
         {
-            let wrapper_text = doc.text_content(pid).trim().to_string();
+            text.clear();
+            doc.text_content_into(pid, &mut text);
+            let wrapper_text = text.trim();
             if wrapper_text.split_whitespace().count() < 10 {
                 doc.remove(pid);
             }
@@ -1409,16 +1442,21 @@ fn remove_social_counters(doc: &mut Document, content_id: NodeId) {
 fn remove_social_counter_links(doc: &mut Document, content_id: NodeId) {
     let likes_re = regex_lite::Regex::new(r"(?i)^\d+\s+(?:Likes?|Comments?)$").unwrap();
     let anchors = doc.query_selector_all_in_subtree(content_id, "a");
+    let mut text = String::new();
     for a_id in anchors {
-        let text = doc.text_content(a_id).trim().to_string();
-        if likes_re.is_match(&text) {
+        text.clear();
+        doc.text_content_into(a_id, &mut text);
+        let text_value = text.trim();
+        if likes_re.is_match(text_value) {
             let mut target = a_id;
             for _ in 0..3 {
                 if let Some(p) = doc.parent(target) {
                     if p == content_id {
                         break;
                     }
-                    let pt = doc.text_content(p).trim().to_string();
+                    text.clear();
+                    doc.text_content_into(p, &mut text);
+                    let pt = text.trim();
                     if pt.split_whitespace().count() > 20 {
                         break;
                     }

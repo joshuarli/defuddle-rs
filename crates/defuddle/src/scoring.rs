@@ -104,7 +104,7 @@ pub fn score_element(doc: &Document, node: NodeId) -> f64 {
 
 pub fn score_element_with_text(doc: &Document, node: NodeId, text: &str) -> f64 {
     let mut score = 0.0;
-    let words = count_words(&text) as f64;
+    let words = count_words(text) as f64;
     if words == 0.0 {
         return 0.0;
     }
@@ -132,11 +132,13 @@ pub fn score_element_with_text(doc: &Document, node: NodeId, text: &str) -> f64 
     let table_count = count_descendant_tag(doc, node, "table") as f64;
     score -= table_count * 5.0;
 
-    let link_ids = collect_descendant_tag(doc, node, "a");
     let mut link_text_len = 0;
-    for link_id in &link_ids {
-        link_text_len += doc.text_content(*link_id).len();
-    }
+    let mut link_text = String::new();
+    for_each_descendant_tag(doc, node, "a", &mut |link_id| {
+        link_text.clear();
+        doc.text_content_into(link_id, &mut link_text);
+        link_text_len += link_text.len();
+    });
     let text_len = text.len().max(1) as f64;
     let link_density = f64::min(link_text_len as f64 / text_len, 0.5);
     score *= 1.0 - link_density;
@@ -145,35 +147,38 @@ pub fn score_element_with_text(doc: &Document, node: NodeId, text: &str) -> f64 
 }
 
 fn count_descendant_tag(doc: &Document, node: NodeId, tag: &str) -> usize {
-    collect_descendant_tag(doc, node, tag).len()
+    let mut count = 0;
+    for_each_descendant_tag(doc, node, tag, &mut |_| count += 1);
+    count
 }
 
-fn collect_descendant_tag(doc: &Document, node: NodeId, tag: &str) -> Vec<NodeId> {
-    let mut result = Vec::new();
-    collect_descendant_tag_into(doc, node, tag, &mut result);
-    result
-}
-
-fn collect_descendant_tag_into(doc: &Document, node: NodeId, tag: &str, result: &mut Vec<NodeId>) {
-    for child in doc.children(node).to_vec() {
+fn for_each_descendant_tag(
+    doc: &Document,
+    node: NodeId,
+    tag: &str,
+    visit: &mut impl FnMut(NodeId),
+) {
+    for &child in doc.children(node) {
         if doc.tag_name(child).eq_ignore_ascii_case(tag) {
-            result.push(child);
+            visit(child);
         }
-        collect_descendant_tag_into(doc, child, tag, result);
+        for_each_descendant_tag(doc, child, tag, visit);
     }
 }
 
 pub fn is_likely_content(doc: &Document, node: NodeId) -> bool {
-    let role = doc.get_attr(node, "role").unwrap_or("").to_lowercase();
-    if role == "article" || role == "main" {
+    let role = doc.get_attr(node, "role").unwrap_or("");
+    if role.eq_ignore_ascii_case("article") || role.eq_ignore_ascii_case("main") {
         return true;
     }
 
-    let class_val = doc.get_attr(node, "class").unwrap_or("").to_lowercase();
-    let id_str = doc.get_attr(node, "id").unwrap_or("").to_lowercase();
+    let class_val = doc.get_attr(node, "class").unwrap_or("");
+    let id_str = doc.get_attr(node, "id").unwrap_or("");
 
     for indicator in CONTENT_INDICATORS {
-        if class_val.contains(indicator) || id_str.contains(indicator) {
+        if contains_ascii_case_insensitive(class_val, indicator)
+            || contains_ascii_case_insensitive(id_str, indicator)
+        {
             return true;
         }
     }
@@ -189,26 +194,22 @@ pub fn is_likely_content(doc: &Document, node: NodeId) -> bool {
     let text = doc.text_content(node);
     let words = count_words(&text);
 
-    let heading_children: Vec<NodeId> = doc
+    let heading = doc
         .children(node)
         .iter()
         .copied()
-        .filter(|&c| {
-            let t = doc.tag_name(c).to_lowercase();
-            t == "h1" || t == "h2" || t == "h3" || t == "h4" || t == "h5" || t == "h6"
-        })
-        .collect();
+        .find(|&child| matches!(doc.tag_name(child), "h1" | "h2" | "h3" | "h4" | "h5" | "h6"));
 
-    if let Some(heading) = heading_children.first() {
-        let heading_text = doc.text_content(*heading).trim().to_string();
-        if heading_text == text.trim() {
-            let heading_lower = heading_text.to_lowercase();
+    if let Some(heading) = heading {
+        let heading_text = doc.text_content(heading);
+        if heading_text.trim() == text.trim() {
             let is_nav_heading = NAVIGATION_INDICATORS
                 .iter()
-                .any(|ind| heading_lower.contains(ind));
-            let is_toc = heading_lower == "contents"
-                || heading_lower == "table of contents"
-                || heading_lower.contains("on this page");
+                .any(|ind| contains_ascii_case_insensitive(heading_text.trim(), ind));
+            let heading_trimmed = heading_text.trim();
+            let is_toc = heading_trimmed.eq_ignore_ascii_case("contents")
+                || heading_trimmed.eq_ignore_ascii_case("table of contents")
+                || contains_ascii_case_insensitive(heading_trimmed, "on this page");
             if !is_nav_heading && !is_toc {
                 return true;
             }
@@ -244,7 +245,7 @@ pub fn score_non_content_block(doc: &Document, node: NodeId) -> f64 {
 }
 
 pub fn score_non_content_block_with_text(doc: &Document, node: NodeId, text: &str) -> f64 {
-    let words = count_words(&text);
+    let words = count_words(text);
     if words < 3 {
         return 0.0;
     }
@@ -274,17 +275,19 @@ pub fn score_non_content_block_with_text(doc: &Document, node: NodeId, text: &st
     }
     score -= (indicator_matches as f64) * 10.0;
 
-    let link_ids = collect_descendant_tag(doc, node, "a");
-    let links = link_ids.len();
+    let links = count_descendant_tag(doc, node, "a");
     let link_density = links as f64 / words as f64;
     if link_density > 0.5 {
         score -= 15.0;
     }
     if links > 1 && words < 80 {
         let mut link_text_len = 0;
-        for link_id in &link_ids {
-            link_text_len += doc.text_content(*link_id).len();
-        }
+        let mut link_text = String::new();
+        for_each_descendant_tag(doc, node, "a", &mut |link_id| {
+            link_text.clear();
+            doc.text_content_into(link_id, &mut link_text);
+            link_text_len += link_text.len();
+        });
         let total_len = text.len();
         if total_len > 0 && (link_text_len as f64 / total_len as f64) > 0.8 {
             score -= 15.0;
@@ -299,48 +302,59 @@ pub fn score_non_content_block_with_text(doc: &Document, node: NodeId, text: &st
     }
 
     if words < 80 {
-        for link_id in &link_ids {
-            if let Some(href) = doc.get_attr(*link_id, "href") {
-                let href_lower = href.to_lowercase();
-                if SOCIAL_PROFILE_PATTERNS
+        let mut social_profile = false;
+        for_each_descendant_tag(doc, node, "a", &mut |link_id| {
+            if let Some(href) = doc.get_attr(link_id, "href")
+                && SOCIAL_PROFILE_PATTERNS
                     .iter()
-                    .any(|p| href_lower.contains(p))
-                {
-                    score -= 15.0;
-                    break;
-                }
+                    .any(|p| contains_ascii_case_insensitive(href, p))
+            {
+                social_profile = true;
             }
+        });
+        if social_profile {
+            score -= 15.0;
         }
     }
 
-    let id_str = doc.get_attr(node, "id").unwrap_or("").to_lowercase();
+    let id_str = doc.get_attr(node, "id").unwrap_or("");
     for pattern in NON_CONTENT_PATTERNS {
         if *pattern == "sidebar" && words >= 80 && count_descendant_tag(doc, node, "p") >= 3 {
             continue;
         }
-        if class_val.contains(pattern) || id_str.contains(pattern) {
+        if contains_ascii_case_insensitive(class_val, pattern)
+            || contains_ascii_case_insensitive(id_str, pattern)
+        {
             score -= 8.0;
         }
     }
 
     // Penalize blocks whose heading text matches related-posts patterns
-    let headings = doc.query_selector_all_in_subtree(node, "h1,h2,h3,h4");
-    for h_id in headings {
-        let ht = doc.text_content(h_id).to_lowercase();
-        if ht.contains("related")
-            || ht.starts_with("more ")
-            || ht.contains("you might")
-            || ht.contains("you may")
-            || ht.contains("further reading")
-            || ht.contains("see also")
-            || ht.contains("read next")
-            || ht.contains("popular")
-            || ht.contains("recommended")
-            || ht.contains("trending")
-        {
-            score -= 20.0;
-            break;
-        }
+    let mut related_heading = false;
+    for tag in ["h1", "h2", "h3", "h4"] {
+        let mut heading_text = String::new();
+        for_each_descendant_tag(doc, node, tag, &mut |h_id| {
+            heading_text.clear();
+            doc.text_content_into(h_id, &mut heading_text);
+            if contains_ascii_case_insensitive(&heading_text, "related")
+                || heading_text
+                    .get(..5)
+                    .is_some_and(|s| s.eq_ignore_ascii_case("more "))
+                || contains_ascii_case_insensitive(&heading_text, "you might")
+                || contains_ascii_case_insensitive(&heading_text, "you may")
+                || contains_ascii_case_insensitive(&heading_text, "further reading")
+                || contains_ascii_case_insensitive(&heading_text, "see also")
+                || contains_ascii_case_insensitive(&heading_text, "read next")
+                || contains_ascii_case_insensitive(&heading_text, "popular")
+                || contains_ascii_case_insensitive(&heading_text, "recommended")
+                || contains_ascii_case_insensitive(&heading_text, "trending")
+            {
+                related_heading = true;
+            }
+        });
+    }
+    if related_heading {
+        score -= 20.0;
     }
 
     // Penalize table cells that are mostly links (link farms)
@@ -350,10 +364,13 @@ pub fn score_non_content_block_with_text(doc: &Document, node: NodeId, text: &st
         let links = count_descendant_tag(doc, node, "a");
         if links > 0 {
             let mut link_text_len = 0;
-            for link_id in &collect_descendant_tag(doc, node, "a") {
-                link_text_len += doc.text_content(*link_id).len();
-            }
-            let total_len = doc.text_content(node).len().max(1);
+            let mut link_text = String::new();
+            for_each_descendant_tag(doc, node, "a", &mut |link_id| {
+                link_text.clear();
+                doc.text_content_into(link_id, &mut link_text);
+                link_text_len += link_text.len();
+            });
+            let total_len = text.len().max(1);
             if (link_text_len as f64 / total_len as f64) > 0.6 {
                 score -= 10.0;
             }

@@ -1,6 +1,11 @@
 //! Math standardization: convert KaTeX, MathJax, and raw LaTeX to $...$ notation.
 
 use crate::dom::{Document, NodeId};
+use std::borrow::Cow;
+use std::sync::OnceLock;
+
+static RAW_LATEX_BLOCK_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static RAW_LATEX_INLINE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 
 pub fn standardize_math(doc: &mut Document, content_id: NodeId) {
     standardize_data_math(doc, content_id);
@@ -111,6 +116,10 @@ fn standardize_mathjax_tex(doc: &mut Document, content_id: NodeId) {
 
 /// Convert raw LaTeX delimiters: \(...\) → $...$, $$...$$ stays as $$...$$, \[...\] → $$...$$
 fn standardize_raw_latex(doc: &mut Document, content_id: NodeId) {
+    let block_re =
+        RAW_LATEX_BLOCK_RE.get_or_init(|| regex_lite::Regex::new(r"\\\[([^\]]*)\\\]").unwrap());
+    let inline_re =
+        RAW_LATEX_INLINE_RE.get_or_init(|| regex_lite::Regex::new(r"\\\(([^)]*)\\\)").unwrap());
     let all_els = doc.query_selector_all_in_subtree(content_id, "p,div,span,li,td,th,figcaption");
     for el_id in all_els {
         if has_closest(doc, el_id, &["pre", "code"]) {
@@ -124,21 +133,17 @@ fn standardize_raw_latex(doc: &mut Document, content_id: NodeId) {
             continue;
         }
         let mut changed = false;
-        let mut new_text = text.to_string();
+        let mut new_text = Cow::Borrowed(text.as_str());
 
         // \[...\] block LaTeX → $$...$$
-        if let Ok(re_block) = regex_lite::Regex::new(r"\\\[([^\]]*)\\\]")
-            && re_block.is_match(&new_text)
-        {
-            new_text = re_block.replace_all(&new_text, "$$\n$1\n$$").to_string();
+        if block_re.is_match(&new_text) {
+            new_text = Cow::Owned(block_re.replace_all(&new_text, "$$\n$1\n$$").into_owned());
             changed = true;
         }
 
         // \(...\) inline LaTeX → $...$
-        if let Ok(re_inline) = regex_lite::Regex::new(r"\\\(([^)]*)\\\)")
-            && re_inline.is_match(&new_text)
-        {
-            new_text = re_inline.replace_all(&new_text, "$$1$").to_string();
+        if inline_re.is_match(&new_text) {
+            new_text = Cow::Owned(inline_re.replace_all(&new_text, "$$1$").into_owned());
             changed = true;
         }
 

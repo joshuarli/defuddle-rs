@@ -254,6 +254,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
     } else {
         parse_internal(
             doc,
+            html,
             remove_exact,
             remove_partial,
             remove_hidden,
@@ -274,6 +275,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
 #[allow(clippy::too_many_arguments)]
 fn parse_internal(
     doc: Document,
+    html: &str,
     remove_exact: bool,
     remove_partial: bool,
     remove_hidden: bool,
@@ -288,7 +290,7 @@ fn parse_internal(
 ) -> DefuddleResult {
     // First attempt with full aggressiveness
     let mut result = parse_internal_once(
-        doc.clone(),
+        doc,
         remove_exact,
         remove_partial,
         remove_hidden,
@@ -306,7 +308,7 @@ fn parse_internal(
     if result.word_count < 200 {
         // Retry with removePartialSelectors: false
         let retry1 = parse_internal_once(
-            doc.clone(),
+            Document::parse(html),
             remove_exact,
             false, // remove_partial disabled
             remove_hidden,
@@ -327,7 +329,7 @@ fn parse_internal(
     if result.word_count < 50 {
         // Retry with removeHiddenElements: false
         let retry2 = parse_internal_once(
-            doc.clone(),
+            Document::parse(html),
             remove_exact,
             false,
             false, // remove_hidden disabled
@@ -348,7 +350,7 @@ fn parse_internal(
     if result.word_count < 50 {
         // Retry with removeLowScoring and removeContentPatterns disabled
         let retry3 = parse_internal_once(
-            doc.clone(),
+            Document::parse(html),
             remove_exact,
             false,
             false, // remove_hidden and remove_partial disabled

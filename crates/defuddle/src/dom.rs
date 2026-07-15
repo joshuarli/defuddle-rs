@@ -377,27 +377,41 @@ impl Document {
 
     pub fn query_selector_all(&self, selector: &str) -> Vec<NodeId> {
         let mut results: Vec<NodeId> = Vec::new();
-        for parts in self.parsed_selector(selector).iter() {
-            let r: Vec<NodeId> = self
-                .live_node_ids()
-                .filter(|&id| self.matches_selector_chain(id, parts))
-                .collect();
-            results.extend(r);
-        }
+        self.query_selector_all_into(selector, &mut results);
         results
+    }
+
+    pub(crate) fn query_selector_all_into(&self, selector: &str, results: &mut Vec<NodeId>) {
+        results.clear();
+        for parts in self.parsed_selector(selector).iter() {
+            results.extend(
+                self.live_node_ids()
+                    .filter(|&id| self.matches_selector_chain(id, parts)),
+            );
+        }
     }
 
     /// Like query_selector_all but only searches within a subtree.
     pub fn query_selector_all_in_subtree(&self, root: NodeId, selector: &str) -> Vec<NodeId> {
         let mut results: Vec<NodeId> = Vec::new();
-        for parts in self.parsed_selector(selector).iter() {
-            let r: Vec<NodeId> = self
-                .live_node_ids()
-                .filter(|&id| self.contains(root, id) && self.matches_selector_chain(id, parts))
-                .collect();
-            results.extend(r);
-        }
+        self.query_selector_all_in_subtree_into(root, selector, &mut results);
         results
+    }
+
+    pub(crate) fn query_selector_all_in_subtree_into(
+        &self,
+        root: NodeId,
+        selector: &str,
+        results: &mut Vec<NodeId>,
+    ) {
+        results.clear();
+        for parts in self.parsed_selector(selector).iter() {
+            results.extend(
+                self.live_node_ids().filter(|&id| {
+                    self.contains(root, id) && self.matches_selector_chain(id, parts)
+                }),
+            );
+        }
     }
 
     pub fn has_selector_in_subtree(&self, root: NodeId, selector: &str) -> bool {
