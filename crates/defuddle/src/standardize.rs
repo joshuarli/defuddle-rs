@@ -826,10 +826,7 @@ fn remove_empty_elements(doc: &mut Document, content_id: NodeId) {
             if allowed_empty.contains(tag.as_str()) {
                 continue;
             }
-            if !doc
-                .query_selector_all_in_subtree(id, "h1,h2,h3,h4,h5,h6")
-                .is_empty()
-            {
+            if doc.has_selector_in_subtree(id, "h1,h2,h3,h4,h5,h6") {
                 continue;
             }
             if tag == "pre" || tag == "code" {

@@ -235,15 +235,19 @@ pub fn is_likely_content(doc: &Document, node: NodeId) -> bool {
 
 pub fn score_non_content_block(doc: &Document, node: NodeId) -> f64 {
     let text = doc.text_content(node);
+    score_non_content_block_with_text(doc, node, &text)
+}
+
+pub fn score_non_content_block_with_text(doc: &Document, node: NodeId, text: &str) -> f64 {
     let words = count_words(&text);
     if words < 3 {
         return 0.0;
     }
-    let class_val = doc.get_attr(node, "class").unwrap_or("").to_lowercase();
+    let class_val = doc.get_attr(node, "class").unwrap_or("");
     if words >= 80
-        && (class_val.contains("content")
-            || class_val.contains("article")
-            || class_val.contains("post"))
+        && (contains_ascii_case_insensitive(class_val, "content")
+            || contains_ascii_case_insensitive(class_val, "article")
+            || contains_ascii_case_insensitive(class_val, "post"))
         && count_descendant_tag(doc, node, "p") >= 3
     {
         return 0.0;
@@ -254,13 +258,12 @@ pub fn score_non_content_block(doc: &Document, node: NodeId) -> f64 {
     let commas = text.chars().filter(|&c| c == ',').count() as f64;
     score += commas;
 
-    let text_lower = text.to_lowercase();
     let mut indicator_matches = 0;
     for indicator in NAVIGATION_INDICATORS {
         if *indicator == "sidebar" && words >= 80 {
             continue;
         }
-        if text_lower.contains(*indicator) {
+        if contains_ascii_case_insensitive(text, indicator) {
             indicator_matches += 1;
         }
     }
@@ -353,6 +356,14 @@ pub fn score_non_content_block(doc: &Document, node: NodeId) -> f64 {
     }
 
     score
+}
+
+fn contains_ascii_case_insensitive(haystack: &str, needle: &str) -> bool {
+    haystack.char_indices().any(|(index, _)| {
+        haystack[index..]
+            .get(..needle.len())
+            .is_some_and(|candidate| candidate.eq_ignore_ascii_case(needle))
+    })
 }
 
 pub fn find_main_content(doc: &Document, entry_point_selectors: &[&str]) -> Option<NodeId> {

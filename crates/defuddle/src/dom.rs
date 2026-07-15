@@ -1,5 +1,56 @@
 use html5ever::tendril::TendrilSink;
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
+use rustc_hash::FxHashMap;
+use std::cell::RefCell;
+use std::sync::Arc;
+
+type ParsedSelector = Vec<Vec<SimpleSelector>>;
+
+fn parse_selector(selector: &str) -> ParsedSelector {
+    selector
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            part.split_whitespace()
+                .filter_map(SimpleSelector::parse)
+                .collect()
+        })
+        .filter(|parts: &Vec<SimpleSelector>| !parts.is_empty())
+        .collect()
+}
+
+#[derive(Debug)]
+pub struct Document {
+    nodes: Vec<Node>,
+    root: NodeId,
+    selector_cache: RefCell<FxHashMap<String, Arc<ParsedSelector>>>,
+}
+
+impl Clone for Document {
+    fn clone(&self) -> Self {
+        Self {
+            nodes: self.nodes.clone(),
+            root: self.root,
+            selector_cache: RefCell::new(FxHashMap::default()),
+        }
+    }
+}
+
+impl Document {
+    fn parsed_selector(&self, selector: &str) -> Arc<ParsedSelector> {
+        if let Some(parsed) = self.selector_cache.borrow().get(selector).cloned() {
+            return parsed;
+        }
+
+        let parsed = Arc::new(parse_selector(selector));
+        self.selector_cache
+            .borrow_mut()
+            .entry(selector.to_string())
+            .or_insert_with(|| Arc::clone(&parsed))
+            .clone()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId(pub usize);
@@ -24,18 +75,13 @@ struct Node {
     removed: bool,
 }
 
-#[derive(Debug, Clone)]
-pub struct Document {
-    nodes: Vec<Node>,
-    root: NodeId,
-}
-
 impl Document {
     pub fn parse(html: &str) -> Self {
         let rcdom = html5ever::parse_document(RcDom::default(), Default::default()).one(html);
         let mut doc = Self {
             nodes: Vec::new(),
             root: NodeId(0),
+            selector_cache: RefCell::new(FxHashMap::default()),
         };
         let root = doc.push_node(NodeKind::Document, None);
         doc.root = root;
@@ -79,23 +125,11 @@ impl Document {
     }
 
     pub fn query_selector_all(&self, selector: &str) -> Vec<NodeId> {
-        // Split on commas first to support selector lists (e.g., "h1,h2,h3")
         let mut results: Vec<NodeId> = Vec::new();
-        for part in selector.split(',') {
-            let part = part.trim();
-            if part.is_empty() {
-                continue;
-            }
-            let parts: Vec<SimpleSelector> = part
-                .split_whitespace()
-                .filter_map(SimpleSelector::parse)
-                .collect();
-            if parts.is_empty() {
-                continue;
-            }
+        for parts in self.parsed_selector(selector).iter() {
             let r: Vec<NodeId> = self
                 .live_node_ids()
-                .filter(|&id| self.matches_selector_chain(id, &parts))
+                .filter(|&id| self.matches_selector_chain(id, parts))
                 .collect();
             results.extend(r);
         }
@@ -105,25 +139,32 @@ impl Document {
     /// Like query_selector_all but only searches within a subtree.
     pub fn query_selector_all_in_subtree(&self, root: NodeId, selector: &str) -> Vec<NodeId> {
         let mut results: Vec<NodeId> = Vec::new();
-        for part in selector.split(',') {
-            let part = part.trim();
-            if part.is_empty() {
-                continue;
-            }
-            let parts: Vec<SimpleSelector> = part
-                .split_whitespace()
-                .filter_map(SimpleSelector::parse)
-                .collect();
-            if parts.is_empty() {
-                continue;
-            }
+        for parts in self.parsed_selector(selector).iter() {
             let r: Vec<NodeId> = self
                 .live_node_ids()
-                .filter(|&id| self.contains(root, id) && self.matches_selector_chain(id, &parts))
+                .filter(|&id| self.contains(root, id) && self.matches_selector_chain(id, parts))
                 .collect();
             results.extend(r);
         }
         results
+    }
+
+    pub fn has_selector_in_subtree(&self, root: NodeId, selector: &str) -> bool {
+        self.parsed_selector(selector).iter().any(|parts| {
+            self.live_node_ids()
+                .any(|id| self.contains(root, id) && self.matches_selector_chain(id, parts))
+        })
+    }
+
+    pub fn count_selector_in_subtree(&self, root: NodeId, selector: &str) -> usize {
+        self.parsed_selector(selector)
+            .iter()
+            .map(|parts| {
+                self.live_node_ids()
+                    .filter(|&id| self.contains(root, id) && self.matches_selector_chain(id, parts))
+                    .count()
+            })
+            .sum()
     }
 
     pub fn closest(&self, node: NodeId, selector: &str) -> Option<NodeId> {
@@ -560,7 +601,7 @@ impl Document {
         true
     }
 
-    fn text_content_into(&self, node: NodeId, out: &mut String) {
+    pub(crate) fn text_content_into(&self, node: NodeId, out: &mut String) {
         if self.node(node).removed {
             return;
         }

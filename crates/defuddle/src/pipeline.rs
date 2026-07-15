@@ -3,6 +3,11 @@ use crate::dom::{Document, NodeId};
 use crate::scoring;
 use crate::utils::count_words;
 use rustc_hash::FxHashSet;
+use std::sync::OnceLock;
+
+static RELATED_HEADING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static CTA_HEADING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static APPENDIX_HEADING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 
 fn has_closest(doc: &Document, node: NodeId, selectors: &[&str]) -> bool {
     selectors
@@ -77,18 +82,14 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
 
         let videos = doc.query_selector_all("video");
         for id in videos {
-            if doc.get_attr(id, "src").is_none()
-                && doc.query_selector_all_in_subtree(id, "source").is_empty()
-            {
+            if doc.get_attr(id, "src").is_none() && !doc.has_selector_in_subtree(id, "source") {
                 doc.remove(id);
             }
         }
 
         let audios = doc.query_selector_all("audio");
         for id in audios {
-            if doc.get_attr(id, "src").is_none()
-                && doc.query_selector_all_in_subtree(id, "source").is_empty()
-            {
+            if doc.get_attr(id, "src").is_none() && !doc.has_selector_in_subtree(id, "source") {
                 doc.remove(id);
             }
         }
@@ -227,7 +228,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
                 }
                 if attr_values.contains("sidebar-content")
                     && crate::utils::count_words(&doc.text_content(id)) >= 80
-                    && !doc.query_selector_all_in_subtree(id, "p").is_empty()
+                    && doc.has_selector_in_subtree(id, "p")
                 {
                     continue;
                 }
@@ -501,6 +502,7 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
     // Process repeatedly since removals may create new low-scoring parents
     for _ in 0..3 {
         let mut to_remove = Vec::new();
+        let mut text = String::new();
         let all: Vec<NodeId> = doc
             .query_selector_all_in_subtree(content_id, "div,section,aside,article")
             .into_iter()
@@ -515,10 +517,7 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
             if has_closest(doc, id, &["pre", "code", "blockquote", "figure", "table"]) {
                 continue;
             }
-            if !doc
-                .query_selector_all_in_subtree(id, ".gated-content, [data-schema=smart-brevity]")
-                .is_empty()
-            {
+            if doc.has_selector_in_subtree(id, ".gated-content, [data-schema=smart-brevity]") {
                 continue;
             }
             if doc
@@ -530,9 +529,11 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
             {
                 continue;
             }
-            if doc.query_selector_all_in_subtree(id, "img").len() == 1
-                && !doc.query_selector_all_in_subtree(id, "a").is_empty()
-                && doc.text_content(id).split_whitespace().count() < 30
+            text.clear();
+            doc.text_content_into(id, &mut text);
+            if doc.count_selector_in_subtree(id, "img") == 1
+                && doc.has_selector_in_subtree(id, "a")
+                && text.split_whitespace().count() < 30
             {
                 continue;
             }
@@ -550,7 +551,7 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
             {
                 continue;
             }
-            let score = scoring::score_non_content_block(doc, id);
+            let score = scoring::score_non_content_block_with_text(doc, id, &text);
             if score < -10.0 {
                 to_remove.push(id);
             }
@@ -637,8 +638,8 @@ fn remove_eyebrow_label(doc: &mut Document, content_id: NodeId) {
     };
     let Some(prev) = prev else { return };
     let text = doc.text_content(prev).trim().to_string();
-    let words: Vec<&str> = text.split_whitespace().collect();
-    if words.is_empty() || words.len() > 6 {
+    let word_count = text.split_whitespace().count();
+    if word_count == 0 || word_count > 6 {
         return;
     }
     if text.len() > 40 {
@@ -735,7 +736,7 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         }
         let class = doc.get_attr(id, "class").unwrap_or("").to_lowercase();
         let text = doc.text_content(id).trim().to_string();
-        let words: Vec<&str> = text.split_whitespace().collect();
+        let word_count = text.split_whitespace().count();
         // Breadcrumb containers — remove if class indicates breadcrumb
         if class.contains("breadcrumb") || class.contains("nav") {
             doc.remove(id);
@@ -751,7 +752,7 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
             }
         }
         // Single-word labels that are common breadcrumbs/eyebrows
-        if words.len() <= 3
+        if word_count <= 3
             && text.len() < 100
             && (class.contains("text-")
                 || class.contains("eyebrow")
@@ -1129,23 +1130,32 @@ pub fn count_html_words(content: &str) -> usize {
 // ── Content pattern helper functions ──────────────────────────────────────────
 
 fn related_heading_pattern(text: &str) -> bool {
-    let re = regex_lite::Regex::new(
-        r"(?i)^(?:related (?:posts?|articles?|content|stories|reads?|reading)|you (?:might|may|could) (?:also )?(?:like|enjoy|be interested in)|read (?:next|more|also)|further reading|see also|more (?:from .*|from|articles?|posts?|like this)|more to (?:read|explore)|explore more|about (?:the )?author|latest (?:news|events?|posts?|articles?|stories))(?:[\s&+]+(?:news|events?|posts?|articles?|stories))*$"
-    ).unwrap();
+    let re = RELATED_HEADING_RE.get_or_init(|| {
+        regex_lite::Regex::new(
+            r"(?i)^(?:related (?:posts?|articles?|content|stories|reads?|reading)|you (?:might|may|could) (?:also )?(?:like|enjoy|be interested in)|read (?:next|more|also)|further reading|see also|more (?:from .*|from|articles?|posts?|like this)|more to (?:read|explore)|explore more|about (?:the )?author|latest (?:news|events?|posts?|articles?|stories))(?:[\s&+]+(?:news|events?|posts?|articles?|stories))*$",
+        )
+        .unwrap()
+    });
     re.is_match(text.trim())
 }
 
 fn is_cta_heading(text: &str) -> bool {
-    let re = regex_lite::Regex::new(
-        r"(?i)^(?:subscribe|sign up|follow us|share this|stay (?:updated|connected)|join (?:us|our)|search (?:the |our )?(?:site|blog|archives?|newsroom))"
-    ).unwrap();
+    let re = CTA_HEADING_RE.get_or_init(|| {
+        regex_lite::Regex::new(
+            r"(?i)^(?:subscribe|sign up|follow us|share this|stay (?:updated|connected)|join (?:us|our)|search (?:the |our )?(?:site|blog|archives?|newsroom))",
+        )
+        .unwrap()
+    });
     re.is_match(text.trim())
 }
 
 fn is_appendix_heading(text: &str) -> bool {
-    let re = regex_lite::Regex::new(
-        r"(?i)^(?:appendix|acknowledg?ments|disclaimers?|dedication|colophon|epilogue|further reading|references?|bibliography|notes|footnotes)$"
-    ).unwrap();
+    let re = APPENDIX_HEADING_RE.get_or_init(|| {
+        regex_lite::Regex::new(
+            r"(?i)^(?:appendix|acknowledg?ments|disclaimers?|dedication|colophon|epilogue|further reading|references?|bibliography|notes|footnotes)$",
+        )
+        .unwrap()
+    });
     re.is_match(text.trim())
 }
 
@@ -1156,7 +1166,7 @@ fn remove_byline_blocks(doc: &mut Document, content_id: NodeId) {
         let text = doc.text_content(section);
         if text.split_whitespace().count() < 15
             && text.contains("By ")
-            && doc.query_selector_all_in_subtree(section, "img").len() == 1
+            && doc.count_selector_in_subtree(section, "img") == 1
         {
             doc.remove(section);
         }
@@ -1183,7 +1193,7 @@ fn remove_byline_blocks(doc: &mut Document, content_id: NodeId) {
             && word_count < 15
             && text.contains("By ")
             && crate::metadata::parse_date_text(&text).is_some()
-            && doc.query_selector_all_in_subtree(child, "img").len() == 1
+            && doc.count_selector_in_subtree(child, "img") == 1
         {
             doc.remove(child);
             continue;
@@ -1199,14 +1209,11 @@ fn remove_byline_blocks(doc: &mut Document, content_id: NodeId) {
         if (2..=20).contains(&word_count) {
             let has_author_link = class.contains("author")
                 || class.contains("byline")
-                || doc
-                    .query_selector_all_in_subtree(child, "a[href*=\"/author/\"]")
-                    .len()
-                    == 1;
+                || doc.count_selector_in_subtree(child, "a[href*=\"/author/\"]") == 1;
             let has_date = crate::metadata::parse_date_text(&text).is_some()
-                || doc.query_selector_all_in_subtree(child, "time").len() == 1;
+                || doc.count_selector_in_subtree(child, "time") == 1;
             if has_author_link && has_date {
-                let has_profile_image = !doc.query_selector_all_in_subtree(child, "img").is_empty()
+                let has_profile_image = doc.has_selector_in_subtree(child, "img")
                     && doc
                         .query_selector_all_in_subtree(child, "a")
                         .iter()
@@ -1568,10 +1575,8 @@ fn remove_card_grid_blocks(doc: &mut Document, content_id: NodeId) {
             if !doc.is_element(child) {
                 continue;
             }
-            let has_img = !doc.query_selector_all_in_subtree(child, "img").is_empty();
-            let has_heading = !doc
-                .query_selector_all_in_subtree(child, "h1,h2,h3,h4,h5,h6")
-                .is_empty();
+            let has_img = doc.has_selector_in_subtree(child, "img");
+            let has_heading = doc.has_selector_in_subtree(child, "h1,h2,h3,h4,h5,h6");
             if has_img && has_heading {
                 card_count += 1;
             }
