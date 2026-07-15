@@ -215,9 +215,8 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
             .unwrap_or_else(|| metadata.description.clone());
 
         let content_markdown = if separate_markdown {
-            Some(markdown::normalize_origin_links(
-                &markdown::html_to_markdown(&content_html),
-            ))
+            let markdown = markdown::html_to_markdown(&content_html);
+            Some(markdown::normalize_origin_links(&markdown))
         } else {
             None
         };

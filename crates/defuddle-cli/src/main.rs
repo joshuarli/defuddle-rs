@@ -3,12 +3,19 @@ use std::io::{self, Cursor, Read, Write};
 use std::path::PathBuf;
 use std::process;
 
+#[cfg(feature = "alloc-profile")]
+#[global_allocator]
+static ALLOCATOR: dhat::Alloc = dhat::Alloc;
+
 struct Input {
     html: String,
     url: Option<String>,
 }
 
 fn main() {
+    #[cfg(feature = "alloc-profile")]
+    let _profiler = dhat::Profiler::new_heap();
+
     if let Err(e) = run() {
         eprintln!("defuddle: {e}");
         process::exit(1);
@@ -111,7 +118,7 @@ fn run() -> Result<(), String> {
     let options = defuddle::DefuddleOptions {
         url,
         debug,
-        separate_markdown: true,
+        separate_markdown: markdown,
         language: lang,
         ..Default::default()
     };

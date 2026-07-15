@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+alloc-profile = ["dep:dhat"]
+
 [[bin]]
 name = "defuddle"
 path = "src/main.rs"
@@ -12,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 atty = "0.2.14"
 defuddle = { path = "../defuddle" }
+dhat = { version = "0.3", optional = true }
 lexopt = "0.3"
 miniserde = "0.1"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
