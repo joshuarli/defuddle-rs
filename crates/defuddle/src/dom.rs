@@ -1,5 +1,7 @@
-use html5ever::tendril::TendrilSink;
-use markup5ever_rcdom::{Handle, NodeData, RcDom};
+use html5ever::interface::{ElementFlags, NodeOrText, QuirksMode};
+use html5ever::tendril::{StrTendril, TendrilSink};
+use html5ever::tree_builder::{ElemName, TreeSink};
+use html5ever::{Attribute, LocalName, Namespace, QualName};
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -65,6 +67,264 @@ enum NodeKind {
     },
     Text(String),
     Comment(String),
+    ProcessingInstruction,
+}
+
+struct ParseSink {
+    document: RefCell<Document>,
+}
+
+impl ParseSink {
+    fn new() -> Self {
+        let mut document = Document {
+            nodes: Vec::new(),
+            root: NodeId(0),
+            selector_cache: RefCell::new(FxHashMap::default()),
+        };
+        let root = document.push_node(NodeKind::Document, None);
+        document.root = root;
+        Self {
+            document: RefCell::new(document),
+        }
+    }
+
+    fn append_node(&self, parent: NodeId, child: NodeId) {
+        let mut document = self.document.borrow_mut();
+        if let Some(old_parent) = document.node(child).parent {
+            document
+                .node_mut(old_parent)
+                .children
+                .retain(|&id| id != child);
+        }
+        let child_text = match &document.node(child).kind {
+            NodeKind::Text(text) => Some(text.clone()),
+            _ => None,
+        };
+        if let (Some(text), Some(&last)) = (child_text, document.node(parent).children.last())
+            && let NodeKind::Text(last_text) = &mut document.node_mut(last).kind
+        {
+            last_text.push_str(&text);
+            document.node_mut(child).removed = true;
+            return;
+        }
+        document.node_mut(child).parent = Some(parent);
+        document.node_mut(parent).children.push(child);
+    }
+
+    fn append_text(&self, parent: NodeId, text: &str) {
+        let mut document = self.document.borrow_mut();
+        if let Some(&last) = document.node(parent).children.last()
+            && let NodeKind::Text(last_text) = &mut document.node_mut(last).kind
+        {
+            last_text.push_str(text);
+            return;
+        }
+        let child = document.push_node(NodeKind::Text(text.to_string()), Some(parent));
+        debug_assert_eq!(document.node(parent).children.last(), Some(&child));
+    }
+
+    fn append_before(&self, sibling: NodeId, child: NodeId) {
+        let mut document = self.document.borrow_mut();
+        let Some(parent) = document.node(sibling).parent else {
+            return;
+        };
+        if let Some(old_parent) = document.node(child).parent {
+            document
+                .node_mut(old_parent)
+                .children
+                .retain(|&id| id != child);
+        }
+        let Some(position) = document
+            .node(parent)
+            .children
+            .iter()
+            .position(|&id| id == sibling)
+        else {
+            return;
+        };
+        document.node_mut(child).parent = Some(parent);
+        document.node_mut(parent).children.insert(position, child);
+    }
+}
+
+#[derive(Debug)]
+struct OwnedElemName {
+    namespace: Namespace,
+    local: LocalName,
+}
+
+impl ElemName for OwnedElemName {
+    fn ns(&self) -> &Namespace {
+        &self.namespace
+    }
+
+    fn local_name(&self) -> &LocalName {
+        &self.local
+    }
+}
+
+impl TreeSink for ParseSink {
+    type Handle = NodeId;
+    type Output = Document;
+    type ElemName<'a> = OwnedElemName;
+
+    fn finish(self) -> Document {
+        self.document.into_inner()
+    }
+
+    fn parse_error(&self, _msg: std::borrow::Cow<'static, str>) {}
+
+    fn get_document(&self) -> NodeId {
+        self.document.borrow().root
+    }
+
+    fn elem_name<'a>(&'a self, target: &'a NodeId) -> OwnedElemName {
+        let document = self.document.borrow();
+        OwnedElemName {
+            namespace: html5ever::ns!(html).clone(),
+            local: document.tag_name(*target).into(),
+        }
+    }
+
+    fn create_element(
+        &self,
+        name: QualName,
+        attrs: Vec<Attribute>,
+        _flags: ElementFlags,
+    ) -> NodeId {
+        let attrs = attrs
+            .into_iter()
+            .map(|attr| (attr.name.local.to_string(), attr.value.to_string()))
+            .collect();
+        self.document.borrow_mut().push_node(
+            NodeKind::Element {
+                name: name.local.to_string(),
+                attrs,
+            },
+            None,
+        )
+    }
+
+    fn create_comment(&self, text: StrTendril) -> NodeId {
+        self.document
+            .borrow_mut()
+            .push_node(NodeKind::Comment(text.to_string()), None)
+    }
+
+    fn create_pi(&self, _target: StrTendril, _data: StrTendril) -> NodeId {
+        self.document
+            .borrow_mut()
+            .push_node(NodeKind::ProcessingInstruction, None)
+    }
+
+    fn append(&self, parent: &NodeId, child: NodeOrText<NodeId>) {
+        match child {
+            NodeOrText::AppendNode(child) => self.append_node(*parent, child),
+            NodeOrText::AppendText(text) => self.append_text(*parent, &text),
+        }
+    }
+
+    fn append_based_on_parent_node(
+        &self,
+        element: &NodeId,
+        prev_element: &NodeId,
+        child: NodeOrText<NodeId>,
+    ) {
+        let parent = self
+            .document
+            .borrow()
+            .node(*element)
+            .parent
+            .or_else(|| self.document.borrow().node(*prev_element).parent);
+        if let Some(parent) = parent {
+            self.append(&parent, child);
+        }
+    }
+
+    fn append_doctype_to_document(
+        &self,
+        _name: StrTendril,
+        _public_id: StrTendril,
+        _system_id: StrTendril,
+    ) {
+        let root = self.get_document();
+        let node = self
+            .document
+            .borrow_mut()
+            .push_node(NodeKind::Doctype, None);
+        self.append_node(root, node);
+    }
+
+    fn get_template_contents(&self, target: &NodeId) -> NodeId {
+        *target
+    }
+
+    fn same_node(&self, x: &NodeId, y: &NodeId) -> bool {
+        x == y
+    }
+
+    fn set_quirks_mode(&self, _mode: QuirksMode) {}
+
+    fn append_before_sibling(&self, sibling: &NodeId, new_node: NodeOrText<NodeId>) {
+        match new_node {
+            NodeOrText::AppendNode(child) => self.append_before(*sibling, child),
+            NodeOrText::AppendText(text) => {
+                let mut document = self.document.borrow_mut();
+                let Some(parent) = document.node(*sibling).parent else {
+                    return;
+                };
+                let Some(position) = document
+                    .node(parent)
+                    .children
+                    .iter()
+                    .position(|&id| id == *sibling)
+                else {
+                    return;
+                };
+                let child = document.push_node(NodeKind::Text(text.to_string()), Some(parent));
+                let end = document.node(parent).children.len() - 1;
+                document.node_mut(parent).children.remove(end);
+                document.node_mut(parent).children.insert(position, child);
+            }
+        }
+    }
+
+    fn add_attrs_if_missing(&self, target: &NodeId, attrs: Vec<Attribute>) {
+        let mut document = self.document.borrow_mut();
+        let NodeKind::Element {
+            attrs: existing, ..
+        } = &mut document.node_mut(*target).kind
+        else {
+            return;
+        };
+        for attr in attrs {
+            if !existing
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case(attr.name.local.as_ref()))
+            {
+                existing.push((attr.name.local.to_string(), attr.value.to_string()));
+            }
+        }
+    }
+
+    fn remove_from_parent(&self, target: &NodeId) {
+        let mut document = self.document.borrow_mut();
+        if let Some(parent) = document.node(*target).parent {
+            document
+                .node_mut(parent)
+                .children
+                .retain(|&id| id != *target);
+        }
+        document.node_mut(*target).parent = None;
+    }
+
+    fn reparent_children(&self, node: &NodeId, new_parent: &NodeId) {
+        let children = self.document.borrow().node(*node).children.clone();
+        for child in children {
+            self.append(new_parent, NodeOrText::AppendNode(child));
+        }
+        self.document.borrow_mut().node_mut(*node).children.clear();
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -77,16 +337,7 @@ struct Node {
 
 impl Document {
     pub fn parse(html: &str) -> Self {
-        let rcdom = html5ever::parse_document(RcDom::default(), Default::default()).one(html);
-        let mut doc = Self {
-            nodes: Vec::new(),
-            root: NodeId(0),
-            selector_cache: RefCell::new(FxHashMap::default()),
-        };
-        let root = doc.push_node(NodeKind::Document, None);
-        doc.root = root;
-        doc.import_rcdom_children(&rcdom.document, root);
-        doc
+        html5ever::parse_document(ParseSink::new(), Default::default()).one(html)
     }
 
     pub fn root(&self) -> NodeId {
@@ -401,35 +652,6 @@ impl Document {
         id
     }
 
-    fn import_rcdom_children(&mut self, handle: &Handle, parent: NodeId) {
-        for child in handle.children.borrow().iter() {
-            let Some(kind) = Self::kind_from_rcdom(child) else {
-                self.import_rcdom_children(child, parent);
-                continue;
-            };
-            let id = self.push_node(kind, Some(parent));
-            self.import_rcdom_children(child, id);
-        }
-    }
-
-    fn kind_from_rcdom(handle: &Handle) -> Option<NodeKind> {
-        match &handle.data {
-            NodeData::Document => Some(NodeKind::Document),
-            NodeData::Doctype { .. } => Some(NodeKind::Doctype),
-            NodeData::Text { contents } => Some(NodeKind::Text(contents.borrow().to_string())),
-            NodeData::Comment { contents } => Some(NodeKind::Comment(contents.to_string())),
-            NodeData::Element { name, attrs, .. } => Some(NodeKind::Element {
-                name: name.local.to_string(),
-                attrs: attrs
-                    .borrow()
-                    .iter()
-                    .map(|attr| (attr.name.local.to_string(), attr.value.to_string()))
-                    .collect(),
-            }),
-            NodeData::ProcessingInstruction { .. } => None,
-        }
-    }
-
     fn body_children_or_root_children(&self) -> Vec<NodeId> {
         if let Some(body) = self
             .live_node_ids()
@@ -625,6 +847,7 @@ impl Document {
             }
             NodeKind::Doctype => out.push_str("<!DOCTYPE html>"),
             NodeKind::Text(text) => escape_text_into(text, out),
+            NodeKind::ProcessingInstruction => {}
             NodeKind::Comment(text) => {
                 out.push_str("<!--");
                 out.push_str(text);
