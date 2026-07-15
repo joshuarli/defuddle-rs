@@ -1087,18 +1087,41 @@ pub fn remove_author_sibling(doc: &mut Document, content_id: NodeId, author: &st
 }
 
 pub fn count_html_words(content: &str) -> usize {
-    let text = content
-        .replace(['<', '>'], " ")
-        .replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"");
+    let mut text = String::with_capacity(content.len());
+    let mut offset = 0;
+    while offset < content.len() {
+        let remaining = &content[offset..];
+        let entity = if remaining.starts_with("&nbsp;") {
+            Some((6, ' '))
+        } else if remaining.starts_with("&amp;") {
+            Some((5, '&'))
+        } else if remaining.starts_with("&lt;") {
+            Some((4, '<'))
+        } else if remaining.starts_with("&gt;") {
+            Some((4, '>'))
+        } else if remaining.starts_with("&quot;") {
+            Some((6, '"'))
+        } else {
+            None
+        };
 
-    let text: String = text
-        .chars()
-        .filter(|&c| !c.is_ascii_digit() || c == ' ')
-        .collect();
+        if let Some((length, character)) = entity {
+            text.push(character);
+            offset += length;
+            continue;
+        }
+
+        let character = remaining
+            .chars()
+            .next()
+            .expect("offset stays on a char boundary");
+        offset += character.len_utf8();
+        if character == '<' || character == '>' {
+            text.push(' ');
+        } else if !character.is_ascii_digit() || character == ' ' {
+            text.push(character);
+        }
+    }
 
     count_words(&text)
 }

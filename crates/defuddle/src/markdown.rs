@@ -4,6 +4,61 @@ use htmd::{
     Element, HtmlToMarkdown,
     options::{HeadingStyle, LinkStyle},
 };
+use std::sync::OnceLock;
+
+static INLINE_SPACING_REGEXES: OnceLock<Vec<regex_lite::Regex>> = OnceLock::new();
+
+fn inline_spacing_regexes() -> &'static [regex_lite::Regex] {
+    INLINE_SPACING_REGEXES.get_or_init(|| {
+        [
+            r"`\s*([^`]*?)\s*`",
+            r"([a-zA-Z0-9])(\*\*[^*]+\*\*)",
+            r"(\*\*[^*]+\*\*)([a-zA-Z0-9])",
+            r"([a-zA-Z0-9])(\*[^*]+\*)",
+            r"(\*[^*]+\*)([a-zA-Z0-9])",
+            r"\*([^*\n]+) \*",
+            r"\* +([^*\n]+?) +\*",
+            r"\* ([^*\n]+)\*",
+            r" (\* )([A-Za-z])",
+            r"(\*[^*\n]+\*) ([.,;:!?])",
+            r"([A-Za-z0-9,.;:!?])(\*[^*\n]+\*)",
+            r"\*([^*\n]+)\*([A-Za-z0-9(])",
+            r"(\[\^\d+\]) ([.,;:!?])",
+            r"\\(-)( )",
+            r"([a-zA-Z0-9:;,.!?])(`[^`]+`)",
+            r"(`[^`]+`)([a-zA-Z0-9])",
+            r"([a-zA-Z0-9])(\[[^\]]+\]\([^)]+\))",
+            r"(\[[^\]]+\]\([^)]+\))([a-zA-Z0-9])",
+            r"(\[[^\]]+\]\([^)]+\))(- )",
+            r"(\[[^\]]+\]\([^)]+\)) {2,}",
+            r#"([A-Za-z0-9"])(\[\^\d+\])"#,
+            r"(`[^`]+`)(\[\^\d+\])",
+            r"(\S) \* ([A-Z])",
+            r"([A-Za-z])(\*\*\*)",
+            r"(,)(\*\[)",
+            r"` +([^`\n]*?)`",
+            r"`([^`\n]*?) +`",
+            r"`([^`\n]*)`([A-Za-z])",
+            r"` +([^`\n]*)`",
+            r"\\\\<([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})>",
+        ]
+        .into_iter()
+        .map(|pattern| regex_lite::Regex::new(pattern).unwrap())
+        .collect()
+    })
+}
+
+fn replace_if_match<R: regex_lite::Replacer>(
+    line: String,
+    regex: &regex_lite::Regex,
+    replacement: R,
+) -> String {
+    if regex.is_match(&line) {
+        regex.replace_all(&line, replacement).into_owned()
+    } else {
+        line
+    }
+}
 
 /// Convert HTML content to Markdown using htmd (Turndown.js-compatible) with
 /// custom element handlers matching the upstream Defuddle Turndown rules.
@@ -980,142 +1035,57 @@ fn collapse_blank_lines_outside_code(md: &str) -> String {
 }
 
 fn fix_inline_spacing_line(line: &str) -> String {
-    let line = regex_lite::Regex::new(r"`\s*([^`]*?)\s*`")
-        .unwrap()
-        .replace_all(line, |c: &regex_lite::Captures| format!("`{}`", &c[1]))
-        .to_string();
-    let line = regex_lite::Regex::new(r"([a-zA-Z0-9])(\*\*[^*]+\*\*)")
-        .unwrap()
-        .replace_all(&line, |c: &regex_lite::Captures| {
-            format!("{} {}", &c[1], &c[2])
-        })
-        .to_string();
-    let line = regex_lite::Regex::new(r"(\*\*[^*]+\*\*)([a-zA-Z0-9])")
-        .unwrap()
-        .replace_all(&line, |c: &regex_lite::Captures| {
-            format!("{} {}", &c[1], &c[2])
-        })
-        .to_string();
-    let line = regex_lite::Regex::new(r"([a-zA-Z0-9])(\*[^*]+\*)")
-        .unwrap()
-        .replace_all(&line, |c: &regex_lite::Captures| {
-            format!("{} {}", &c[1], &c[2])
-        })
-        .to_string();
-    let line = regex_lite::Regex::new(r"(\*[^*]+\*)([a-zA-Z0-9])")
-        .unwrap()
-        .replace_all(&line, |c: &regex_lite::Captures| {
-            format!("{} {}", &c[1], &c[2])
-        })
-        .to_string();
-    let line = regex_lite::Regex::new(r"\*([^*\n]+) \*")
-        .unwrap()
-        .replace_all(&line, "*$1*")
-        .to_string();
-    let line = regex_lite::Regex::new(r"\* +([^*\n]+?) +\*")
-        .unwrap()
-        .replace_all(&line, "*$1*")
-        .to_string();
-    let line = regex_lite::Regex::new(r"\* ([^*\n]+)\*")
-        .unwrap()
-        .replace_all(&line, "*$1*")
-        .to_string();
-    let line = regex_lite::Regex::new(r" (\* )([A-Za-z])")
-        .unwrap()
-        .replace_all(&line, " *$2")
-        .to_string();
-    let line = regex_lite::Regex::new(r"(\*[^*\n]+\*) ([.,;:!?])")
-        .unwrap()
-        .replace_all(&line, "$1$2")
-        .to_string();
-    let line = regex_lite::Regex::new(r"([A-Za-z0-9,.;:!?])(\*[^*\n]+\*)")
-        .unwrap()
-        .replace_all(&line, "$1 $2")
-        .to_string();
-    let line = regex_lite::Regex::new(r"\*([^*\n]+)\*([A-Za-z0-9(])")
-        .unwrap()
-        .replace_all(&line, "*$1* $2")
-        .to_string();
-    let line = regex_lite::Regex::new(r"(\[\^\d+\]) ([.,;:!?])")
-        .unwrap()
-        .replace_all(&line, "$1$2")
-        .to_string();
-    let line = regex_lite::Regex::new(r"\\(-)( )")
-        .unwrap()
-        .replace_all(&line, "$1$2")
-        .to_string();
-    let line = regex_lite::Regex::new(r"([a-zA-Z0-9:;,.!?])(`[^`]+`)")
-        .unwrap()
-        .replace_all(&line, |c: &regex_lite::Captures| {
-            format!("{} {}", &c[1], &c[2])
-        })
-        .to_string();
-    let line = regex_lite::Regex::new(r"(`[^`]+`)([a-zA-Z0-9])")
-        .unwrap()
-        .replace_all(&line, |c: &regex_lite::Captures| {
-            format!("{} {}", &c[1], &c[2])
-        })
-        .to_string();
-    let line = regex_lite::Regex::new(r"([a-zA-Z0-9])(\[[^\]]+\]\([^)]+\))")
-        .unwrap()
-        .replace_all(&line, |c: &regex_lite::Captures| {
-            format!("{} {}", &c[1], &c[2])
-        })
-        .to_string();
-    let line = regex_lite::Regex::new(r"(\[[^\]]+\]\([^)]+\))([a-zA-Z0-9])")
-        .unwrap()
-        .replace_all(&line, |c: &regex_lite::Captures| {
-            format!("{} {}", &c[1], &c[2])
-        })
-        .to_string();
-    let line = regex_lite::Regex::new(r"(\[[^\]]+\]\([^)]+\))(- )")
-        .unwrap()
-        .replace_all(&line, "$1 $2")
-        .to_string();
-    let line = regex_lite::Regex::new(r"(\[[^\]]+\]\([^)]+\)) {2,}")
-        .unwrap()
-        .replace_all(&line, "$1 ")
-        .to_string();
-    let line = regex_lite::Regex::new(r#"([A-Za-z0-9"])(\[\^\d+\])"#)
-        .unwrap()
-        .replace_all(&line, "$1 $2")
-        .to_string();
-    let line = regex_lite::Regex::new(r"(`[^`]+`)(\[\^\d+\])")
-        .unwrap()
-        .replace_all(&line, "$1 $2")
-        .to_string();
-    let line = regex_lite::Regex::new(r"(\S) \* ([A-Z])")
-        .unwrap()
-        .replace_all(&line, "$1 *$2")
-        .to_string();
-    let line = regex_lite::Regex::new(r"([A-Za-z])(\*\*\*)")
-        .unwrap()
-        .replace_all(&line, "$1 $2")
-        .to_string();
-    let line = regex_lite::Regex::new(r"(,)(\*\[)")
-        .unwrap()
-        .replace_all(&line, "$1 $2")
-        .to_string();
-    let line = regex_lite::Regex::new(r"` +([^`\n]*?)`")
-        .unwrap()
-        .replace_all(&line, "`$1`")
-        .to_string();
-    let line = regex_lite::Regex::new(r"`([^`\n]*?) +`")
-        .unwrap()
-        .replace_all(&line, "`$1`")
-        .to_string();
-    let line = regex_lite::Regex::new(r"`([^`\n]*)`([A-Za-z])")
-        .unwrap()
-        .replace_all(&line, "`$1` $2")
-        .to_string();
-    let line = regex_lite::Regex::new(r"` +([^`\n]*)`")
-        .unwrap()
-        .replace_all(&line, "`$1`")
-        .to_string();
-    let line = regex_lite::Regex::new(r"\\\\<([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})>")
-        .unwrap()
-        .replace_all(&line, |c: &regex_lite::Captures| format!("\\<{}>", &c[1]))
-        .to_string();
+    let regexes = inline_spacing_regexes();
+    let mut line = line.to_owned();
+    macro_rules! replace {
+        ($index:expr, $replacement:expr) => {
+            line = replace_if_match(line, &regexes[$index], $replacement);
+        };
+    }
+
+    replace!(0, |c: &regex_lite::Captures| format!("`{}`", &c[1]));
+    replace!(1, |c: &regex_lite::Captures| format!("{} {}", &c[1], &c[2]));
+    replace!(2, |c: &regex_lite::Captures| format!("{} {}", &c[1], &c[2]));
+    replace!(3, |c: &regex_lite::Captures| format!("{} {}", &c[1], &c[2]));
+    replace!(4, |c: &regex_lite::Captures| format!("{} {}", &c[1], &c[2]));
+    replace!(5, "*$1*");
+    replace!(6, "*$1*");
+    replace!(7, "*$1*");
+    replace!(8, " *$2");
+    replace!(9, "$1$2");
+    replace!(10, "$1 $2");
+    replace!(11, "*$1* $2");
+    replace!(12, "$1$2");
+    replace!(13, "$1$2");
+    replace!(14, |c: &regex_lite::Captures| format!(
+        "{} {}",
+        &c[1], &c[2]
+    ));
+    replace!(15, |c: &regex_lite::Captures| format!(
+        "{} {}",
+        &c[1], &c[2]
+    ));
+    replace!(16, |c: &regex_lite::Captures| format!(
+        "{} {}",
+        &c[1], &c[2]
+    ));
+    replace!(17, |c: &regex_lite::Captures| format!(
+        "{} {}",
+        &c[1], &c[2]
+    ));
+    replace!(18, "$1 $2");
+    replace!(19, "$1 ");
+    replace!(20, "$1 $2");
+    replace!(21, "$1 $2");
+    replace!(22, "$1 *$2");
+    replace!(23, "$1 $2");
+    replace!(24, "$1 $2");
+    replace!(25, "`$1`");
+    replace!(26, "`$1`");
+    replace!(27, "`$1` $2");
+    replace!(28, "`$1`");
+    replace!(29, |c: &regex_lite::Captures| format!("\\<{}>", &c[1]));
+
     normalize_strong_spacing(&line)
 }
 

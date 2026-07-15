@@ -480,13 +480,11 @@ impl Document {
             return false;
         }
         if !selector.classes.is_empty() {
-            let class_values: Vec<&str> = attrs
-                .iter()
-                .filter(|(aname, _)| aname.eq_ignore_ascii_case("class"))
-                .flat_map(|(_, aval)| aval.split_whitespace())
-                .collect();
             for class in &selector.classes {
-                if !class_values.contains(&class.as_str()) {
+                if !attrs.iter().any(|(aname, aval)| {
+                    aname.eq_ignore_ascii_case("class")
+                        && aval.split_whitespace().any(|value| value == class)
+                }) {
                     return false;
                 }
             }
@@ -585,7 +583,7 @@ impl Document {
                 }
             }
             NodeKind::Doctype => out.push_str("<!DOCTYPE html>"),
-            NodeKind::Text(text) => out.push_str(&escape_text(text)),
+            NodeKind::Text(text) => escape_text_into(text, out),
             NodeKind::Comment(text) => {
                 out.push_str("<!--");
                 out.push_str(text);
@@ -598,7 +596,7 @@ impl Document {
                     out.push(' ');
                     out.push_str(attr_name);
                     out.push_str("=\"");
-                    out.push_str(&escape_attr(value));
+                    escape_attr_into(value, out);
                     out.push('"');
                 }
                 out.push('>');
@@ -995,15 +993,27 @@ fn is_void_element(name: &str) -> bool {
     )
 }
 
-fn escape_text(input: &str) -> String {
-    input
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
+fn escape_text_into(input: &str, out: &mut String) {
+    for character in input.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            character => out.push(character),
+        }
+    }
 }
 
-fn escape_attr(input: &str) -> String {
-    escape_text(input).replace('"', "&quot;")
+fn escape_attr_into(input: &str, out: &mut String) {
+    for character in input.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            character => out.push(character),
+        }
+    }
 }
 
 #[cfg(test)]

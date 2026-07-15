@@ -14,7 +14,7 @@ struct Input {
 
 fn main() {
     #[cfg(feature = "alloc-profile")]
-    let _profiler = dhat::Profiler::new_heap();
+    let _profiler = dhat::Profiler::builder().trim_backtraces(Some(30)).build();
 
     if let Err(e) = run() {
         eprintln!("defuddle: {e}");
