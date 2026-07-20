@@ -9,11 +9,12 @@ struct ParseResult {
 }
 
 #[wasm_bindgen]
-pub fn parse_page(html: &str, url: &str) -> Result<String, JsValue> {
+pub fn parse_page(html: &str, url: &str, extractor_name: &str) -> Result<String, JsValue> {
     let options = defuddle::DefuddleOptions {
         url: (!url.is_empty()).then(|| url.to_string()),
         separate_markdown: true,
         remove_iframes: true,
+        extractor: (!extractor_name.is_empty()).then(|| extractor_name.to_string()),
         ..Default::default()
     };
 
@@ -28,6 +29,12 @@ pub fn parse_page(html: &str, url: &str) -> Result<String, JsValue> {
     }))
 }
 
+#[wasm_bindgen]
+pub fn list_extractors() -> String {
+    let registry = defuddle::extractor::build_registry();
+    registry.names().join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_page;
@@ -35,7 +42,7 @@ mod tests {
     #[test]
     fn returns_extracted_html_and_markdown_as_json() {
         let html = "<html><head><title>Test</title></head><body><article><h1>Test</h1><p>A readable paragraph.</p></article></body></html>";
-        let result = parse_page(html, "https://example.com/article").expect("parse succeeds");
+        let result = parse_page(html, "https://example.com/article", "").expect("parse succeeds");
 
         assert!(result.contains("\"content\":"));
         assert!(result.contains("\"content_markdown\":"));

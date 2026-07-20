@@ -62,6 +62,20 @@ impl Registry {
                     .map(|extractor| (registered_name.clone(), extractor))
             })
     }
+
+    pub fn names(&self) -> Vec<&str> {
+        let mut seen = std::collections::HashSet::new();
+        self.mappings
+            .iter()
+            .filter_map(|(_, name, _)| {
+                if seen.insert(name.as_str()) {
+                    Some(name.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
 }
 
 fn extract_hostname(url: &str) -> String {
