@@ -1,6 +1,15 @@
 [workspace]
-members = ["crates/defuddle", "crates/defuddle-cli"]
+members = ["crates/defuddle", "crates/defuddle-cli", "crates/defuddle-wasm"]
+default-members = ["crates/defuddle", "crates/defuddle-cli"]
 resolver = "3"
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
 
 [workspace.package]
 edition = "2024"
@@ -24,4 +33,3 @@ disallowed_types = { level = "deny", priority = 1 }
 single_call_fn = { level = "allow", priority = 1 }
 multiple_crate_versions = { level = "allow", priority = 1 }
 result_large_err = { level = "allow", priority = 1 }
-

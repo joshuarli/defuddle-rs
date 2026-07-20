@@ -108,11 +108,14 @@ These are listed in `tests/upstream-exceptions.toml` as `site_extractor_out_of_s
 
 ### Run Tests
 ```bash
-cargo test                          # all tests
+cargo test                          # core and CLI tests (default members)
+cargo test --workspace              # include the opt-in WASM adapter
 cargo test --test fixtures          # golden fixture runner only
 cargo test --test integration       # focused parity tests
 cargo test -- --nocapture           # show eprintln output
 ```
+
+The `defuddle-wasm` crate is a workspace member but not a default member. The `wasm-release` profile is tuned for a small artifact.
 
 ### Debug a Fixture
 ```bash

@@ -74,6 +74,7 @@ pub struct DefuddleOptions {
     pub remove_exact_selectors: Option<bool>,
     pub remove_partial_selectors: Option<bool>,
     pub remove_images: bool,
+    pub remove_iframes: bool,
     pub remove_hidden_elements: Option<bool>,
     pub remove_low_scoring: Option<bool>,
     pub remove_small_images: Option<bool>,
@@ -182,6 +183,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
     let remove_exact = options.remove_exact_selectors.unwrap_or(true);
     let remove_partial = options.remove_partial_selectors.unwrap_or(true);
     let remove_hidden = options.remove_hidden_elements.unwrap_or(true);
+    let remove_iframes = options.remove_iframes;
     let do_standardize = options.standardize.unwrap_or(true);
     let content_selector = options.content_selector.as_deref();
 
@@ -199,8 +201,11 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
             (None, None)
         };
 
-    let result = if let Some(ext_result) = extractor_result {
-        let content_html = ext_result.content_html;
+    let mut result = if let Some(ext_result) = extractor_result {
+        let mut content_html = ext_result.content_html;
+        if remove_iframes {
+            content_html = sanitize::remove_iframes_from_html(&content_html);
+        }
         let word_count = pipeline::count_html_words(&content_html);
 
         let mut variables = ext_result.variables;
@@ -258,6 +263,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
             remove_exact,
             remove_partial,
             remove_hidden,
+            remove_iframes,
             do_standardize,
             separate_markdown,
             content_selector,
@@ -269,6 +275,10 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
         )
     };
 
+    if options.remove_iframes {
+        sanitize::remove_iframes_from_result(&mut result);
+    }
+
     Ok(result)
 }
 
@@ -279,6 +289,7 @@ fn parse_internal(
     remove_exact: bool,
     remove_partial: bool,
     remove_hidden: bool,
+    remove_iframes: bool,
     do_standardize: bool,
     separate_markdown: bool,
     content_selector: Option<&str>,
@@ -294,6 +305,7 @@ fn parse_internal(
         remove_exact,
         remove_partial,
         remove_hidden,
+        remove_iframes,
         do_standardize,
         separate_markdown,
         content_selector,
@@ -312,6 +324,7 @@ fn parse_internal(
             remove_exact,
             false, // remove_partial disabled
             remove_hidden,
+            remove_iframes,
             do_standardize,
             separate_markdown,
             content_selector,
@@ -333,6 +346,7 @@ fn parse_internal(
             remove_exact,
             false,
             false, // remove_hidden disabled
+            remove_iframes,
             do_standardize,
             separate_markdown,
             content_selector,
@@ -354,6 +368,7 @@ fn parse_internal(
             remove_exact,
             false,
             false, // remove_hidden and remove_partial disabled
+            remove_iframes,
             do_standardize,
             separate_markdown,
             content_selector,
@@ -377,6 +392,7 @@ fn parse_internal_once(
     remove_exact: bool,
     remove_partial: bool,
     remove_hidden: bool,
+    remove_iframes: bool,
     do_standardize: bool,
     separate_markdown: bool,
     content_selector: Option<&str>,
@@ -439,6 +455,9 @@ fn parse_internal_once(
             standardize::resolve_urls(&mut doc, content, url);
         }
 
+        if remove_iframes {
+            sanitize::remove_iframes(&mut doc);
+        }
         sanitize::strip_unsafe_elements(&mut doc);
 
         let mut html = doc.outer_html(content);

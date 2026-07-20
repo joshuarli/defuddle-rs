@@ -519,6 +519,39 @@ fn preserves_iframes_with_src() {
 }
 
 #[test]
+fn removes_iframes_when_requested() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<article>
+<p>Content.</p>
+<iframe src="https://substack.com/channel-frame"></iframe>
+</article>
+</body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            remove_iframes: true,
+            remove_hidden_elements: Some(false),
+            separate_markdown: true,
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(!result.content.contains("substack.com/channel-frame"));
+    assert!(
+        !result
+            .content_markdown
+            .unwrap_or_default()
+            .contains("substack.com/channel-frame")
+    );
+}
+
+#[test]
 fn strips_srcdoc_from_iframes() {
     let html = r#"<!DOCTYPE html>
 <html>
