@@ -92,7 +92,7 @@ fn extract_domain_and_url(
     };
 
     let domain = if !url.is_empty() {
-        parse_domain(&url)
+        crate::utils::extract_domain(&url)
     } else {
         String::new()
     };
@@ -103,26 +103,11 @@ fn extract_domain_and_url(
         if let Some(base_id) = base_tags.first()
             && let Some(base_href) = doc.get_attr(*base_id, "href")
         {
-            return (parse_domain(base_href), base_href.to_string());
+            return (crate::utils::extract_domain(base_href), base_href.to_string());
         }
     }
 
     (domain, url)
-}
-
-fn parse_domain(url: &str) -> String {
-    let stripped = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-        .unwrap_or(url);
-
-    let hostname = stripped.split('/').next().unwrap_or(stripped);
-    let hostname = hostname.split(':').next().unwrap_or(hostname);
-
-    hostname
-        .strip_prefix("www.")
-        .unwrap_or(hostname)
-        .to_string()
 }
 
 fn get_meta_content(meta_tags: &MetaTags, attr: &str, value: &str) -> Option<String> {
@@ -577,9 +562,9 @@ fn get_published(
 
 fn scan_siblings_for_date(doc: &Document, h1_id: NodeId, forward: bool) -> Option<String> {
     let mut sibling = if forward {
-        next_element_sibling(doc, h1_id)
+        doc.next_element_sibling(h1_id)
     } else {
-        prev_element_sibling(doc, h1_id)
+        doc.prev_element_sibling(h1_id)
     };
 
     for _ in 0..3 {
@@ -600,9 +585,9 @@ fn scan_siblings_for_date(doc: &Document, h1_id: NodeId, forward: bool) -> Optio
             }
 
             sibling = if forward {
-                next_element_sibling(doc, id)
+                doc.next_element_sibling(id)
             } else {
-                prev_element_sibling(doc, id)
+                doc.prev_element_sibling(id)
             };
         } else {
             break;
@@ -610,35 +595,6 @@ fn scan_siblings_for_date(doc: &Document, h1_id: NodeId, forward: bool) -> Optio
     }
 
     None
-}
-
-fn next_element_sibling(doc: &Document, node: NodeId) -> Option<NodeId> {
-    if let Some(parent) = doc.parent(node) {
-        let children = doc.children(parent);
-        let pos = children.iter().position(|&c| c == node)?;
-        children
-            .iter()
-            .skip(pos + 1)
-            .copied()
-            .find(|id| doc.is_element(*id))
-    } else {
-        None
-    }
-}
-
-fn prev_element_sibling(doc: &Document, node: NodeId) -> Option<NodeId> {
-    if let Some(parent) = doc.parent(node) {
-        let children = doc.children(parent);
-        children.iter().position(|&c| c == node).and_then(|pos| {
-            children[..pos]
-                .iter()
-                .rev()
-                .copied()
-                .find(|id| doc.is_element(*id))
-        })
-    } else {
-        None
-    }
 }
 
 fn get_time_element(doc: &Document, url: &str) -> Option<String> {
@@ -982,7 +938,7 @@ fn get_author_from_dom(doc: &Document, meta_tags: &MetaTags) -> String {
 
 fn find_author_near_h1(doc: &Document, h1_id: NodeId, _author_norm: &str) -> Option<String> {
     // Check siblings of h1 for date-adjacent author names
-    let mut sibling = next_element_sibling(doc, h1_id);
+    let mut sibling = doc.next_element_sibling(h1_id);
     for _ in 0..3 {
         if let Some(id) = sibling {
             let text = doc.text_content(id).trim().to_string();
@@ -1012,7 +968,7 @@ fn find_author_near_h1(doc: &Document, h1_id: NodeId, _author_norm: &str) -> Opt
                     }
                 }
             }
-            sibling = next_element_sibling(doc, id);
+            sibling = doc.next_element_sibling(id);
         } else {
             break;
         }
@@ -1023,25 +979,25 @@ fn find_author_near_h1(doc: &Document, h1_id: NodeId, _author_norm: &str) -> Opt
     let mut byline_scope = Some(h1_id);
     for _ in 0..3 {
         if let Some(id) = byline_scope {
-            let mut prev = prev_element_sibling(doc, id);
+            let mut prev = doc.prev_element_sibling(id);
             for _ in 0..3 {
                 if let Some(pid) = prev {
                     if let Some(byline) = extract_byline(doc, pid) {
                         return Some(byline);
                     }
-                    prev = prev_element_sibling(doc, pid);
+                    prev = doc.prev_element_sibling(pid);
                 } else {
                     break;
                 }
             }
 
-            let mut next = next_element_sibling(doc, id);
+            let mut next = doc.next_element_sibling(id);
             for _ in 0..3 {
                 if let Some(nid) = next {
                     if let Some(byline) = extract_byline(doc, nid) {
                         return Some(byline);
                     }
-                    next = next_element_sibling(doc, nid);
+                    next = doc.next_element_sibling(nid);
                 } else {
                     break;
                 }

@@ -1796,7 +1796,7 @@ fn standardize_code_blocks(doc: &mut Document, content_id: NodeId) {
         } else {
             format!(" class=\"language-{}\"", language)
         };
-        let escaped = html_escape(&code_content);
+        let escaped = crate::utils::escape_html(&code_content);
         let new_html = format!("<pre><code{}>{}</code></pre>", lang_attr, escaped);
         doc.replace_with_html(container_id, &new_html);
     }
@@ -1904,7 +1904,7 @@ fn normalize_bare_pre_code_blocks(doc: &mut Document, content_id: NodeId) {
         } else {
             format!(" class=\"language-{}\"", language)
         };
-        let escaped = html_escape(&code_content);
+        let escaped = crate::utils::escape_html(&code_content);
         let new_html = format!("<pre><code{}>{}</code></pre>", lang_attr, escaped);
         doc.replace_with_html(pre_id, &new_html);
     }
@@ -1935,7 +1935,7 @@ fn normalize_block_code_elements(doc: &mut Document, content_id: NodeId) {
         let new_html = format!(
             "<pre><code{}>{}</code></pre>",
             lang_attr,
-            html_escape(text.trim())
+            crate::utils::escape_html(text.trim())
         );
         doc.replace_with_html(code_id, &new_html);
     }
@@ -1965,7 +1965,7 @@ fn normalize_rouge_tables(doc: &mut Document, content_id: NodeId) {
         let new_html = format!(
             "<pre><code{}>{}</code></pre>",
             lang_attr,
-            html_escape(text.trim_end())
+            crate::utils::escape_html(text.trim_end())
         );
         doc.replace_with_html(table_id, &new_html);
     }
@@ -2119,12 +2119,6 @@ fn dedent_code(code: &str) -> String {
         .join("\n")
         .trim_end()
         .to_string()
-}
-
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
 }
 
 /// Simplify headings by removing navigation child elements (buttons, permalink anchors).

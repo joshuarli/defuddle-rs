@@ -9,35 +9,6 @@ static RELATED_HEADING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static CTA_HEADING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static APPENDIX_HEADING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 
-fn has_closest(doc: &Document, node: NodeId, selectors: &[&str]) -> bool {
-    selectors
-        .iter()
-        .any(|selector| doc.closest(node, selector).is_some())
-}
-
-/// Get the previous element sibling of a node in its parent's children list.
-fn prev_element_sibling(doc: &Document, node: NodeId) -> Option<NodeId> {
-    let parent = doc.parent(node)?;
-    let children = doc.children(parent);
-    let pos = children.iter().position(|&c| c == node)?;
-    children[..pos]
-        .iter()
-        .rev()
-        .copied()
-        .find(|id| doc.is_element(*id))
-}
-
-fn next_element_sibling(doc: &Document, node: NodeId) -> Option<NodeId> {
-    let parent = doc.parent(node)?;
-    let children = doc.children(parent);
-    let pos = children.iter().position(|&c| c == node)?;
-    children
-        .iter()
-        .skip(pos + 1)
-        .copied()
-        .find(|id| doc.is_element(*id))
-}
-
 pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial: bool) {
     let mut matches = Vec::new();
     if remove_exact {
@@ -55,7 +26,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
                 if tag == "pre" || tag == "code" {
                     continue;
                 }
-                if has_closest(doc, id, &["pre", "code"]) {
+                if doc.has_closest(id, &["pre", "code"]) {
                     continue;
                 }
                 doc.remove(id);
@@ -128,7 +99,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
                 continue;
             }
 
-            if has_closest(doc, id, &["pre", "code"]) {
+            if doc.has_closest(id, &["pre", "code"]) {
                 continue;
             }
 
@@ -354,7 +325,7 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
             if tag == "pre" || tag == "code" || tag == "blockquote" || tag == "figure" {
                 continue;
             }
-            if has_closest(doc, id, &["pre", "code", "blockquote", "figure", "table"]) {
+            if doc.has_closest(id, &["pre", "code", "blockquote", "figure", "table"]) {
                 continue;
             }
             if doc.has_selector_in_subtree(id, ".gated-content, [data-schema=smart-brevity]") {
@@ -567,7 +538,7 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         let selector = format!("[class*=\"{pattern}\" i], [id*=\"{pattern}\" i]");
         doc.query_selector_all_in_subtree_into(content_id, &selector, &mut matches);
         for &id in &matches {
-            if !has_closest(doc, id, &["pre", "code"]) {
+            if !doc.has_closest(id, &["pre", "code"]) {
                 doc.remove(id);
             }
         }
@@ -797,7 +768,7 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
 
             if h_pos.is_some() {
                 // Remove metadata elements immediately before the first heading
-                if let Some(prev_id) = prev_element_sibling(doc, h_id) {
+                if let Some(prev_id) = doc.prev_element_sibling(h_id) {
                     let tag = doc.tag_name(prev_id).to_lowercase();
                     let class = doc.get_attr(prev_id, "class").unwrap_or("").to_lowercase();
                     if tag == "div" || tag == "p" || tag == "span" {
@@ -828,7 +799,7 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
                 }
 
                 // Remove metadata elements immediately after the first heading
-                if let Some(next_id) = next_element_sibling(doc, h_id) {
+                if let Some(next_id) = doc.next_element_sibling(h_id) {
                     let tag = doc.tag_name(next_id).to_lowercase();
                     let class = doc.get_attr(next_id, "class").unwrap_or("").to_lowercase();
                     if tag == "div" || tag == "p" || tag == "span" {
@@ -901,7 +872,7 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
             wrapper = parent;
         }
         if let Some(_parent) = doc.parent(wrapper) {
-            if let Some(next) = next_element_sibling(doc, wrapper) {
+            if let Some(next) = doc.next_element_sibling(wrapper) {
                 let class = doc.get_attr(next, "class").unwrap_or("").to_lowercase();
                 let text = doc.text_content(next).to_lowercase();
                 if class.contains("author")
@@ -944,7 +915,7 @@ pub fn remove_author_sibling(doc: &mut Document, content_id: NodeId, author: &st
     else {
         return;
     };
-    let Some(sibling) = next_element_sibling(doc, heading) else {
+    let Some(sibling) = doc.next_element_sibling(heading) else {
         return;
     };
     let text = doc.text_content(sibling);
@@ -1230,7 +1201,7 @@ fn remove_newsletter_blocks(doc: &mut Document, content_id: NodeId) {
     let els = doc.query_selector_all_in_subtree(content_id, "div,p,section,aside,span");
     let mut text = String::new();
     for id in els {
-        if has_closest(doc, id, &["pre", "code"]) {
+        if doc.has_closest(id, &["pre", "code"]) {
             continue;
         }
         text.clear();
@@ -1255,7 +1226,7 @@ fn remove_social_counters(doc: &mut Document, content_id: NodeId) {
     let els = doc.query_selector_all_in_subtree(content_id, "div,p,span,a,button");
     let mut text = String::new();
     for id in els {
-        if has_closest(doc, id, &["pre", "code"]) {
+        if doc.has_closest(id, &["pre", "code"]) {
             continue;
         }
         text.clear();
@@ -1325,7 +1296,7 @@ fn remove_cookie_consent(doc: &mut Document, content_id: NodeId) {
     for pattern in &cookie_classes {
         let selector = format!("[class*=\"{pattern}\" i], [id*=\"{pattern}\" i]");
         for id in doc.query_selector_all_in_subtree(content_id, &selector) {
-            if !has_closest(doc, id, &["pre", "code"]) {
+            if !doc.has_closest(id, &["pre", "code"]) {
                 doc.remove(id);
             }
         }

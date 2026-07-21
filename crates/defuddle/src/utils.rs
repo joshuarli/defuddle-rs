@@ -194,6 +194,22 @@ pub fn escape_html(text: &str) -> String {
     result
 }
 
+/// Extract the domain from a URL, stripping protocol, www prefix, port, and path.
+pub fn extract_domain(url: &str) -> String {
+    let stripped = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+
+    let hostname = stripped.split('/').next().unwrap_or(stripped);
+    let hostname = hostname.split(':').next().unwrap_or(hostname);
+
+    hostname
+        .strip_prefix("www.")
+        .unwrap_or(hostname)
+        .to_lowercase()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

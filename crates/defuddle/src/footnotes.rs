@@ -130,7 +130,7 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
         }
         let els = doc.query_selector_all_in_subtree(content_id, selector);
         for el_id in els {
-            if has_closest(doc, el_id, &["pre", "code"]) {
+            if doc.has_closest(el_id, &["pre", "code"]) {
                 continue;
             }
             if doc.get_attr(el_id, "data-fn-ref").is_some() {
@@ -145,10 +145,10 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
     let footnote_marker_re = regex_lite::Regex::new(r"^\[?\(?(\d{1,4})\)?\]?$").unwrap();
     let bare_sups = doc.query_selector_all_in_subtree(content_id, "sup");
     for sup_id in bare_sups {
-        if has_closest(doc, sup_id, &["pre", "code"]) {
+        if doc.has_closest(sup_id, &["pre", "code"]) {
             continue;
         }
-        if has_closest(doc, sup_id, &["p.footnote", "p.footnotes", "li.footnote"]) {
+        if doc.has_closest(sup_id, &["p.footnote", "p.footnotes", "li.footnote"]) {
             continue;
         }
         if doc.get_attr(sup_id, "data-fn-ref").is_some() {
@@ -843,6 +843,3 @@ fn collect_p_class_defs(
     }
 }
 
-fn has_closest(doc: &Document, node: NodeId, selectors: &[&str]) -> bool {
-    selectors.iter().any(|s| doc.closest(node, s).is_some())
-}

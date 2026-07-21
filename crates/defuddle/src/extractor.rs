@@ -31,7 +31,7 @@ impl Registry {
     }
 
     pub fn find(&self, url: &str, doc: &Document) -> Option<(String, Box<dyn Extractor>)> {
-        let hostname = extract_hostname(url);
+        let hostname = crate::utils::extract_domain(url);
         for (domain, name, factory) in &self.mappings {
             if (hostname.contains(domain.as_str())
                 || url.contains(domain.as_str())
@@ -76,21 +76,6 @@ impl Registry {
     }
 }
 
-fn extract_hostname(url: &str) -> String {
-    let stripped = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-        .unwrap_or(url);
-    stripped
-        .split('/')
-        .next()
-        .unwrap_or("")
-        .split(':')
-        .next()
-        .unwrap_or("")
-        .to_lowercase()
-}
-
 pub fn build_registry() -> Registry {
     let mut registry = Registry::new();
 
@@ -118,10 +103,7 @@ pub mod comments {
     }
 
     pub fn escape_html(text: &str) -> String {
-        text.replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;")
-            .replace('"', "&quot;")
+        crate::utils::escape_html(text)
     }
 
     pub fn build_comment(comment: &CommentData) -> String {

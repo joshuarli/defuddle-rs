@@ -21,7 +21,7 @@ fn standardize_data_math(doc: &mut Document, content_id: NodeId) {
     for sel in &[".math-inline[data-math]", ".math-block[data-math]"] {
         let els = doc.query_selector_all_in_subtree(content_id, sel);
         for el_id in els {
-            if has_closest(doc, el_id, &["pre", "code"]) {
+            if doc.has_closest(el_id, &["pre", "code"]) {
                 continue;
             }
             if let Some(latex) = doc.get_attr(el_id, "data-math")
@@ -44,7 +44,7 @@ fn standardize_data_math(doc: &mut Document, content_id: NodeId) {
 fn standardize_katex(doc: &mut Document, content_id: NodeId) {
     let katex_els = doc.query_selector_all_in_subtree(content_id, ".katex");
     for el_id in katex_els {
-        if has_closest(doc, el_id, &["pre", "code"]) {
+        if doc.has_closest(el_id, &["pre", "code"]) {
             continue;
         }
         // Try data-latex attribute directly on .katex first
@@ -93,7 +93,7 @@ fn standardize_katex(doc: &mut Document, content_id: NodeId) {
 fn standardize_mathjax_tex(doc: &mut Document, content_id: NodeId) {
     let scripts = doc.query_selector_all_in_subtree(content_id, "script");
     for script_id in scripts {
-        if has_closest(doc, script_id, &["pre", "code"]) {
+        if doc.has_closest(script_id, &["pre", "code"]) {
             continue;
         }
         let type_attr = doc.get_attr(script_id, "type").unwrap_or("");
@@ -122,7 +122,7 @@ fn standardize_raw_latex(doc: &mut Document, content_id: NodeId) {
         RAW_LATEX_INLINE_RE.get_or_init(|| regex_lite::Regex::new(r"\\\(([^)]*)\\\)").unwrap());
     let all_els = doc.query_selector_all_in_subtree(content_id, "p,div,span,li,td,th,figcaption");
     for el_id in all_els {
-        if has_closest(doc, el_id, &["pre", "code"]) {
+        if doc.has_closest(el_id, &["pre", "code"]) {
             continue;
         }
         let text = doc.text_content(el_id);
@@ -159,7 +159,7 @@ fn standardize_mathjax_svg(doc: &mut Document, content_id: NodeId) {
     for sel in &["mjx-container", "mjx-math"] {
         let els = doc.query_selector_all_in_subtree(content_id, sel);
         for el_id in els {
-            if has_closest(doc, el_id, &["pre", "code"]) {
+            if doc.has_closest(el_id, &["pre", "code"]) {
                 continue;
             }
             let latex = doc
@@ -215,6 +215,3 @@ fn is_block_mathjax(doc: &Document, node: NodeId) -> bool {
     false
 }
 
-fn has_closest(doc: &Document, node: NodeId, selectors: &[&str]) -> bool {
-    selectors.iter().any(|s| doc.closest(node, s).is_some())
-}

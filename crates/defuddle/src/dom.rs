@@ -459,10 +459,21 @@ impl Document {
         if let Some(parent) = self.parent(node) {
             let children = self.children(parent);
             let pos = children.iter().position(|&c| c == node)?;
-            children.iter().skip(pos + 1).copied().next()
+            children.iter().skip(pos + 1).copied().find(|id| self.is_element(*id))
         } else {
             None
         }
+    }
+
+    pub fn prev_element_sibling(&self, node: NodeId) -> Option<NodeId> {
+        let parent = self.parent(node)?;
+        let children = self.children(parent);
+        let pos = children.iter().position(|&c| c == node)?;
+        children[..pos].iter().rev().copied().find(|id| self.is_element(*id))
+    }
+
+    pub fn has_closest(&self, node: NodeId, selectors: &[&str]) -> bool {
+        selectors.iter().any(|selector| self.closest(node, selector).is_some())
     }
 
     pub fn text_content(&self, node: NodeId) -> String {
