@@ -583,8 +583,7 @@ fn scan_siblings_for_date(doc: &Document, h1_id: NodeId, forward: bool) -> Optio
             }
 
             for child_id in doc.children(id).to_vec() {
-                let tag = doc.tag_name(child_id).to_lowercase();
-                if tag == "p" || tag == "time" {
+                if doc.tag_name_is_any(child_id, &["p", "time"]) {
                     let child_text = doc.text_content(child_id).trim().to_string();
                     if let Some(parsed) = parse_date_text(&child_text) {
                         return Some(parsed);

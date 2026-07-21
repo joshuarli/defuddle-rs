@@ -765,7 +765,7 @@ fn collect_heading_separated_defs(
                 if tag.is_empty() {
                     continue;
                 }
-                if tag == "ol" || tag == "ul" {
+                if doc.tag_name_is_any(child, &["ol", "ul"]) {
                     let items = doc.query_selector_all_in_subtree(child, "li");
                     for &li_id in &items {
                         let num = defs.len() + 1;

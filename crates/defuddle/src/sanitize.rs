@@ -115,14 +115,6 @@ pub fn strip_unsafe_elements(doc: &mut crate::dom::Document) {
     }
 }
 
-/// Remove embedded frames from extracted content when the caller requests a
-/// reader view without external embeds.
-pub fn remove_iframes_from_result(result: &mut crate::DefuddleResult) {
-    let mut doc = crate::dom::Document::parse(&result.content);
-    remove_iframes(&mut doc);
-    result.content = doc.outer_html(doc.root());
-}
-
 pub fn remove_iframes(doc: &mut crate::dom::Document) {
     for id in doc.query_selector_all("iframe") {
         doc.remove(id);

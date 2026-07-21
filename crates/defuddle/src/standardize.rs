@@ -375,11 +375,7 @@ fn unwrap_figure_content_wrappers(doc: &mut Document, content_id: NodeId) {
             if !doc.is_element(c) {
                 return false;
             }
-            let t = doc.tag_name(c).to_lowercase();
-            matches!(
-                t.as_str(),
-                "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "ul" | "ol" | "blockquote" | "pre"
-            )
+            doc.tag_name_is_any(c, &["p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "blockquote", "pre"])
         });
         if has_block {
             doc.unwrap(id);
@@ -446,8 +442,7 @@ fn recover_noscript_images(doc: &mut Document, content_id: NodeId) {
                 if sib == ns_id || !doc.is_element(sib) {
                     continue;
                 }
-                let tag = doc.tag_name(sib).to_lowercase();
-                if tag != "img" {
+                if !doc.tag_name_is(sib, "img") {
                     for img_id in doc.query_selector_all_in_subtree(sib, "img") {
                         replace_if_placeholder(doc, img_id, &ns_src, &ns_alt);
                     }
@@ -725,8 +720,7 @@ pub fn resolve_urls(doc: &mut Document, content_id: NodeId, page_url: &str) {
 fn standardize_spaces(doc: &mut Document, node: NodeId) {
     // Skip pre, code, and SVG elements to preserve whitespace inside code blocks and SVGs
     if doc.is_element(node) {
-        let tag = doc.tag_name(node).to_lowercase();
-        if tag == "pre" || tag == "code" || tag == "svg" {
+        if doc.tag_name_is_any(node, &["pre", "code", "svg"]) {
             return;
         }
     }
@@ -843,7 +837,7 @@ fn remove_empty_elements(doc: &mut Document, content_id: NodeId) {
             if doc.has_selector_in_subtree(id, "h1,h2,h3,h4,h5,h6") {
                 continue;
             }
-            if tag == "pre" || tag == "code" {
+            if doc.tag_name_is_any(id, &["pre", "code"]) {
                 continue;
             }
             if doc.children(id).is_empty() && doc.text_content(id).trim().is_empty() {
@@ -876,8 +870,7 @@ fn remove_trailing_headings(doc: &mut Document, content_id: NodeId) {
             break;
         }
 
-        let tag = doc.tag_name(child).to_lowercase();
-        if matches!(tag.as_str(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6") {
+        if doc.tag_name_is_any(child, &["h1", "h2", "h3", "h4", "h5", "h6"]) {
             if !doc
                 .text_content(child)
                 .trim()
@@ -1177,8 +1170,7 @@ fn remove_empty_lines(doc: &mut Document, content_id: NodeId) {
 
 fn remove_empty_text_nodes(doc: &mut Document, node: NodeId) {
     if doc.is_element(node) {
-        let tag = doc.tag_name(node).to_lowercase();
-        if tag == "pre" || tag == "code" {
+        if doc.tag_name_is_any(node, &["pre", "code"]) {
             return;
         }
         let children = doc.children(node).to_vec();
@@ -1307,11 +1299,9 @@ fn convert_data_as_spans(doc: &mut Document, content_id: NodeId) {
         })
         .collect::<Vec<_>>();
     for id in spans {
-        if let Some(target) = doc.get_attr(id, "data-as") {
-            let target = target.to_lowercase();
-            if allowed.contains(target.as_str()) {
-                doc.set_tag_name(id, &target);
-            }
+        let target = doc.get_attr(id, "data-as").unwrap_or("").to_lowercase();
+        if !target.is_empty() && allowed.contains(target.as_str()) {
+            doc.set_tag_name(id, &target);
         }
     }
 }
@@ -1436,13 +1426,12 @@ fn flatten_definition_lists(doc: &mut Document, content_id: NodeId) {
         // Build replacement HTML
         let mut replacement = String::new();
         for child_id in children {
-            let tag = doc.tag_name(child_id).to_lowercase();
-            if tag == "dt" {
+            if doc.tag_name_is(child_id, "dt") {
                 let html = doc.inner_html(child_id);
                 // Wrap dt content on its own line (will become inline code in markdown)
                 replacement.push_str(&html);
                 replacement.push('\n');
-            } else if tag == "dd" {
+            } else if doc.tag_name_is(child_id, "dd") {
                 let html = doc.inner_html(child_id);
                 replacement.push_str(&format!("<p>{html}</p>\n"));
             } else {
@@ -1628,8 +1617,9 @@ fn normalize_codemirror_blocks(doc: &mut Document, content_id: NodeId) {
                     .map(|m| m.as_str().to_string())
                     .unwrap_or_default();
                 // Filter out common non-language words
-                if !matches!(candidate.to_lowercase().as_str(), "run" | "copy" | "") {
-                    language = candidate.to_lowercase();
+                let candidate_lower = candidate.to_lowercase();
+                if !matches!(candidate_lower.as_str(), "run" | "copy" | "") {
+                    language = candidate_lower;
                 }
             }
         }
@@ -1701,8 +1691,7 @@ fn standardize_code_blocks(doc: &mut Document, content_id: NodeId) {
         .query_selector_all_in_subtree(content_id, "[class]")
         .into_iter()
         .filter(|&id| {
-            let tag = doc.tag_name(id).to_lowercase();
-            if tag == "pre" || tag == "code" {
+            if doc.tag_name_is_any(id, &["pre", "code"]) {
                 return false;
             }
             doc.get_attr(id, "class")
@@ -1830,8 +1819,7 @@ fn standardize_code_blocks(doc: &mut Document, content_id: NodeId) {
         if !doc.is_element(id) {
             continue;
         }
-        let tag = doc.tag_name(id).to_lowercase();
-        if tag != "code" && tag != "pre" {
+        if !doc.tag_name_is_any(id, &["code", "pre"]) {
             continue;
         }
         if doc.get_attr(id, "data-lang").is_some() {
@@ -2170,32 +2158,28 @@ fn simplify_heading_children(doc: &mut Document, content_id: NodeId) {
                 if !doc.is_element(child) {
                     continue;
                 }
-                let tag = doc.tag_name(child).to_lowercase();
                 let class = doc.get_attr(child, "class").unwrap_or("").to_lowercase();
                 // Remove buttons, empty anchors (# links), permalink elements
-                if tag == "button" {
+                if doc.tag_name_is(child, "button") {
                     doc.remove(child);
-                } else if tag == "a"
-                    && (doc
-                        .get_attr(child, "href")
-                        .is_some_and(|h| h.starts_with('#'))
-                        || doc
-                            .get_attr(child, "href")
-                            .is_some_and(|h| h.contains("action=edit"))
+                } else if doc.tag_name_is(child, "a") {
+                    let href = doc.get_attr(child, "href").unwrap_or("");
+                    let is_edit_link = href.contains("action=edit");
+                    let is_hash_link = href.starts_with('#');
+                    if is_hash_link
+                        || is_edit_link
                         || class.contains("permalink")
                         || class.contains("anchor-link")
                         || class.contains("heading-anchor")
-                        || class.contains("headerlink"))
-                {
+                        || class.contains("headerlink")
+                    {
                     let text = doc.text_content(child).trim().to_string();
-                    let is_edit_link = doc
-                        .get_attr(child, "href")
-                        .is_some_and(|href| href.contains("action=edit"));
                     if is_edit_link || text.is_empty() || matches!(text.as_str(), "#" | "¶" | "§")
                     {
                         doc.remove(child);
                     } else {
                         doc.unwrap(child);
+                    }
                     }
                 }
             }

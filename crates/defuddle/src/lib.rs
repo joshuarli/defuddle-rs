@@ -203,7 +203,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
             (None, None)
         };
 
-    let mut result = if let Some(ext_result) = extractor_result {
+    let result = if let Some(ext_result) = extractor_result {
         let mut content_html = ext_result.content_html;
         if remove_iframes {
             content_html = sanitize::remove_iframes_from_html(&content_html);
@@ -274,10 +274,6 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
             url,
         )
     };
-
-    if options.remove_iframes {
-        sanitize::remove_iframes_from_result(&mut result);
-    }
 
     Ok(result)
 }

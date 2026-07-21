@@ -260,19 +260,17 @@ Phases 1-3 are done.
 
 ### Phase 4: Reduce Allocation Churn (medium risk, requires careful review)
 
-- [ ] **4.1** Add a `tag_name_is(id, name) -> bool` case-insensitive comparison method to `Document` to eliminate `tag_name().to_lowercase()` allocations. Use it at all 38 call sites.
-- [ ] **4.2** Add a `get_attr_lower(id, name) -> Option<Cow<str>>` or just pre-lowercase the attr name parameter. Fix the 3× repeated `get_attr(child, "href")` call at `standardize.rs:2159-2173`.
-- [ ] **4.3** Fix the doubled `get_attr` calls: `standardize.rs:1291+1296` (data-as), `standardize.rs:477+491` (src).
-- [ ] **4.4** Replace serialize-then-reparse round-trips with DOM-level node transfers:
-  - `standardize.rs:1867-1868`: Move `<pre>` children into `<code>` via DOM
-  - `standardize.rs:1478`: Transfer child nodes into table via DOM
-  - `standardize.rs:1626-1630`: Extract text from DOM directly instead of via HTML serialize → parse → text_content
-  - `standardize.rs:1432-1439`: Build replacement via DOM operations instead of string concatenation
-- [ ] **4.5** Add a `remove_iframes_from_doc` step to the standard pipeline in `parse_internal_once` instead of doing it post-hoc via HTML re-parse. Remove the double `remove_iframes_from_result` call pattern.
-- [ ] **4.6** Eliminate redundant `.to_string()` calls where a `&str` or `Cow<str>` would suffice. Target the 320 identified sites, starting with the most egregious:
-  - `metadata.rs:318-326` (triple lowercasing of site_name)
-  - `standardize.rs:1613-1614` (double lowercasing)
-  - `dom.rs:790,801,812` (lowercasing both sides of a comparison)
+- [x] **4.1** Added `tag_name_is(id, name) -> bool` and `tag_name_is_any(id, names: &[&str]) -> bool` case-insensitive comparison methods to `Document` in `dom.rs`. Replaced 25 direct-comparison call sites across `pipeline.rs` (13), `standardize.rs` (8), `scoring.rs` (2), `metadata.rs` (1), `footnotes.rs` (1). Remaining 12 call sites intentionally keep `.to_lowercase()` — they feed `FxHashSet::contains()` lookups or non-element `is_empty()` checks which need an owned string.
+- [x] **4.2** Fixed the 3× repeated `get_attr(child, "href")` call at `standardize.rs` (was ~2159-2190). Cached the href value once; derived `is_edit_link` and `is_hash_link` from it.
+- [x] **4.3** Fixed the doubled `get_attr` calls:
+  - `standardize.rs` (data-as): Combined `.is_some()` filter + `.unwrap()` → single `.unwrap_or("")`.
+  - `pipeline.rs:57` (src): `is_none() || .unwrap_or("").is_empty()` → `map_or(true, |s| s.is_empty())`.
+- [ ] **4.4** (Deferred) Replace serialize-then-reparse round-trips. All four sites require node-relocation or subtree text-walking operations that the `Document` adapter does not expose. Deferred until `Document` gains `move_to_parent`, `text_content_with_br`, or equivalent methods.
+- [x] **4.5** Moved iframe removal into the standard pipeline. `parse_internal_once` already calls `sanitize::remove_iframes(&mut doc)` on the live Document. Removed the redundant post-hoc `remove_iframes_from_result` call in `parse_html` that re-parsed serialized HTML. Removed the now-unused `remove_iframes_from_result` function from `sanitize.rs`. Cleaned up unnecessary `mut` binding.
+- [x] **4.6** Eliminated the most egregious redundant allocations:
+  - `standardize.rs` (CodeMirror candidate): Double `.to_lowercase()` → cached in `candidate_lower`.
+  - `dom.rs` (`attr_contains`, `attr_starts`, `attr_ends`): Lifted `aval.to_lowercase()` outside the per-attribute `attr_match` closure for case-insensitive comparisons (3 patterns).
+  - `metadata.rs:318-326` (site_name lowercasing): Reviewed — the lowercasings are for three *different* values (author_meta, site_name, domain), not the same value tripled. Kept as-is.
 
 ### Phase 5: Eliminate Article-Specific Hacks (medium-high risk, affects fixtures)
 

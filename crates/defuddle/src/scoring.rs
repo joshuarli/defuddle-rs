@@ -305,8 +305,7 @@ pub fn find_main_content(doc: &Document, entry_point_selectors: &[&str]) -> Opti
 
     let top = candidates[0];
     if candidates.len() == 1 {
-        let tag = doc.tag_name(top.0).to_lowercase();
-        if tag == "body" {
+        if doc.tag_name_is(top.0, "body") {
             return find_table_based_content(doc);
         }
         return Some(top.0);
@@ -319,8 +318,7 @@ pub fn find_main_content(doc: &Document, entry_point_selectors: &[&str]) -> Opti
         doc.text_content_into(child.0, &mut child_text);
         let child_words = count_words(&child_text);
         if child.2 < best.2 && doc.contains(best.0, child.0) && child_words > 50 {
-            let tag = doc.tag_name(top.0).to_lowercase();
-            if tag == "body" {
+            if doc.tag_name_is(top.0, "body") {
                 continue;
             }
             let mut siblings_at_index = 0;

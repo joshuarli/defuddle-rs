@@ -31,8 +31,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
                 if doc.tag_name(id).is_empty() {
                     continue;
                 }
-                let tag = doc.tag_name(id).to_lowercase();
-                if tag == "pre" || tag == "code" {
+                if doc.tag_name_is_any(id, &["pre", "code"]) {
                     continue;
                 }
                 if doc.has_closest(id, &["pre", "code"]) {
@@ -55,8 +54,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
         // Remove iframes without src, video/audio without src
         doc.query_selector_all_into("iframe", &mut matches);
         for &id in &matches {
-            if doc.get_attr(id, "src").is_none() || doc.get_attr(id, "src").unwrap_or("").is_empty()
-            {
+            if doc.get_attr(id, "src").map_or(true, |s| s.is_empty()) {
                 doc.remove(id);
             }
         }
@@ -103,8 +101,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
                 continue;
             }
 
-            let tag = doc.tag_name(id).to_lowercase();
-            if tag == "pre" || tag == "code" {
+            if doc.tag_name_is_any(id, &["pre", "code"]) {
                 continue;
             }
 
@@ -115,13 +112,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
             let class_val = doc.get_attr(id, "class").unwrap_or("").to_lowercase();
 
             let mut attr_values = class_val.clone();
-            if tag != "h1"
-                && tag != "h2"
-                && tag != "h3"
-                && tag != "h4"
-                && tag != "h5"
-                && tag != "h6"
-            {
+            if !doc.tag_name_is_any(id, &["h1", "h2", "h3", "h4", "h5", "h6"]) {
                 for attr_name in &[
                     "data-component",
                     "data-test",
@@ -137,13 +128,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
                 }
             }
 
-            let id_str = if tag == "h1"
-                || tag == "h2"
-                || tag == "h3"
-                || tag == "h4"
-                || tag == "h5"
-                || tag == "h6"
-            {
+            let id_str = if doc.tag_name_is_any(id, &["h1", "h2", "h3", "h4", "h5", "h6"]) {
                 String::new()
             } else {
                 doc.get_attr(id, "id").unwrap_or("").to_lowercase()
@@ -244,8 +229,7 @@ pub fn remove_hidden_elements(doc: &mut Document) {
     let mut to_remove = Vec::new();
 
     for id in all_elements {
-        let tag = doc.tag_name(id).to_lowercase();
-        if tag == "math" {
+        if doc.tag_name_is(id, "math") {
             continue;
         }
 
@@ -330,8 +314,7 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
             .collect();
 
         for id in all {
-            let tag = doc.tag_name(id).to_lowercase();
-            if tag == "pre" || tag == "code" || tag == "blockquote" || tag == "figure" {
+            if doc.tag_name_is_any(id, &["pre", "code", "blockquote", "figure"]) {
                 continue;
             }
             if doc.has_closest(id, &["pre", "code", "blockquote", "figure", "table"]) {
@@ -401,8 +384,7 @@ pub fn extract_content(
 
     let main = main_content.unwrap();
 
-    let tag = doc.tag_name(main).to_lowercase();
-    if tag == "body" {
+    if doc.tag_name_is(main, "body") {
         if let Some(main_element) = doc.query_selector_all("main").first().copied()
             && count_html_words(&doc.outer_html(main_element)) > 100
         {
@@ -410,8 +392,7 @@ pub fn extract_content(
         }
         // Try to find a more specific element
         if let Some(specific) = scoring::find_main_content(doc, ENTRY_POINT_ELEMENTS) {
-            let specific_tag = doc.tag_name(specific).to_lowercase();
-            if specific_tag != "body" && specific != main {
+            if !doc.tag_name_is(specific, "body") && specific != main {
                 return Some(specific);
             }
         }
@@ -764,7 +745,7 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
 }
 
 fn is_heading_tag(doc: &Document, id: NodeId) -> bool {
-    matches!(doc.tag_name(id).to_lowercase().as_str(), "h1" | "h2" | "h3")
+    doc.tag_name_is_any(id, &["h1", "h2", "h3"])
 }
 
 /// Remove metadata blocks adjacent to the first heading (date, author info).
@@ -784,9 +765,8 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
             if h_pos.is_some() {
                 // Remove metadata elements immediately before the first heading
                 if let Some(prev_id) = doc.prev_element_sibling(h_id) {
-                    let tag = doc.tag_name(prev_id).to_lowercase();
                     let class = doc.get_attr(prev_id, "class").unwrap_or("").to_lowercase();
-                    if tag == "div" || tag == "p" || tag == "span" {
+                    if doc.tag_name_is_any(prev_id, &["div", "p", "span"]) {
                         let text = doc.text_content(prev_id).to_lowercase();
                         if class.contains("meta")
                             || class.contains("date")
@@ -815,9 +795,8 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
 
                 // Remove metadata elements immediately after the first heading
                 if let Some(next_id) = doc.next_element_sibling(h_id) {
-                    let tag = doc.tag_name(next_id).to_lowercase();
                     let class = doc.get_attr(next_id, "class").unwrap_or("").to_lowercase();
-                    if tag == "div" || tag == "p" || tag == "span" {
+                    if doc.tag_name_is_any(next_id, &["div", "p", "span"]) {
                         let text = doc.text_content(next_id).to_lowercase();
                         let has_child_date = doc
                             .query_selector_all_in_subtree(next_id, "p,time")
@@ -1035,8 +1014,7 @@ fn remove_byline_blocks(doc: &mut Document, content_id: NodeId) {
         if !doc.is_element(child) {
             continue;
         }
-        let tag = doc.tag_name(child).to_lowercase();
-        if tag != "div" && tag != "p" && tag != "span" {
+        if !doc.tag_name_is_any(child, &["div", "p", "span"]) {
             continue;
         }
         let class = doc.get_attr(child, "class").unwrap_or("").to_lowercase();
@@ -1047,7 +1025,7 @@ fn remove_byline_blocks(doc: &mut Document, content_id: NodeId) {
             continue;
         }
 
-        if tag == "section"
+        if doc.tag_name_is(child, "section")
             && word_count < 15
             && text.contains("By ")
             && crate::metadata::parse_date_text(&text).is_some()
@@ -1102,8 +1080,7 @@ fn remove_related_posts_sections(doc: &mut Document, content_id: NodeId) {
                 if let Some(p) = pos
                     && let Some(&sib) = siblings[p + 1..].first()
                 {
-                    let tag = doc.tag_name(sib).to_lowercase();
-                    if tag == "ul" || tag == "ol" || tag == "div" {
+                    if doc.tag_name_is_any(sib, &["ul", "ol", "div"]) {
                         let sib_text = doc.text_content(sib).trim().to_string();
                         if sib_text.split_whitespace().count() < 80 {
                             to_remove.push(sib);
@@ -1367,10 +1344,8 @@ fn remove_trailing_cta_sections(doc: &mut Document, content_id: NodeId) {
             break;
         }
         let words = doc.text_content(child).split_whitespace().count();
-        let tag = doc.tag_name(child).to_lowercase();
-
         // HR is a content boundary — include it and stop walking
-        if tag == "hr" {
+        if doc.tag_name_is(child, "hr") {
             trailing_ids.push(child);
             break;
         }

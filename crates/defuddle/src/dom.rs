@@ -359,6 +359,24 @@ impl Document {
         }
     }
 
+    /// Case-insensitive tag name comparison. Returns true if the element's
+    /// tag name equals `name` ignoring ASCII case.
+    pub fn tag_name_is(&self, node: NodeId, name: &str) -> bool {
+        match &self.node(node).kind {
+            NodeKind::Element { name: n, .. } => n.eq_ignore_ascii_case(name),
+            _ => false,
+        }
+    }
+
+    /// Case-insensitive tag name check against multiple candidates.
+    /// Returns true if the element's tag name matches any of `names`.
+    pub fn tag_name_is_any(&self, node: NodeId, names: &[&str]) -> bool {
+        match &self.node(node).kind {
+            NodeKind::Element { name: n, .. } => names.iter().any(|&name| n.eq_ignore_ascii_case(name)),
+            _ => false,
+        }
+    }
+
     pub fn is_comment(&self, node: NodeId) -> bool {
         matches!(&self.node(node).kind, NodeKind::Comment(_))
     }
@@ -795,38 +813,41 @@ impl Document {
         {
             return false;
         }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_contains
-            && !attr_match(attrs, aname, |val| {
+        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_contains {
+            let aval_lower = if case_insensitive { aval.to_lowercase() } else { String::new() };
+            if !attr_match(attrs, aname, |val| {
                 if case_insensitive {
-                    val.to_lowercase().contains(&aval.to_lowercase())
+                    val.to_lowercase().contains(&aval_lower)
                 } else {
                     val.contains(aval.as_str())
                 }
-            })
-        {
-            return false;
+            }) {
+                return false;
+            }
         }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_starts
-            && !attr_match(attrs, aname, |val| {
+        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_starts {
+            let aval_lower = if case_insensitive { aval.to_lowercase() } else { String::new() };
+            if !attr_match(attrs, aname, |val| {
                 if case_insensitive {
-                    val.to_lowercase().starts_with(&aval.to_lowercase())
+                    val.to_lowercase().starts_with(&aval_lower)
                 } else {
                     val.starts_with(aval.as_str())
                 }
-            })
-        {
-            return false;
+            }) {
+                return false;
+            }
         }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_ends
-            && !attr_match(attrs, aname, |val| {
+        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_ends {
+            let aval_lower = if case_insensitive { aval.to_lowercase() } else { String::new() };
+            if !attr_match(attrs, aname, |val| {
                 if case_insensitive {
-                    val.to_lowercase().ends_with(&aval.to_lowercase())
+                    val.to_lowercase().ends_with(&aval_lower)
                 } else {
                     val.ends_with(aval.as_str())
                 }
-            })
-        {
-            return false;
+            }) {
+                return false;
+            }
         }
         if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_word
             && !attr_match(attrs, aname, |val| {
