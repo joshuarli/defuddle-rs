@@ -150,17 +150,7 @@ pub(crate) fn normalize_codemirror_blocks(doc: &mut Document, content_id: NodeId
             .first()
             .copied();
         let mut text = if let Some(content_id) = content_id {
-            let content_html = doc
-                .inner_html(content_id)
-                .replace("<br>", "\n")
-                .replace("<br/>", "\n")
-                .replace("<br />", "\n");
-            let fragment = Document::parse(&content_html);
-            fragment
-                .query_selector_all("body")
-                .first()
-                .map(|body| fragment.text_content(*body))
-                .unwrap_or(content_html)
+            doc.text_content_with_br(content_id)
         } else {
             doc.text_content(pre_id)
         };

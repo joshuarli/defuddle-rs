@@ -897,6 +897,56 @@ impl Document {
         }
     }
 
+    pub(crate) fn text_content_with_br_into(&self, node: NodeId, out: &mut String) {
+        if self.node(node).removed {
+            return;
+        }
+        match &self.node(node).kind {
+            NodeKind::Text(text) => out.push_str(text),
+            NodeKind::Element { name, .. } if name.eq_ignore_ascii_case("br") => {
+                out.push('\n');
+            }
+            _ => {
+                for child in self.node(node).children.iter().copied() {
+                    self.text_content_with_br_into(child, out);
+                }
+            }
+        }
+    }
+
+    pub fn text_content_with_br(&self, node: NodeId) -> String {
+        let mut out = String::new();
+        self.text_content_with_br_into(node, &mut out);
+        out
+    }
+
+    pub fn replace_with_node(&mut self, target: NodeId, replacement: NodeId) {
+        if target == self.root || self.node(target).removed {
+            return;
+        }
+        if target == replacement || self.contains(target, replacement) {
+            return;
+        }
+        let target_parent = self.node(target).parent;
+        let target_pos = target_parent
+            .and_then(|p| self.node(p).children.iter().position(|&c| c == target));
+
+        if let Some(rp) = self.node(replacement).parent {
+            self.node_mut(rp).children.retain(|&c| c != replacement);
+        }
+
+        if let (Some(parent), Some(pos)) = (target_parent, target_pos) {
+            self.node_mut(parent).children[pos] = replacement;
+            self.node_mut(replacement).parent = target_parent;
+        }
+
+        for child in self.node(target).children.clone() {
+            self.node_mut(child).parent = None;
+        }
+        self.node_mut(target).children.clear();
+        self.mark_removed(target);
+    }
+
     fn serialize_node(&self, node: NodeId, out: &mut String) {
         if self.node(node).removed {
             return;

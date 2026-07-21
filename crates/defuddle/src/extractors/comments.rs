@@ -7,31 +7,27 @@ pub struct CommentData {
     pub url: String,
 }
 
-pub fn escape_html(text: &str) -> String {
-    crate::utils::escape_html(text)
-}
-
 pub fn build_comment(comment: &CommentData) -> String {
     let author = format!(
         "<span class=\"comment-author\"><strong>{}</strong></span>",
-        escape_html(&comment.author)
+        crate::utils::escape_html(&comment.author)
     );
     let date_html = if !comment.url.is_empty() {
         format!(
             "<a href=\"{}\" class=\"comment-link\">{}</a>",
-            escape_html(&comment.url),
-            escape_html(&comment.date)
+            crate::utils::escape_html(&comment.url),
+            crate::utils::escape_html(&comment.date)
         )
     } else {
         format!(
             "<span class=\"comment-date\">{}</span>",
-            escape_html(&comment.date)
+            crate::utils::escape_html(&comment.date)
         )
     };
     let score_html = if !comment.score.is_empty() {
         format!(
             " · <span class=\"comment-points\">{}</span>",
-            escape_html(&comment.score)
+            crate::utils::escape_html(&comment.score)
         )
     } else {
         String::new()

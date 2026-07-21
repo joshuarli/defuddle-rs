@@ -121,12 +121,6 @@ pub fn remove_iframes(doc: &mut crate::dom::Document) {
     }
 }
 
-pub fn remove_iframes_from_html(html: &str) -> String {
-    let mut doc = crate::dom::Document::parse(html);
-    remove_iframes(&mut doc);
-    doc.outer_html(doc.root())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

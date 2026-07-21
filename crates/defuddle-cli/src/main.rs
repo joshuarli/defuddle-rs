@@ -111,7 +111,7 @@ fn run() -> Result<(), String> {
     }
 
     if let Some(ref src) = source
-        && (src.starts_with("https://") || src.starts_with("http://"))
+        && defuddle::utils::is_absolute_url(src)
     {
         return Err(
                 "The defuddle CLI does not fetch URLs. Pass a local HTML file path or pipe HTML via stdin.\n\

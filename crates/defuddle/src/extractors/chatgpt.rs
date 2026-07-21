@@ -1,5 +1,6 @@
 use crate::dom::Document;
-use crate::extractors::{comments, Extractor, ExtractorResult};
+use crate::extractors::{Extractor, ExtractorResult};
+use crate::utils::escape_html;
 use rustc_hash::FxHashMap;
 
 pub fn create(doc: &Document, _url: &str) -> Option<Box<dyn Extractor>> {
@@ -169,7 +170,7 @@ fn build_conversation_html(
         if i > 0 {
             html.push_str("<hr>\n");
         }
-        let safe = comments::escape_html(author);
+        let safe = escape_html(author);
         html.push_str(&format!(
             "<div class=\"message message-{}\">\n<div class=\"message-header\">\n<p class=\"message-author\"><strong>{}</strong></p>\n</div>\n<div class=\"message-content\">\n{}\n</div>\n</div>\n",
             author.to_lowercase(), safe, msg

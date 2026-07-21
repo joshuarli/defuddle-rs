@@ -152,7 +152,7 @@ fn collect_comments_recursive(
             .first()
             .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string()))
             .unwrap_or_default();
-        let date = time_el.split('T').next().unwrap_or("").to_string();
+        let date = crate::utils::extract_date(&time_el);
         let body_html = doc
             .query_selector_all(".entry .usertext-body .md")
             .iter()

@@ -1,5 +1,6 @@
 use crate::dom::Document;
 use crate::extractors::{comments, Extractor, ExtractorResult};
+use crate::utils::escape_html;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
@@ -121,7 +122,7 @@ impl Extractor for GitHubExtractor {
                     let code = doc.text_content(table).trim().to_string();
                     if !code.is_empty() {
                         let table_html = doc.outer_html(table);
-                        let escaped = comments::escape_html(&code);
+                        let escaped = escape_html(&code);
                         body = body.replace(
                             &table_html,
                             &format!("<pre><code>{escaped}</code></pre>"),
@@ -138,7 +139,7 @@ impl Extractor for GitHubExtractor {
                     })
                 {
                     let code = doc.text_content(table).trim().to_string();
-                    let escaped = comments::escape_html(&code);
+                    let escaped = escape_html(&code);
                     if let Some(start) = body.find("<table")
                         && let Some(relative_end) = body[start..].find("</table>")
                     {
@@ -164,7 +165,7 @@ impl Extractor for GitHubExtractor {
                 && let Some(end_offset) = body[start..].find("</div></div>")
             {
                 let end = start + end_offset + "</div></div>".len();
-                let escaped = comments::escape_html(fallback_code);
+                let escaped = escape_html(fallback_code);
                 body.replace_range(start..end, &format!("<pre><code>{escaped}</code></pre>"));
             }
             let author_val = issue_body
@@ -207,7 +208,7 @@ impl Extractor for GitHubExtractor {
                 .map(|href| href.trim_start_matches('/').to_string())
                 .unwrap_or_else(|| author_val.clone());
             let author_href =
-                if author_link.starts_with("http://") || author_link.starts_with("https://") {
+                if crate::utils::is_absolute_url(&author_link) {
                     author_link.clone()
                 } else {
                     format!("https://github.com/{author_link}")
@@ -289,7 +290,7 @@ fn extract_github_comments(doc: &Document) -> Vec<comments::CommentData> {
         if author.is_empty() { continue; }
         let datetime = doc.query_selector_all_in_subtree(header_id, "relative-time").first()
             .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string())).unwrap_or_default();
-        let date = datetime.split('T').next().unwrap_or("").to_string();
+        let date = crate::utils::extract_date(&datetime);
         let body = doc.query_selector_all_in_subtree(container, ".comment-body.markdown-body").first()
             .map(|id| doc.inner_html(*id)).unwrap_or_default();
         if body.trim().is_empty() { continue; }
@@ -317,7 +318,7 @@ fn extract_github_comments(doc: &Document) -> Vec<comments::CommentData> {
             .first()
             .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string()))
             .unwrap_or_default();
-        let date = datetime.split('T').next().unwrap_or("").to_string();
+        let date = crate::utils::extract_date(&datetime);
         let body = doc
             .query_selector_all_in_subtree(container, ".comment-body.markdown-body")
             .first()

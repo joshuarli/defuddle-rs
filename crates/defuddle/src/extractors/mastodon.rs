@@ -136,7 +136,7 @@ impl Extractor for MastodonExtractor {
                     .iter()
                     .find(|&&t| doc.contains(wrapper, t))
                     .and_then(|&t| doc.get_attr(t, "datetime"))
-                    .map(|s| s.split('T').next().unwrap_or("").to_string())
+                    .map(|s| crate::utils::extract_date(s))
                     .unwrap_or_default();
 
                 let permalink = doc
@@ -191,7 +191,7 @@ impl Extractor for MastodonExtractor {
             .query_selector_all("meta[property=\"og:published_time\"]")
             .first()
             .and_then(|id| doc.get_attr(*id, "content"))
-            .map(|s| s.split('T').next().unwrap_or("").to_string())
+            .map(|s| crate::utils::extract_date(s))
             .unwrap_or_default();
 
         let fallback_site = site_name.clone();

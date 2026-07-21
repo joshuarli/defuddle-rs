@@ -15,6 +15,7 @@ mod whitespace;
 // Re-exports for external callers
 pub(crate) use elements::convert_alert_elements;
 pub(crate) use images::get_best_src_url;
+pub(crate) use images::remove_small_images;
 pub(crate) use urls::resolve_urls;
 
 use code_blocks::{standardize_code_blocks, wrap_preformatted_code};

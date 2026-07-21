@@ -210,6 +210,14 @@ pub fn extract_domain(url: &str) -> String {
         .to_lowercase()
 }
 
+pub fn is_absolute_url(url: &str) -> bool {
+    url.starts_with("http://") || url.starts_with("https://")
+}
+
+pub fn extract_date(iso_date: &str) -> String {
+    iso_date.split('T').next().unwrap_or("").to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

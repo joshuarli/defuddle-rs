@@ -694,7 +694,7 @@ impl ParsedUrl {
 }
 
 fn resolve_url(href: &str, base: &str) -> String {
-    if href.starts_with("http://") || href.starts_with("https://") {
+    if crate::utils::is_absolute_url(&href) {
         let without_query = href.split(['?', '#']).next().unwrap_or(href);
         if without_query.matches('/').count() == 2 && !href.contains(['?', '#']) {
             return format!("{href}/");
@@ -1053,7 +1053,7 @@ fn clean_author_string(s: &str) -> String {
     let url_re = AUTHOR_URL_RE.get_or_init(|| regex_lite::Regex::new(r"\(?\s*https?://\S+\s*\)?").unwrap());
     let s = url_re.replace_all(s, "").to_string();
 
-    if s.starts_with("https://") || s.starts_with("http://") {
+    if crate::utils::is_absolute_url(&s) {
         return s.to_string();
     }
 

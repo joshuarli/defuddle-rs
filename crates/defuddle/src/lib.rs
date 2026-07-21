@@ -171,6 +171,7 @@ struct PipelineConfig<'a> {
     remove_partial: bool,
     remove_hidden: bool,
     remove_iframes: bool,
+    remove_small_images: bool,
     do_standardize: bool,
     separate_markdown: bool,
     content_selector: Option<&'a str>,
@@ -209,8 +210,13 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
     let remove_partial = options.remove_partial_selectors.unwrap_or(true);
     let remove_hidden = options.remove_hidden_elements.unwrap_or(true);
     let remove_iframes = options.remove_iframes;
+    let remove_small_images = options.remove_small_images.unwrap_or(true);
     let do_standardize = options.standardize.unwrap_or(true);
     let content_selector = options.content_selector.as_deref();
+
+    if remove_iframes {
+        sanitize::remove_iframes(&mut doc);
+    }
 
     let ext_registry = extractors::build_registry();
     let found_extractor = if let Some(name) = options.extractor.as_deref() {
@@ -227,10 +233,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
         };
 
     let result = if let Some(ext_result) = extractor_result {
-        let mut content_html = ext_result.content_html;
-        if remove_iframes {
-            content_html = sanitize::remove_iframes_from_html(&content_html);
-        }
+        let content_html = ext_result.content_html;
 
         let mut variables = ext_result.variables;
         let title = variables
@@ -290,6 +293,7 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
             remove_partial,
             remove_hidden,
             remove_iframes,
+            remove_small_images,
             do_standardize,
             separate_markdown,
             content_selector,
@@ -394,6 +398,10 @@ fn parse_internal_once(
             pipeline::remove_metadata_blocks(&mut doc, content);
         }
         pipeline::remove_author_sibling(&mut doc, content, &config.metadata.author);
+
+        if config.remove_small_images {
+            standardize::remove_small_images(&mut doc, content);
+        }
 
         // Resolve relative URLs before standardization
         standardize::resolve_urls(&mut doc, content, config.url);

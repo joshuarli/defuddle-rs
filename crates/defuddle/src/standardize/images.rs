@@ -301,3 +301,172 @@ pub(crate) fn is_generic_alt(alt: &str) -> bool {
     a.is_empty() || a == "image" || a == "picture" || a == "photo"
 }
 
+const MIN_DIMENSION: f64 = 33.0;
+
+fn looks_like_latex(alt: &str) -> bool {
+    let a = alt.trim();
+    if a.is_empty() {
+        return false;
+    }
+    // LaTeX often starts/ends with $, $$, \(, \), \[, \], or contains backslash-commands
+    a.starts_with('$')
+        || a.ends_with('$')
+        || a.starts_with("\\(")
+        || a.ends_with("\\)")
+        || a.starts_with("\\[")
+        || a.ends_with("\\]")
+        || a.contains("\\frac")
+        || a.contains("\\sum")
+        || a.contains("\\int")
+        || a.contains("\\sqrt")
+        || a.contains("\\alpha")
+        || a.contains("\\beta")
+        || a.contains("\\pi")
+        || a.contains("\\infty")
+}
+
+pub(crate) fn remove_small_images(doc: &mut Document, content_id: NodeId) {
+    let elements: Vec<NodeId> =
+        doc.query_selector_all_in_subtree(content_id, "img, svg")
+            .into_iter()
+            .filter(|&id| !doc.is_removed(id))
+            .collect();
+
+    for id in elements {
+        if doc.is_removed(id) {
+            continue;
+        }
+
+        let tag = doc.tag_name(id);
+        let is_img = tag.eq_ignore_ascii_case("img");
+        let is_svg = tag.eq_ignore_ascii_case("svg");
+
+        if is_img {
+            let src = doc.get_attr(id, "src").unwrap_or("");
+            let has_alt_src = doc.get_attr(id, "srcset").unwrap_or("").is_empty() == false
+                || doc.get_attr(id, "data-src").unwrap_or("").is_empty() == false
+                || doc.get_attr(id, "data-srcset").unwrap_or("").is_empty() == false
+                || doc.get_attr(id, "data-lazy-src").unwrap_or("").is_empty() == false
+                || doc.get_attr(id, "data-original").unwrap_or("").is_empty() == false;
+
+            if src.is_empty() && !has_alt_src {
+                doc.remove(id);
+                continue;
+            }
+
+            if !has_alt_src
+                && !doc.closest(id, "picture").is_some()
+                && src.starts_with("data:image/")
+                && !src.starts_with("data:image/svg+xml")
+            {
+                let b64start = src.find(',').map(|i| i + 1).unwrap_or(src.len());
+                let b64len = src.len() - b64start;
+                if b64len < 133 {
+                    doc.remove(id);
+                    continue;
+                }
+            }
+        }
+
+        let attr_w: f64 = doc
+            .get_attr(id, "width")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0.0);
+        let attr_h: f64 = doc
+            .get_attr(id, "height")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0.0);
+
+        let style = doc.get_attr(id, "style").unwrap_or("");
+        let mut style_w = 0.0;
+        let mut style_h = 0.0;
+        for part in style.split(';') {
+            let trimmed = part.trim();
+            if let Some(val) = trimmed.strip_prefix("width:").or_else(|| trimmed.strip_prefix("width :")) {
+                style_w = val.trim().trim_end_matches("px").trim().parse().unwrap_or(0.0);
+            }
+            if let Some(val) = trimmed.strip_prefix("height:").or_else(|| trimmed.strip_prefix("height :")) {
+                style_h = val.trim().trim_end_matches("px").trim().parse().unwrap_or(0.0);
+            }
+        }
+
+        let mut viewbox_w = 0.0;
+        let mut viewbox_h = 0.0;
+        if is_svg {
+            if let Some(vb) = doc.get_attr(id, "viewBox") {
+                let parts: Vec<&str> = vb.split(|c: char| c.is_whitespace() || c == ',').collect();
+                if parts.len() == 4 {
+                    viewbox_w = parts[2].parse().unwrap_or(0.0);
+                    viewbox_h = parts[3].parse().unwrap_or(0.0);
+                }
+            }
+        }
+
+        let mut url_w = 0.0;
+        if is_img && attr_w == 0.0 && attr_h == 0.0 && style_w == 0.0 && style_h == 0.0 {
+            if let Some(srcset) = doc.get_attr(id, "srcset") {
+                for part in srcset.split(',') {
+                    let trimmed = part.trim();
+                    if trimmed.ends_with("1x") {
+                        let url_part = trimmed.rsplitn(2, ' ').nth(1).unwrap_or("");
+                        for seg in url_part.split(|c: char| c == '?' || c == '&' || c == '/') {
+                            if let Some(w) = seg.strip_prefix("w=")
+                                .or_else(|| seg.strip_prefix("width="))
+                                .or_else(|| seg.strip_prefix("w:"))
+                                .or_else(|| seg.strip_prefix("width:"))
+                                .or_else(|| seg.strip_prefix("w_"))
+                            {
+                                url_w = w.trim().parse().unwrap_or(0.0);
+                                if url_w > 0.0 {
+                                    break;
+                                }
+                            }
+                        }
+                        if url_w > 0.0 {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        let widths: Vec<f64> = [attr_w, style_w, viewbox_w, url_w]
+            .into_iter()
+            .filter(|&d| d > 0.0)
+            .collect();
+        let heights: Vec<f64> = [attr_h, style_h, viewbox_h]
+            .into_iter()
+            .filter(|&d| d > 0.0)
+            .collect();
+
+        if widths.is_empty() && heights.is_empty() {
+            continue;
+        }
+
+        let effective_w = widths.iter().cloned().fold(f64::INFINITY, f64::min);
+        let effective_h = heights.iter().cloned().fold(f64::INFINITY, f64::min);
+
+        if effective_w >= MIN_DIMENSION && effective_h >= MIN_DIMENSION {
+            continue;
+        }
+
+        if is_img {
+            let alt = doc.get_attr(id, "alt").unwrap_or("");
+            let class = doc.get_attr(id, "class").unwrap_or("");
+            if looks_like_latex(alt) {
+                continue;
+            }
+            if class.contains("latex")
+                || class.contains("tex")
+                || doc.get_attr(id, "data-latex").is_some()
+                || doc.get_attr(id, "data-math").is_some()
+                || doc.get_attr(id, "data-tex").is_some()
+            {
+                continue;
+            }
+        }
+
+        doc.remove(id);
+    }
+}
+

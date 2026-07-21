@@ -1,5 +1,6 @@
 use crate::dom::Document;
 use crate::extractors::{comments, Extractor, ExtractorResult};
+use crate::utils::escape_html;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
@@ -57,7 +58,7 @@ impl HackerNewsExtractor {
                     .first()
                     .and_then(|&id| doc.get_attr(id, "href").map(|s| s.to_string()))
                     .unwrap_or_default();
-                let title_link = if title_link.starts_with("http://") || title_link.starts_with("https://") {
+                let title_link = if crate::utils::is_absolute_url(&title_link) {
                     title_link
                 } else {
                     format!("https://news.ycombinator.com/{}", title_link.trim_start_matches('/'))
@@ -110,8 +111,8 @@ impl HackerNewsExtractor {
                     })
                     .map(|cid| doc.text_content(cid).trim().to_string());
 
-                let escaped_author = comments::escape_html(&author);
-                let escaped_title = comments::escape_html(&title_text);
+                let escaped_author = escape_html(&author);
+                let escaped_title = escape_html(&title_text);
 
                 let site_part = if !site_str.is_empty() {
                     format!(" ({site_str})")
@@ -128,8 +129,8 @@ impl HackerNewsExtractor {
                     let ci = ci.replace('\u{a0}', " ");
                     format!(
                         " · <a href=\"{}\">{}</a>",
-                        comments::escape_html(&item_url),
-                        comments::escape_html(&ci)
+                        escape_html(&item_url),
+                        escape_html(&ci)
                     )
                 } else {
                     String::new()
@@ -137,7 +138,7 @@ impl HackerNewsExtractor {
 
                 format!(
                     "<li><a href=\"{}\">{escaped_title}</a>{site_part}<div>{score} · by {escaped_author}{comments_part}</div></li>",
-                    comments::escape_html(&title_link)
+                    escape_html(&title_link)
                 )
             })
             .collect();
@@ -158,9 +159,9 @@ impl HackerNewsExtractor {
         let content_html = {
             let mut html = format!("<ol>{}</ol>", stories.join("\n"));
             if let Some((href, text)) = more_link {
-                let escaped_text = comments::escape_html(&text);
+                let escaped_text = escape_html(&text);
                 let absolute_href =
-                    if href.starts_with("http://") || href.starts_with("https://") {
+                    if crate::utils::is_absolute_url(&href) {
                         href
                     } else {
                         format!(
@@ -168,7 +169,7 @@ impl HackerNewsExtractor {
                             href.trim_start_matches('/')
                         )
                     };
-                let escaped_href = comments::escape_html(&absolute_href);
+                let escaped_href = escape_html(&absolute_href);
                 html.push_str(&format!(
                     "\n\n<a href=\"{escaped_href}\">{escaped_text}</a>"
                 ));
@@ -258,7 +259,7 @@ impl HackerNewsExtractor {
         doc.query_selector_all(".age")
             .first()
             .and_then(|id| doc.get_attr(*id, "title").map(|s| s.to_string()))
-            .map(|t| t.split('T').next().unwrap_or("").to_string())
+            .map(|t| crate::utils::extract_date(&t))
             .unwrap_or_default()
     }
 
@@ -301,8 +302,8 @@ impl HackerNewsExtractor {
         if !titleline_url.is_empty() {
             content.push_str(&format!(
                 "<p><a href=\"{}\" target=\"_blank\">{}</a></p>",
-                comments::escape_html(&titleline_url),
-                comments::escape_html(&titleline_url)
+                escape_html(&titleline_url),
+                escape_html(&titleline_url)
             ));
         }
         if let Some(toptext_id) = doc.query_selector_all(".toptext").first().copied() {
@@ -369,7 +370,7 @@ impl HackerNewsExtractor {
                 .copied()
                 .and_then(|id| doc.get_attr(id, "title").map(|s| s.to_string()))
                 .unwrap_or_default();
-            let date = age_title.split('T').next().unwrap_or("").to_string();
+            let date = crate::utils::extract_date(&age_title);
 
             let comment_url = format!("https://news.ycombinator.com/item?id={id_attr}");
 

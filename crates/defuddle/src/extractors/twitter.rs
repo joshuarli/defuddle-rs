@@ -1,5 +1,6 @@
 use crate::dom::Document;
 use crate::extractors::{comments, Extractor, ExtractorResult};
+use crate::utils::escape_html;
 use rustc_hash::FxHashMap;
 
 pub fn create(doc: &Document, url: &str) -> Option<Box<dyn Extractor>> {
@@ -178,12 +179,12 @@ fn extract_article(doc: &Document, url: &str) -> ExtractorResult {
         let alt = doc.get_attr(*image, "alt").unwrap_or("Image");
         content_html.push_str(&format!(
             "<img src=\"{}\" alt=\"{}\" />\n",
-            comments::escape_html(&src),
-            comments::escape_html(alt)
+            escape_html(&src),
+            escape_html(alt)
         ));
     }
     if has_title_block && !article_title.is_empty() {
-        let safe = comments::escape_html(&article_title);
+        let safe = escape_html(&article_title);
         content_html.push_str(&format!("<div>{safe}</div>\n"));
         if !url.contains("/status/") {
             content_html.push_str("<p>\u{00B7}</p>\n");
@@ -288,11 +289,8 @@ fn extract_conversation(doc: &Document) -> ExtractorResult {
         let date = time_id
             .as_ref()
             .and_then(|&tid| doc.get_attr(tid, "datetime"))
-            .unwrap_or("")
-            .split('T')
-            .next()
-            .unwrap_or("")
-            .to_string();
+            .map(|s| crate::utils::extract_date(s))
+            .unwrap_or_default();
 
         let permalink = time_id
             .and_then(|tid| {
@@ -597,7 +595,7 @@ fn collect_formatted_text(doc: &Document, node_id: crate::NodeId, result: &mut S
             if doc.is_text(node_id) {
                 let text = doc.text_content(node_id);
                 if !text.is_empty() {
-                    result.push_str(&comments::escape_html(&text));
+                    result.push_str(&escape_html(&text));
                 }
             } else {
                 for &child_id in doc.children(node_id) {
@@ -630,7 +628,7 @@ fn extract_code_block_html(doc: &Document, block_id: crate::NodeId) -> String {
         } else {
             doc.text_content(code_id)
         };
-        let escaped = comments::escape_html(code_text.trim());
+        let escaped = escape_html(code_text.trim());
         if lang.is_empty() {
             format!("<pre><code>{escaped}</code></pre>")
         } else {
@@ -638,7 +636,7 @@ fn extract_code_block_html(doc: &Document, block_id: crate::NodeId) -> String {
         }
     } else if let Some(pre_id) = pre {
         let code_text = doc.text_content(pre_id);
-        let escaped = comments::escape_html(code_text.trim());
+        let escaped = escape_html(code_text.trim());
         format!("<pre><code>{escaped}</code></pre>")
     } else {
         String::new()
