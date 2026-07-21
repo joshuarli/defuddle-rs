@@ -256,8 +256,14 @@ Phases 1-3 are done.
 - [x] **4.3** Fixed the doubled `get_attr` calls:
   - `standardize.rs` (data-as): Combined `.is_some()` filter + `.unwrap()` → single `.unwrap_or("")`.
   - `pipeline.rs:57` (src): `is_none() || .unwrap_or("").is_empty()` → `map_or(true, |s| s.is_empty())`.
-- [ ] **4.4** (Deferred) Replace serialize-then-reparse round-trips. All four sites require node-relocation or subtree text-walking operations that the `Document` adapter does not expose. Deferred until `Document` gains `move_to_parent`, `text_content_with_br`, or equivalent methods.
-- [x] **4.5** Moved iframe removal into the standard pipeline. `parse_internal_once` already calls `sanitize::remove_iframes(&mut doc)` on the live Document. Removed the redundant post-hoc `remove_iframes_from_result` call in `parse_html` that re-parsed serialized HTML. Removed the now-unused `remove_iframes_from_result` function from `sanitize.rs`. Cleaned up unnecessary `mut` binding.
+- [ ] **4.4** (Deferred) Replace serialize-then-reparse round-trips. 5 sites confirmed still present as of audit:
+  1. `standardize/tables.rs:58` — `doc.outer_html(child)` → `replace_with_html` (flatten layout table)
+  2. `standardize/code_blocks.rs:158-163` — `Document::parse(&content_html)` → text extract (CodeMirror)
+  3. `standardize/code_blocks.rs:395-396` — `doc.outer_html(pre_id)` → `replace_with_html` (wrap `<pre>`)
+  4. `standardize/elements.rs:52,94` — child-by-child `outer_html` → concat → `append_html` (callout/admonition builders)
+  5. `sanitize.rs:124-127` — `remove_iframes_from_html`: full parse → modify → serialize (called at `lib.rs:232`)
+  All require node-relocation or subtree text-walking operations that `Document` does not expose. Deferred until `Document` gains `move_to_parent`, `text_content_with_br`, or equivalent methods.
+- [ ] **4.5** (PARTIAL — needs correction) `remove_iframes_from_result` was renamed to `remove_iframes_from_html` and still exists in `sanitize.rs:124-127`, still called at `lib.rs:232` on extractor results. The redundant standard-pipeline post-hoc call was removed (Phase 7.2's retry loop no longer re-calls it), but the extractor-path serialize→parse→modify→serialize round-trip remains.
 - [x] **4.6** Eliminated the most egregious redundant allocations:
   - `standardize.rs` (CodeMirror candidate): Double `.to_lowercase()` → cached in `candidate_lower`.
   - `dom.rs` (`attr_contains`, `attr_starts`, `attr_ends`): Lifted `aval.to_lowercase()` outside the per-attribute `attr_match` closure for case-insensitive comparisons (3 patterns).
@@ -312,4 +318,53 @@ Phases 1-3 are done.
 - [x] **8.2** Consider replacing the hand-rolled parser with `cssparser` (already in the dependency tree via html5ever) to eliminate the maintenance burden of a custom selector engine.
   → Done. `cssparser = "0.37"` added as explicit dependency. New `crate::selector` module provides `parse`/`parse_one` using `cssparser::Parser`. The old hand-rolled parser (`SimpleSelector::parse`, `has_bare_combinator`, `SelectorMode`, `AttrOp` enum, ~190 lines of character iteration) was deleted. `SimpleSelector` gained an `extra` field for `:has()` matching and a `Default` impl. The `matches_simple` method gained `has_descendant_matching` for `:has()` support. `parse_selector` in `dom.rs` now delegates to `crate::selector::parse_one` for individual simple selectors while keeping the split-on-comma-then-whitespace compound decomposition (avoiding combinator confusion).
   → 3 expected fixtures updated to accept the new cssparser behavior (eyebrow/label, card-grid, and noscript-image edge cases now produce slightly different but reasonable output).
+
+---
+
+## Items from Original Audit NOT Yet in Roadmap
+
+These are from sections 1-6 of the audit. Many dead-code items were silently cleaned up during Phases 4-8 — those are noted. Remaining items need a phase or explicit deferral.
+
+### Cleared (discovered clean during audit)
+
+- [x] **1.2** `remove_by_selector_protected` — removed
+- [x] **1.2** `remove_small_images` stub body — removed (options field remains for API compat)
+- [x] **1.2** `convert_callouts_to_markdown` — removed
+- [x] **1.2** `strip_keep_inline_tags` — removed
+- [x] **1.2** `is_likely_content` — removed
+- [x] **1.2** `ExtractorResult::content_selector` — now actively used
+- [x] **1.2** `GitHubExtractor::number` — removed
+- [x] **1.2** `BLOCK_ELEMENTS_SELECTOR`, `HIDDEN_EXACT_SKIP_SELECTOR`, `HIDDEN_EXACT_SELECTOR` — removed
+- [x] **1.2** `FOOTNOTE_INLINE_REFERENCES_SELECTOR` — removed (only referenced in a comment)
+- [x] **1.2** `#[allow(dead_code)]` — all 4 module-level and 5 function-level suppressions removed
+- [x] **1.3** `has_closest` — consolidated to `dom.rs`
+- [x] **1.3** `next_element_sibling` — consolidated to `dom.rs`
+- [x] **1.3** `prev_element_sibling` — consolidated to `dom.rs`
+- [x] **1.3** `html_escape` — removed
+- [x] **1.3** `extract_hostname` / `parse_domain` — consolidated/removed
+- [x] **1.3** `remove_by_selector` / `remove_by_selector_protected` (90% dup) — removed
+- [x] **6.1** Dead expressions: `class_val.contains("author-bio")` (discarded result), `let _ = parent` (dropped binding), `let _tag` (computed never read), `let url = String::new()` (never written) — all removed
+
+### Still Outstanding
+
+- [ ] **1.3** `escape_html` duplicated: `utils.rs:183` (public) and `extractors/comments.rs:10` (private one-liner wrapper). Trivially fixable — `comments.rs` should just call `utils::escape_html` directly.
+- [ ] **3.1** ~15-20 inline regex compilations remain uncached: `chatgpt.rs` (2), `code_blocks.rs` (4), `markdown.rs` (1 at line 82), `pipeline.rs` (8), `images.rs` (1), `github.rs` (1), `substack.rs` (6), `metadata.rs` (2). Most are in extractors or edge-case code paths where caching would require restructuring.
+- [ ] **3.2** HTML parsing with regex still widespread: `preprocess_html_for_markdown`, `resolve_best_image_sources`, `convert_code_block_language`, `convert_embeds_to_links`, `recover_noscript_images`, `normalize_codemirror_blocks`, plus extractor-specific regex chains in GitHub and Substack. These operate on serialized HTML strings rather than the DOM.
+- [ ] **3.3** `fix_inline_spacing_line` applies ~30 regexes sequentially per line (O(n×m)). Cached since commit `5b823d7` but algorithm is still sequential per-regex.
+- [ ] **5.1** `prune.rs` still only registers Substack handler. Other extractors do cleanup inline during `extract()` instead of using the Registry infrastructure.
+- [ ] **5.3** `DefuddleOptions.remove_small_images` field exists in the public API but has no implementation body anywhere.
+- [ ] **6.2** Duplicated patterns across extractors: `FxHashMap::from_iter` variable builders, `.first().map(|id| doc.text_content(*id).trim().to_string()).unwrap_or_default()` (40+ sites), ISO date splits (7 sites), URL scheme checks. Extractors could share helper functions.
+
+---
+
+## Summary
+
+| Phase | Status | Items Outstanding |
+|---|---|---|
+| 4 — Allocation Churn | 4/6 done | 4.4 (5 round-trip sites), 4.5 (partial — renamed not removed) |
+| 5 — Article-Specific Hacks | 5/5 done | — |
+| 6 — Split Monolithic Modules | 2/2 done | — |
+| 7 — Pipeline Orchestration | 3/3 done | — |
+| 8 — Selector Parser | 2/2 done | — |
+| Original Audit (unphased) | 17 cleared, 7 remaining | 1.3 (escape_html), 3.1 (inline regexes), 3.2 (regex HTML parsing), 3.3 (inline spacing), 5.1 (prune underuse), 5.3 (remove_small_images), 6.2 (extractor duplication) |
 
