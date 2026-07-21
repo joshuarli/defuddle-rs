@@ -5,156 +5,46 @@ use crate::constants::{
 use crate::dom::{Document, NodeId};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-pub fn convert_alert_elements(doc: &mut Document) {
-    convert_bootstrap_alerts(doc);
-    convert_hugo_admonitions(doc);
-}
-
-pub(crate) fn convert_bootstrap_alerts(doc: &mut Document) {
-    let alert_classes = ["info", "warning", "danger", "success"];
-    for alert_type in &alert_classes {
-        let selector = format!("div.alert.alert-{alert_type}");
-        for id in doc.query_selector_all(&selector) {
-            // Remove roles that make it look interactive
-            doc.remove_attr(id, "role");
-
-            // Remove the alert-* classes, keep callout
-            if let Some(class) = doc.get_attr(id, "class") {
-                let new_class: String = class
-                    .split_whitespace()
-                    .filter(|c| *c != "alert" && !c.starts_with("alert-"))
-                    .chain(std::iter::once("callout"))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                doc.set_attr(id, "class", &new_class);
-            }
-            doc.set_attr(id, "data-callout", alert_type);
-
-            // Build callout structure
-            let children = doc.children(id).to_vec();
-            let mut heading_text = String::new();
-            for &child in &children {
-                let child_class = doc.get_attr(child, "class").unwrap_or("").to_lowercase();
-                if child_class.contains("alert-heading") || child_class.contains("alert-title") {
-                    heading_text = doc.text_content(child).trim().to_string();
-                    doc.remove(child);
-                }
-            }
-            let remaining = doc.children(id).to_vec();
-            let wrapper = if heading_text.is_empty() {
-                "<div class=\"callout-content\"></div>"
-            } else {
-                "<div class=\"callout-title\"><div class=\"callout-title-inner\"></div></div><div class=\"callout-content\"></div>"
-            };
-            doc.append_html(id, wrapper);
-            if !heading_text.is_empty()
-                && let Some(title_inner) = doc
-                    .query_selector_all_in_subtree(id, ".callout-title-inner")
-                    .last()
-                    .copied()
-            {
-                doc.append_text(title_inner, &heading_text);
-            }
-            if let Some(content) = doc
-                .query_selector_all_in_subtree(id, ".callout-content")
-                .last()
-                .copied()
-            {
-                for child in remaining {
-                    if !doc.is_removed(child) {
-                        doc.append_node(content, child);
-                    }
-                }
-            }
+/// Preserve author-declared preformatted code when it is represented as a
+/// standalone `<code style="white-space: pre">` element.
+pub(crate) fn standardize_preformatted_elements(doc: &mut Document, content_id: NodeId) {
+    let codes = doc.query_selector_all_in_subtree(content_id, "code");
+    for code_id in codes {
+        if doc.closest(code_id, "pre").is_some() {
+            continue;
         }
-    }
-}
-
-pub(crate) fn convert_hugo_admonitions(doc: &mut Document) {
-    let admonition_types = ["info", "warning", "danger", "tip", "note", "success"];
-    for ad_type in &admonition_types {
-        // Match .admonition.{type} but not inside .callout
-        let selector = format!("div.admonition.{ad_type}");
-        for id in doc.query_selector_all(&selector) {
-            // Skip if already inside a callout
-            if doc.closest(id, ".callout").is_some() {
-                continue;
-            }
-            // Extract title from .admonition-title
-            let mut title = String::new();
-            let title_els = doc.query_selector_all_in_subtree(id, ".admonition-title");
-            if let Some(&title_id) = title_els.first() {
-                title = doc.text_content(title_id).trim().to_string();
-            }
-            // Extract content from .admonition-content
-            let content_els = doc.query_selector_all_in_subtree(id, ".admonition-content");
-            let content_children = if let Some(&content_id) = content_els.first() {
-                doc.children(content_id).to_vec()
-            } else {
-                doc.children(id)
-                    .iter()
-                    .copied()
-                    .filter(|&c| {
-                        let cclass = doc.get_attr(c, "class").unwrap_or("");
-                        !cclass.contains("admonition-title") && !cclass.contains("details-summary")
-                    })
-                    .collect()
-            };
-            let content_parent = content_els.first().and_then(|&content| doc.parent(content));
-
-            // Rebuild as callout
-            if let Some(class) = doc.get_attr(id, "class") {
-                let new_class: String = class
-                    .split_whitespace()
-                    .filter(|c| {
-                        *c != "admonition" && *c != "details" && *c != *ad_type && *c != "open"
-                    })
-                    .chain(std::iter::once("callout"))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                doc.set_attr(id, "class", &new_class);
-            }
-            doc.set_attr(id, "data-callout", ad_type);
-
-            let children = doc.children(id).to_vec();
-            for child in children {
-                let is_content_wrapper = content_els.first().copied() == Some(child);
-                if !content_children.contains(&child)
-                    && !is_content_wrapper
-                    && content_parent != Some(child)
-                {
-                    doc.remove(child);
-                }
-            }
-            let wrapper = if title.is_empty() {
-                "<div class=\"callout-content\"></div>"
-            } else {
-                "<div class=\"callout-title\"><div class=\"callout-title-inner\"></div></div><div class=\"callout-content\"></div>"
-            };
-            doc.append_html(id, wrapper);
-            if !title.is_empty()
-                && let Some(title_inner) = doc
-                    .query_selector_all_in_subtree(id, ".callout-title-inner")
-                    .last()
-                    .copied()
-            {
-                doc.append_text(title_inner, &title);
-            }
-            if let Some(content) = doc
-                .query_selector_all_in_subtree(id, ".callout-content")
-                .last()
-                .copied()
-            {
-                for child in content_children {
-                    if !doc.is_removed(child) {
-                        doc.append_node(content, child);
-                    }
-                }
-            }
-            if let Some(&old_content) = content_els.first() {
-                doc.remove(old_content);
-            }
+        let style = doc.get_attr(code_id, "style").unwrap_or("").to_lowercase();
+        let Some(value) = style.split("white-space").nth(1) else {
+            continue;
+        };
+        let value = value.trim_start_matches(|c: char| c.is_whitespace() || c == ':');
+        if !value.starts_with("pre") || value.starts_with("pre-") {
+            continue;
         }
+
+        let inner = doc.inner_html(code_id);
+        let inner = inner.trim();
+        if inner.is_empty() {
+            continue;
+        }
+        let attrs: Vec<(String, String)> = doc
+            .attr_names(code_id)
+            .into_iter()
+            .filter(|name| name != "style")
+            .filter_map(|name| {
+                doc.get_attr(code_id, &name)
+                    .map(|value| (name, value.to_string()))
+            })
+            .collect();
+
+        let mut replacement = String::from("<pre><code");
+        for (name, value) in attrs {
+            replacement.push_str(&format!(r#" {}="{}""#, name, value));
+        }
+        replacement.push('>');
+        replacement.push_str(inner);
+        replacement.push_str("</code></pre>");
+        doc.replace_with_html(code_id, &replacement);
     }
 }
 

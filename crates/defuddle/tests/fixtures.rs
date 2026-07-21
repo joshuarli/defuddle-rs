@@ -54,8 +54,8 @@ fn fixture_harness_discovers_vendored_snapshot() {
     let expected_md = files_with_extension(expected_dir(), "md");
     let expected_html = files_with_extension(expected_dir(), "html");
 
-    assert_eq!(fixtures.len(), 188);
-    assert_eq!(expected_md.len(), 188);
+    assert_eq!(fixtures.len(), 168);
+    assert_eq!(expected_md.len(), 168);
     assert_eq!(expected_html.len(), 3);
 }
 
@@ -389,10 +389,6 @@ fn fixture_url(html: &str, path: &Path) -> String {
             "extractor--chatgpt-post-thought-content",
             "https://chatgpt.com/share/thoughts",
         ),
-        (
-            "codeblocks--chatgpt-codemirror",
-            "https://chatgpt.com/share/codemirror",
-        ),
         ("general--substack-app", "https://substack.com/app"),
         (
             "general--substack-custom-domain",
@@ -410,9 +406,6 @@ fn fixture_url(html: &str, path: &Path) -> String {
     ];
     if let Some((_, url)) = named_urls.iter().find(|(name, _)| *name == stem) {
         return (*url).to_string();
-    }
-    if stem == "elements--lazy-image" {
-        return "https://lazy-image".to_string();
     }
     if stem == "table-layout--single-column" {
         return "https://table-layout--single-column".to_string();

@@ -95,6 +95,28 @@ fn preserves_video_elements_that_use_source_children() {
 }
 
 #[test]
+fn standardizes_callouts_without_code_block_rules() {
+    let html = r#"<!DOCTYPE html>
+<html><head><title>Callout test</title></head><body><article>
+<p>This article contains enough ordinary prose for the extractor to select the article as its main content.</p>
+<div class="alert alert-info"><h4 class="alert-heading">Important</h4><p>Read this carefully before continuing.</p></div>
+</article></body></html>"#;
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            separate_markdown: true,
+            url: Some("https://example.com/callout".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    let markdown = result.content_markdown.expect("markdown output");
+    assert!(markdown.contains("> [!info] Important"));
+    assert!(markdown.contains("> Read this carefully before continuing."));
+}
+
+#[test]
 fn strips_style_inside_svg() {
     let html = r#"<!DOCTYPE html>
 <html>

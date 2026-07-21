@@ -8,8 +8,6 @@ exceptions = [
     { name = "perf.test.ts", category = "intentional_api_difference", reason = "Performance benchmarks deferred", required_capability = "Benchmark harness", target = "post_v1", date_added = "2026-07-03" },
 
     # Tier A: One-company/unpopular formats
-    { name = "codeblocks--rockthejvm.com-articles-kotlin-101-type-classes", category = "site_extractor_out_of_scope", reason = "One-company blog format", required_capability = "Site-specific rules", target = "out_of_scope", date_added = "2026-07-06" },
-    { name = "codeblocks--stripe", category = "site_extractor_out_of_scope", reason = "Stripe custom blog format", required_capability = "Site-specific rules", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "elementor--archive-page", category = "site_extractor_out_of_scope", reason = "Elementor CMS page builder", required_capability = "Site-specific extractor", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "comments--mastodon.social-@user-12345678", category = "site_extractor_out_of_scope", reason = "Single Mastodon instance", required_capability = "Mastodon extractor", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "issues--296-oreilly-noteref-footnotes", category = "site_extractor_out_of_scope", reason = "O'Reilly platform footnotes", required_capability = "Site-specific footnote rules", target = "out_of_scope", date_added = "2026-07-06" },
@@ -28,8 +26,6 @@ exceptions = [
     { name = "issues--169-svg-classname-crash", category = "intentional_api_difference", reason = "SVG className crash edge case", required_capability = "SVG class handling", target = "post_v1", date_added = "2026-07-06" },
     { name = "issues--263-buttons-in-paragraphs", category = "intentional_api_difference", reason = "Buttons in paragraphs edge case", required_capability = "Button handling", target = "post_v1", date_added = "2026-07-06" },
     { name = "small-images--svg-icon-viewbox", category = "intentional_api_difference", reason = "Small SVG icon viewbox", required_capability = "SVG icon handling", target = "post_v1", date_added = "2026-07-06" },
-    { name = "codeblocks--flex-row-gutter", category = "intentional_api_difference", reason = "Flex-row gutter — rare layout", required_capability = "Flex gutter detection", target = "post_v1", date_added = "2026-07-06" },
-    { name = "codeblocks--hljs-header", category = "intentional_api_difference", reason = "highlight.js header edge case", required_capability = "hljs header detection", target = "post_v1", date_added = "2026-07-06" },
 
     # Tier E: Additional niche single-site fixtures
     { name = "general--scp-wiki.wikidot.com-scp-9935", category = "site_extractor_out_of_scope", reason = "SCP wiki fandom site", required_capability = "Site-specific extractor", target = "out_of_scope", date_added = "2026-07-06" },
@@ -39,7 +35,6 @@ exceptions = [
     { name = "footnotes--maggieappleton.com-xanadu-patterns", category = "site_extractor_out_of_scope", reason = "Single-person blog footnotes", required_capability = "Site-specific footnote rules", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "footnotes--orgmode-css-sidenotes", category = "site_extractor_out_of_scope", reason = "Org-mode CSS niche", required_capability = "Org-mode support", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "footnotes--word-ftn-ftnref", category = "site_extractor_out_of_scope", reason = "Word footnotes — rare on web", required_capability = "Word footnote parsing", target = "out_of_scope", date_added = "2026-07-06" },
-    { name = "codeblocks--mintlify", category = "site_extractor_out_of_scope", reason = "Mintlify docs framework", required_capability = "Mintlify-specific rules", target = "out_of_scope", date_added = "2026-07-06" },
     { name = "headings--testid-article-header", category = "intentional_api_difference", reason = "Test-id based heading detection edge case", required_capability = "Test-id handling", target = "post_v1", date_added = "2026-07-06" },
     { name = "general--back-nav-link", category = "intentional_api_difference", reason = "Back nav link edge case", required_capability = "Nav link handling", target = "post_v1", date_added = "2026-07-06" },
     { name = "metadata--email-style-header-block", category = "intentional_api_difference", reason = "Email-style header edge case", required_capability = "Email header parsing", target = "post_v1", date_added = "2026-07-06" },

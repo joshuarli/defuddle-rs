@@ -378,7 +378,6 @@ fn find_and_process_blocks(doc: &Document, node: crate::NodeId, html: &mut Strin
         || class.contains("longform-header-two")
         || class.contains("longform-header-three")
         || class.contains("longform-header-four")
-        || testid == "markdown-code-block"
         || testid == "tweetPhoto"
         || class.contains("public-DraftStyleDefault-ol")
         || class.contains("public-DraftStyleDefault-ul")
@@ -436,11 +435,6 @@ fn process_draft_block(doc: &Document, block_id: crate::NodeId, html: &mut Strin
                 .replace("&name=medium", "&name=large")
                 .replace("?name=medium", "?name=large");
             html.push_str(&format!("<img src=\"{src}\" alt=\"{alt}\">\n"));
-        }
-    } else if testid == "markdown-code-block" {
-        let code_html = extract_code_block_html(doc, block_id);
-        if !code_html.is_empty() {
-            html.push_str(&format!("{code_html}\n"));
         }
     } else if testid == "twitter-article-title"
         || tag == "div" && doc.get_attr(block_id, "itemprop").is_some()
@@ -594,43 +588,6 @@ fn collect_formatted_text(doc: &Document, node_id: crate::NodeId, result: &mut S
                 }
             }
         }
-    }
-}
-
-fn extract_code_block_html(doc: &Document, block_id: crate::NodeId) -> String {
-    let code = doc
-        .query_selector_all_in_subtree(block_id, "code")
-        .first()
-        .copied();
-    let pre = doc
-        .query_selector_all_in_subtree(block_id, "pre")
-        .first()
-        .copied();
-    if let Some(code_id) = code {
-        let lang = doc
-            .get_attr(code_id, "class")
-            .unwrap_or("")
-            .split_whitespace()
-            .find(|c| c.starts_with("language-"))
-            .map(|c| &c["language-".len()..])
-            .unwrap_or("");
-        let code_text = if let Some(pre_val) = pre {
-            doc.text_content(pre_val)
-        } else {
-            doc.text_content(code_id)
-        };
-        let escaped = escape_html(code_text.trim());
-        if lang.is_empty() {
-            format!("<pre><code>{escaped}</code></pre>")
-        } else {
-            format!("<pre><code class=\"language-{lang}\">{escaped}</code></pre>")
-        }
-    } else if let Some(pre_id) = pre {
-        let code_text = doc.text_content(pre_id);
-        let escaped = escape_html(code_text.trim());
-        format!("<pre><code>{escaped}</code></pre>")
-    } else {
-        String::new()
     }
 }
 

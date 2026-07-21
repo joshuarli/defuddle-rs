@@ -1,143 +1,157 @@
-This is a rust port of [Defuddle](https://github.com/kepano/defuddle), a TypeScript library that extracts clean, readable article content from HTML. This crate accepts static HTML strings and returns extracted content (HTML or Markdown) plus metadata. No network, no browser, no JavaScript runtime.
+# Defuddle Rust
 
-A Rust port of `../defuddle` (commit `6c39f09`), a TypeScript library that extracts clean, readable article content from HTML.
+This repository is a Rust port of [Defuddle](https://github.com/kepano/defuddle), a TypeScript library that extracts readable article content from static HTML. The core crate accepts an HTML string and returns cleaned HTML, optional Markdown, and metadata. It does not use a browser, JavaScript runtime, network access, or asynchronous fetching.
 
-Upstream test fixtures and expected output are vendored in `tests/upstream/`.
+The port tracks the upstream snapshot documented in `tests/upstream/SNAPSHOT.md`. Upstream fixtures and expected output are vendored under `tests/upstream/`.
 
-## Workspace
+## Repository layout
 
 ```
 defuddle-rs/
-├── Cargo.toml              # workspace root
-├── docs/dependencies.md    # dependency rationale
+├── Cargo.toml
+├── REDESIGN.md                  # targeted architecture migration plan
+├── docs/dependencies.md         # dependency rationale
 ├── tests/
-│   ├── upstream/           # vendored upstream fixtures and expected output
-│   │   ├── SNAPSHOT.md     # source commit reference
-│   │   ├── defuddle/fixtures/   # 202 .html input files
-│   │   └── defuddle/expected/   # 202 .md + 3 .html golden files
-│   └── upstream-exceptions.toml  # tests/fixtures excluded from current gate
-├── crates/
-│   ├── defuddle/           # core library — HTML in, content out
-│   │   ├── src/
-│   │   │   ├── lib.rs           # public API, DefuddleOptions, DefuddleResult, parse_html
-│   │   │   ├── dom.rs           # mutable DOM adapter over html5ever/rcdom
-│   │   │   ├── constants.rs     # CSS selectors, blocked patterns, element lists
-│   │   │   ├── utils.rs         # count_words (CJK-aware), normalize_text, entity decode/encode
-│   │   │   ├── sanitize.rs      # strip_unsafe_elements, is_dangerous_url
-│   │   │   ├── schema.rs        # extract_schema_org_data, collect_meta_tags
-│   │   │   ├── metadata.rs      # extract title, author, site, date, favicon, image, language
-│   │   │   ├── scoring.rs       # score_element, find_main_content, is_likely_content
-│   │   │   ├── pipeline.rs      # remove_by_selector, remove_hidden_elements, extract_content
-│   │   │   ├── standardize.rs   # standardize_content (comment removal, layout tables, empty elements)
-│   │   │   ├── markdown.rs      # html_to_markdown, content_to_markdown (wraps html-to-markdown-rs)
-│   │   │   └── extractor.rs     # Extractor trait, Registry, 8 site extractors, comment builder, BBCode
-│   │   └── tests/
-│   │       ├── fixtures.rs      # golden fixture runner (compares against tests/upstream/expected/)
-│   │       ├── integration.rs   # focused parity tests (markdown, xss, media, schema fallback, debug, etc.)
-│   │       └── metadata.rs      # metadata extraction unit tests
-│   └── defuddle-cli/       # thin lexopt binary
-│       ├── src/main.rs
-│       └── tests/cli.rs         # stdin, file, markdown, json, frontmatter, property, output tests
+│   ├── upstream/
+│   │   ├── SNAPSHOT.md
+│   │   ├── defuddle/fixtures/   # HTML inputs
+│   │   └── defuddle/expected/   # golden HTML/Markdown outputs
+│   └── upstream-exceptions.toml # intentionally excluded fixtures
+└── crates/
+    ├── defuddle/                # core library
+    ├── defuddle-cli/            # stdin/file CLI
+    └── defuddle-wasm/           # opt-in WASM adapter
 ```
 
-## Data Flow
+The core source is organized around the extraction pipeline rather than one large implementation module:
 
-```
-parse_html(html: &str, options: DefuddleOptions) -> DefuddleResult
-│
-├─ 1. Parse HTML → Document (html5ever → custom DOM adapter)
-├─ 2. Extract metadata (title, author, site, date, etc.) from original doc
-├─ 3. Extract schema.org JSON-LD and meta tags
-├─ 4. Check extractor registry — if URL matches a site extractor:
-│     └─ Run extractor.extract() → ExtractorResult (content_html + variables)
-│        Skip standard pipeline, build DefuddleResult from extractor output
-├─ 5. (Standard pipeline) Find main content element via entry-point scoring
-├─ 6. Remove clutter: exact/partial selectors, hidden elements
-├─ 7. Standardize HTML: strip comments, flatten layout tables, remove empty elements
-├─ 8. Sanitize: strip dangerous elements (script/style/noscript/object/embed/applet/base)
-│     and dangerous attributes (on*, srcdoc, javascript: URIs)
-├─ 9. Optionally convert to Markdown via html-to-markdown-rs
-└─ 10. Return DefuddleResult
-```
+| Module | Responsibility |
+|---|---|
+| `lib.rs` | Public API, options/results, metadata setup, extractor dispatch, retry loop |
+| `dom.rs` | Mutable DOM adapter over `html5ever` and `markup5ever_rcdom` |
+| `pipeline.rs` | Main-content selection, pruning, scoring, selector removal, hidden-content removal |
+| `prune.rs` | Document-wide pre-extraction cleanup hooks |
+| `metadata.rs`, `schema.rs` | Metadata, meta tags, and JSON-LD extraction |
+| `standardize/` | DOM normalization after main-content selection |
+| `footnotes/` | Footnote reference/definition collection and canonicalization |
+| `embeds/` | Platform embed normalization, currently YouTube and Twitter/X iframe handling |
+| `extractors/` | Site-specific DOM extractors and their shared comment helpers |
+| `sanitize.rs` | Unsafe element, attribute, and URL removal |
+| `markdown.rs` | HTML-to-Markdown conversion and final Markdown normalization |
+| `overrides.rs` | Deliberate page-specific exceptions to the standard pipeline |
+| `constants.rs`, `selector.rs`, `utils.rs` | Shared selectors, matching primitives, text/entity utilities |
 
-### DOM Adapter (`dom.rs`)
+## Data flow
 
-Custom mutable tree built on top of `html5ever` + `markup5ever_rcdom`. Each node is a `NodeId(usize)` index into a flat `Vec<Node>`.
+`parse_html(html, options)` follows this high-level sequence:
 
-- **Node types**: Document, Doctype, Element (name + attrs), Text, Comment
-- **Key operations**: `parse`, `query_selector_all`, `closest`, `contains`, `text_content`, `get_attr`/`set_attr`/`remove_attr`, `remove`, `unwrap`, `replace_with_html`, `append_html`, `inner_html`, `outer_html`, `clone`
-- **Selector parser**: Handles tag, `#id`, `.class`, `[attr]`, `[attr=val]`, `[attr*=val]`, `[attr^=val]`, `[attr$=val]`, `[attr~=val]`, `:not()`. Case-insensitive flag (`i`) supported. Combinators (`>`, `+`, `~`) and `:has()` are rejected.
-- **Known limitations**: `:not()` selector matching is buggy for attribute-negation (e.g. `:not([src])`). Worked around in `pipeline.rs` by handling `script`/`iframe`/`video`/`audio` :not() selectors manually.
+1. Parse the input into the mutable `Document` tree.
+2. Run document-wide prune hooks.
+3. Extract schema data, meta tags, and metadata from the original document.
+4. Apply requested iframe removal and check the site-extractor registry.
+5. If an extractor matches, use its generated content and variables. Site extractors bypass the generic content pipeline.
+6. Otherwise, run the standard pipeline:
+   - select the main content element, or use the body/content selector;
+   - remove selectors, hidden elements, low-scoring blocks, and boilerplate;
+   - apply page overrides and resolve URLs;
+   - standardize the selected DOM subtree;
+   - sanitize unsafe elements, attributes, and URLs;
+   - serialize HTML and optionally convert the selected content to Markdown.
+7. If the result is unusually short, retry the generic pipeline with progressively less aggressive pruning. Each retry reparses the original HTML.
 
-### Extractor Registry (`extractor.rs`)
+The standardization sequence lives in `standardize/mod.rs`. Its submodules have narrow responsibilities:
 
-URL-pattern matching against a flat list of (domain, factory) pairs. Eight extractors implemented:
+- `callouts/` converts Bootstrap alerts and Hugo admonitions into the internal callout shape: `.callout[data-callout]` with `.callout-title` and `.callout-content` children.
+- `elements.rs` handles general element normalization, wrappers, roles, empty elements, definition lists, and preformatted HTML semantics. Renderer-specific code-block heuristics have intentionally been removed.
+- `headings.rs` normalizes heading structure and trailing headings.
+- `images.rs` recovers lazy/noscript images, normalizes `srcset`, removes placeholders, and deduplicates images.
+- `tables.rs` distinguishes data tables from layout tables.
+- `urls.rs` resolves relative URLs inside the selected subtree.
+- `whitespace.rs` handles comments, spaces, inline whitespace, and significant whitespace preservation.
 
-| Extractor | Domains | Features |
+`footnotes/` is deliberately separate from general element standardization. It collects the supported inline-reference and definition formats, builds a canonical `<div id="footnotes"><ol>...</ol></div>` structure, and replaces references with stable IDs. Markdown rendering of that canonical structure remains in `markdown.rs`.
+
+`embeds/` is deliberately separate from site extraction. It normalizes generic platform embed elements that can be handled from static HTML alone; it does not fetch transcripts or call external APIs.
+
+## DOM adapter
+
+`dom.rs` owns the mutable tree needed by Defuddle. `NodeId` indexes nodes in a flat vector. Supported node types are document, doctype, element, text, and comment.
+
+Important operations include parsing, subtree queries, `closest`, containment, text extraction, attribute mutation, remove/unwrap, HTML replacement/insertion, serialization, and cloning.
+
+The selector parser supports tags, IDs, classes, attribute presence/equality/contains/prefix/suffix/token matching, `:not()`, and the case-insensitive attribute flag. It does not support combinators such as `>`, `+`, or `~`, nor `:has()`. Attribute-negation inside `:not()` has known limitations; targeted workarounds remain in `pipeline.rs` for media and script selectors.
+
+## Site extractors
+
+The registry in `extractors/mod.rs` maps URL patterns to DOM-only extractors:
+
+| Extractor | Domains | Scope |
 |---|---|---|
-| HackerNews | news.ycombinator.com | Post + nested comments, listing page detection |
-| Reddit | old.reddit.com | Old-reddit comment tree, post body |
-| GitHub | github.com | Issue/PR body extraction, repo info |
-| ChatGPT | chatgpt.com | Conversation turns with heading attribution |
-| Substack | substack.com | Notes via ProseMirror, custom-domain detection |
-| Mastodon | mastodon.* | Post + image + replies, self-reply thread detection |
-| BBCode Data | store.example.com | Steam-style BBCode → HTML conversion |
-| Twitter/X | x.com, twitter.com | Static article and conversation extraction |
+| Hacker News | `news.ycombinator.com` | Posts, listings, and nested comments |
+| Reddit | `reddit.com`, `old.reddit.com` | Post body and old-Reddit comment trees |
+| GitHub | `github.com` | Issues and pull requests |
+| ChatGPT | `chatgpt.com` | Conversation turns and citations |
+| Substack | `substack.com` and supported custom-domain markup | Notes and ProseMirror content |
+| Mastodon | `mastodon.*` | Posts, media, replies, and self-reply threads |
+| Twitter/X | `x.com`, `twitter.com` | Static articles and conversations |
 
-All extractors are DOM-only (no network). No async extractors (YouTube, Bilibili) are implemented. The `Extractor` trait has `can_extract(&self, doc: &Document) -> bool` and `extract(&self, doc: &Document) -> ExtractorResult`.
+All extractors implement `Extractor::can_extract` and `Extractor::extract`. They must remain synchronous and DOM-only. Site-specific behavior belongs in the corresponding extractor module; generic embeds, footnotes, sanitization, and standardization should not be added there unless the behavior is genuinely shared.
 
-### Site Extractors NOT Implemented
+There are no YouTube transcript or Bilibili extractors. Those require external fetching and are outside the core crate. Other upstream sites not represented by the registry are tracked as exclusions in `tests/upstream-exceptions.toml` where relevant.
 
-The following upstream extractors are not ported:
-- YouTube (requires async + transcript API)
-- Bilibili (explicitly excluded)
-- Claude, Gemini, Grok, Medium, Wikipedia, LinkedIn, Threads, Bluesky, Discourse, LeetCode, LWN, C2 Wiki, NYTimes
-- X Oembed, X Article surrogates
+## Design boundaries
 
-These are listed in `tests/upstream-exceptions.toml` as `site_extractor_out_of_scope`.
+- Keep the DOM adapter because extraction requires whole-tree mutation, subtree comparison, and serialization.
+- Keep site-specific extraction separate from generic cleanup. A new website should normally be an extractor, not another branch in `pipeline.rs`, `standardize/`, or `markdown.rs`.
+- Keep callouts, footnotes, and embeds as explicit boundaries. Add format-specific behavior to those modules when it is shared across sites.
+- Use `html-to-markdown-rs` for the general conversion. HTML preprocessing and postprocessing should only cover Defuddle’s canonical structures and compatibility rules.
+- Avoid adding asynchronous or network-dependent behavior to `defuddle`. A future fetch-capable integration belongs in a separate crate with a caller-provided fetch abstraction.
+- Prefer the simplest correct implementation and avoid new dependencies unless the existing DOM and utility layers cannot support the behavior.
 
+## Tests and benchmarks
 
-## Key Design Decisions
-
-- **Own DOM adapter** over `html5ever` rather than using `scraper` or `lol_html`. Reason: Defuddle needs whole-document mutation, subtree comparison, and selected-element serialization, which streaming rewriters can't provide.
-- **`html-to-markdown-rs`** for Markdown conversion rather than a bespoke renderer. Custom rules (footnotes, callouts, math, tables) are layered through HTML preprocessing in `standardize.rs`.
-- **No async** in the core crate. Async extractors (YouTube, Reddit fallback) would go in a separate `defuddle-extractors` crate with caller-provided fetch abstraction.
-- **`lexopt`** for CLI rather than `clap`. Keeps the dependency tree minimal.
-
-## How To…
-
-### Run Tests
 ```bash
-cargo test                          # core and CLI tests (default members)
-cargo test --workspace              # include the opt-in WASM adapter
-cargo test --test fixtures          # golden fixture runner only
-cargo test --test integration       # focused parity tests
-cargo test -- --nocapture           # show eprintln output
+cargo test                          # default workspace members
+cargo test --workspace              # includes the opt-in WASM adapter
+cargo test -p defuddle              # core unit, fixture, integration, and metadata tests
+cargo test -p defuddle --test fixtures
+cargo test -p defuddle --test integration
+cargo test -- --nocapture
 ```
 
-The `defuddle-wasm` crate is a workspace member but not a default member. The `wasm-release` profile is tuned for a small artifact.
+The fixture harness compares the vendored upstream snapshot against expected output and validates the exception manifest. Do not silently update golden output: determine whether a mismatch is a regression, an intentional API difference, or a fixture that is outside the supported scope.
 
-### Debug a Fixture
+Performance benchmarks and profiling are part of the planned architecture work in `REDESIGN.md`. New pipeline or extractor work should eventually include representative end-to-end measurements, not only microbenchmarks.
+
+To inspect one fixture while debugging:
+
 ```bash
-cargo test --test fixtures -- --nocapture 2>&1 | grep -A 20 "EXTRACTOR comments--"
+cargo test -p defuddle --test fixtures -- --nocapture 2>&1 | grep -A 20 "EXTRACTOR comments--"
 ```
 
-### Add a New Extractor
-1. Add a `pub mod` in `extractor.rs` with a `create(doc, url) -> Option<Box<dyn Extractor>>` factory
-2. Implement `Extractor` trait (`can_extract`, `extract`)
-3. Register it in `build_registry()`
-4. Add tests in `tests/integration.rs`
+## Adding code
 
-### Add a New Standardization Rule
-1. Add a function in `standardize.rs`
-2. Call it from `standardize_content()`
-3. Tests in `tests/integration.rs`
+To add an extractor:
 
-## Known Gaps
-- **Retry logic**: Low-word-count retry behavior exists, but may still differ from upstream in its aggressiveness choices.
-- **Schema text fallback**: Schema text fallback exists, but its selection or Markdown conversion may still differ from upstream.
-- **Math parity**: Math extraction and rendered math HTML/MathML/KaTeX/MathJax fidelity are deferred.
-- **Mobile styles, shadow DOM, React SSR**: Browser-only features not ported (out of scope).
-- **Performance benchmarks**: Not implemented.
-- **Async extractors**: YouTube transcripts, Bilibili (excluded), and X oEmbed are not ported.
-- **:`not()` selectors**: Buggy in the simple CSS selector parser. Worked around manually for script/iframe/video/audio.
+1. Add a module under `crates/defuddle/src/extractors/`.
+2. Implement the `Extractor` trait and a `create(doc, url)` factory.
+3. Register the factory in `extractors::build_registry()`.
+4. Add focused integration coverage and representative fixture coverage when appropriate.
+
+To add a standardization rule:
+
+1. Put it in the narrowest existing `standardize/` submodule. Create a new submodule only when it establishes a meaningful boundary.
+2. Call it from `standardize_content()` in the correct order.
+3. Preserve non-obvious comments explaining why ordering or exceptions exist.
+4. Add focused tests and run the fixture gate.
+
+Do not reintroduce site-specific branches into the generic pipeline, renderer-specific code-block cleanup, BBCode, or math/LaTeX handling without an explicit design decision.
+
+## Repository conventions
+
+- Prefer simple, readable Rust and keep the dependency tree small.
+- Do not add banner/separator comments.
+- Do not remove useful comments during refactors; update them when behavior changes.
+- Use `apply_patch` for source edits.
+- Do not run pre-commit hooks.
+- Do not commit or push unless explicitly requested. Never push to a remote.

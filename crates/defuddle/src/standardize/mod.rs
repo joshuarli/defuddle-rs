@@ -1,9 +1,8 @@
 use crate::constants::ALLOWED_ATTRIBUTES;
 use crate::dom::{Document, NodeId};
-use crate::footnotes::standardize_footnotes;
 use rustc_hash::FxHashSet;
 
-mod code_blocks;
+mod callouts;
 mod elements;
 mod headings;
 mod images;
@@ -12,18 +11,17 @@ mod urls;
 mod whitespace;
 
 // Re-exports for external callers
-pub(crate) use elements::convert_alert_elements;
+pub(crate) use callouts::convert_alert_elements;
 pub(crate) use images::get_best_src_url;
 pub(crate) use images::remove_small_images;
 pub(crate) use urls::resolve_urls;
 
-use code_blocks::{standardize_code_blocks, wrap_preformatted_code};
 use elements::{
     convert_block_spans, convert_data_as_spans, convert_embedded_elements,
     flatten_definition_lists, flatten_wrapper_elements, remove_empty_elements, remove_empty_lines,
     remove_obsolete_elements, remove_orphaned_dividers, remove_permalink_anchors,
     replace_custom_elements, resolve_svg_colors, standardize_drop_caps, standardize_element_roles,
-    strip_extra_br_elements, unwrap_figure_content_wrappers,
+    standardize_preformatted_elements, strip_extra_br_elements, unwrap_figure_content_wrappers,
 };
 use headings::{remove_trailing_headings, simplify_heading_children, standardize_headings};
 use images::{
@@ -53,10 +51,9 @@ pub fn standardize_content(
     }
     standardize_spaces(doc, content_id);
     move_inline_whitespace(doc, content_id);
+    standardize_preformatted_elements(doc, content_id);
     remove_html_comments(doc, content_id);
     standardize_headings(doc, content_id, metadata_title);
-    wrap_preformatted_code(doc, content_id);
-    standardize_code_blocks(doc, content_id);
     unwrap_layout_tables(doc, content_id);
     normalize_data_tables(doc, content_id);
     standardize_element_roles(doc, content_id);
@@ -68,7 +65,7 @@ pub fn standardize_content(
     flatten_definition_lists(doc, content_id);
     flatten_wrapper_elements(doc, content_id);
     remove_permalink_anchors(doc, content_id);
-    standardize_footnotes(doc, content_id);
+    crate::footnotes::standardize_footnotes(doc, content_id);
     recover_noscript_images(doc, content_id);
     recover_lazy_images(doc, content_id);
     strip_unwanted_attributes(doc, content_id);
