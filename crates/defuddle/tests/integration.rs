@@ -713,3 +713,69 @@ fn hackernews_adapter_handles_posts_without_comments() {
             .contains("Post body.")
     );
 }
+
+#[test]
+fn substack_adapter_keeps_content_dom_until_output() {
+    let html = r#"
+        <html><head>
+          <meta property="og:title" content="A Substack post">
+          <meta property="og:site_name" content="Example publication">
+          <meta name="author" content="Ada Lovelace">
+        </head><body>
+          <div class="body markup">
+            <p>Keep this paragraph.</p>
+            <p class="button-wrapper">Remove this CTA.</p>
+            <div data-component-name="SubscribeWidgetToDOM">Remove this widget.</div>
+            <a href="/subscribe">Read full story</a>
+          </div>
+        </body></html>
+    "#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            extractor: Some("substack".into()),
+            url: Some("https://newsletter.example.com/p/post".into()),
+            separate_markdown: true,
+            ..Default::default()
+        },
+    )
+    .expect("Substack extraction succeeds");
+
+    assert_eq!(result.extractor_type.as_deref(), Some("substack"));
+    assert_eq!(result.title, "A Substack post");
+    assert_eq!(result.author, "Ada Lovelace");
+    assert_eq!(result.site, "Example publication");
+    assert!(result.content.contains("Keep this paragraph."));
+    assert!(!result.content.contains("Remove this"));
+    assert!(
+        result
+            .content_markdown
+            .unwrap_or_default()
+            .contains("Keep this paragraph.")
+    );
+}
+
+#[test]
+fn substack_adapter_reads_embedded_preload_content() {
+    let html = r#"
+        <html><head></head><body><script>
+          window._preloads = true;
+          JSON.parse("{\"feedData\":{\"initialPost\":{\"post\":{\"title\":\"Preloaded post\",\"publishedBylines\":[{\"name\":\"Grace Hopper\"}],\"body_html\":\"<p>Preloaded body.</p>\"}}}}")
+        </script></body></html>
+    "#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            extractor: Some("substack".into()),
+            url: Some("https://substack.com/p/preloaded".into()),
+            ..Default::default()
+        },
+    )
+    .expect("Substack preload extraction succeeds");
+
+    assert_eq!(result.title, "Preloaded post");
+    assert_eq!(result.author, "Grace Hopper");
+    assert!(result.content.contains("Preloaded body."));
+}

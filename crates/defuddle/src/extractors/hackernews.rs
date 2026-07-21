@@ -2,8 +2,9 @@ use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
 use crate::dom::{Document, NodeId};
+use crate::extractors::dom_builder::Builder;
 use crate::extractors::{SiteAdapter, SiteExtraction};
-use crate::pipeline::{ContentResult, PipelineContext};
+use crate::pipeline::PipelineContext;
 
 pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
     Box::new(HackerNewsAdapter)
@@ -36,42 +37,6 @@ impl SiteAdapter for HackerNewsAdapter {
             return extract_listing(&context.doc);
         }
         extract_post(&context.doc, is_comment_page)
-    }
-}
-
-struct Builder {
-    document: Document,
-    root: NodeId,
-}
-
-impl Builder {
-    fn new() -> Self {
-        let document = Document::empty();
-        let root = document.root();
-        Self { document, root }
-    }
-
-    fn element(&mut self, parent: NodeId, name: &str, attrs: &[(&str, &str)]) -> NodeId {
-        self.document.create_element(parent, name, attrs)
-    }
-
-    fn text(&mut self, parent: NodeId, text: &str) {
-        self.document.append_text(parent, text);
-    }
-
-    fn clone_children(&mut self, source: &Document, source_node: NodeId, parent: NodeId) {
-        for child in source.children(source_node).iter().copied() {
-            if !source.is_removed(child) {
-                self.document.clone_node_from(source, child, parent);
-            }
-        }
-    }
-
-    fn finish(self, root: NodeId) -> ContentResult {
-        ContentResult {
-            document: self.document,
-            root,
-        }
     }
 }
 

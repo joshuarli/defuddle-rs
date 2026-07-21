@@ -5,6 +5,7 @@ use crate::pipeline::{ContentResult, PipelineContext};
 
 pub mod chatgpt;
 pub mod comments;
+mod dom_builder;
 pub mod github;
 pub mod hackernews;
 pub mod mastodon;
@@ -43,18 +44,25 @@ pub(crate) fn find_site_adapter(
     context: &PipelineContext<'_>,
     requested_name: Option<&str>,
 ) -> Option<(&'static str, Box<dyn SiteAdapter>)> {
-    if requested_name.is_some_and(|name| !name.eq_ignore_ascii_case("hackernews")) {
-        return None;
-    }
-    if requested_name.is_none() && !context.url.contains("news.ycombinator.com") {
-        return None;
-    }
-    let adapter = hackernews::adapter();
-    if adapter.matches(context) {
-        Some(("hackernews", adapter))
-    } else {
-        None
-    }
+    let candidates: &[(&str, fn() -> Box<dyn SiteAdapter>)] = &[
+        ("hackernews", hackernews::adapter),
+        ("substack", substack::adapter),
+    ];
+    candidates.iter().find_map(|(name, factory)| {
+        if requested_name.is_some_and(|requested| !requested.eq_ignore_ascii_case(name)) {
+            return None;
+        }
+        let domain_matches = match *name {
+            "hackernews" => context.url.contains("news.ycombinator.com"),
+            "substack" => context.url.contains("substack.com"),
+            _ => false,
+        };
+        if requested_name.is_none() && !domain_matches {
+            return None;
+        }
+        let adapter = factory();
+        adapter.matches(context).then_some((*name, adapter))
+    })
 }
 
 impl Default for Registry {
@@ -128,7 +136,6 @@ pub fn build_registry() -> Registry {
     registry.register("reddit.com", "reddit", reddit::create);
     registry.register("github.com", "github", github::create);
     registry.register("chatgpt.com", "chatgpt", chatgpt::create);
-    registry.register("substack.com", "substack", substack::create);
     registry.register("mastodon", "mastodon", mastodon::create);
     registry.register("x.com", "twitter", twitter::create);
     registry.register("twitter.com", "twitter", twitter::create);

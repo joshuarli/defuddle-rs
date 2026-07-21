@@ -1,6 +1,305 @@
-use crate::dom::Document;
-use crate::extractors::{Extractor, ExtractorResult};
+use crate::dom::{Document, NodeId};
+use crate::extractors::dom_builder::Builder;
+use crate::extractors::{Extractor, ExtractorResult, SiteAdapter, SiteExtraction};
+use crate::pipeline::PipelineContext;
 use rustc_hash::FxHashMap;
+
+pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
+    Box::new(SubstackAdapter)
+}
+
+struct SubstackAdapter;
+
+impl SiteAdapter for SubstackAdapter {
+    fn matches(&self, context: &PipelineContext<'_>) -> bool {
+        detect_mode(&context.doc).is_some()
+    }
+
+    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction {
+        let mode = detect_mode(&context.doc).unwrap_or(SubstackMode::Body);
+        let metadata = metadata(&context.doc);
+        let mut builder = Builder::new();
+        let html = builder.element(builder.root, "html", &[]);
+        builder.element(html, "head", &[]);
+        let body = builder.element(html, "body", &[]);
+
+        let (title, author, site, source) = match mode {
+            SubstackMode::Article => {
+                let source = context
+                    .doc
+                    .query_selector_all("div.body.markup")
+                    .first()
+                    .copied();
+                let title = metadata.title_or_document_title(&context.doc);
+                let author = if metadata.author.is_empty() {
+                    context
+                        .doc
+                        .query_selector_all("a[href*=\"substack.com/@\"]")
+                        .first()
+                        .map(|id| context.doc.text_content(*id).trim().to_string())
+                        .unwrap_or_default()
+                } else {
+                    metadata.author.clone()
+                };
+                let site = metadata.site_or_default();
+                (
+                    title,
+                    author,
+                    site,
+                    source.map(|id| ContentSource::Borrowed(&context.doc, id)),
+                )
+            }
+            SubstackMode::Note => {
+                let source = note_content_node(&context.doc);
+                let author = if metadata.author.is_empty() {
+                    metadata
+                        .title
+                        .rsplit(" (@")
+                        .next()
+                        .unwrap_or(&metadata.title)
+                        .trim()
+                        .to_string()
+                } else {
+                    metadata.author.clone()
+                };
+                (
+                    metadata.title.clone(),
+                    author,
+                    "Substack".to_string(),
+                    source.map(|id| ContentSource::Borrowed(&context.doc, id)),
+                )
+            }
+            SubstackMode::Body => {
+                let source = context.doc.query_selector_all("body").first().copied();
+                let title = metadata.title_or_document_title(&context.doc);
+                let site = metadata.site_or_default();
+                (
+                    title,
+                    metadata.author.clone(),
+                    site,
+                    source.map(|id| ContentSource::Borrowed(&context.doc, id)),
+                )
+            }
+            SubstackMode::Preload => {
+                let (body_html, title, author, site) = substack_preload(&context.doc);
+                let source = if body_html.is_empty() {
+                    None
+                } else {
+                    let document = Document::parse(&body_html);
+                    let root = document.root();
+                    Some(ContentSource::Owned(document, root))
+                };
+                (title, author, site, source)
+            }
+        };
+
+        if let Some(source) = source {
+            match source {
+                ContentSource::Borrowed(document, source_node) => {
+                    builder.clone_children(document, source_node, body)
+                }
+                ContentSource::Owned(document, source_node) => {
+                    builder.clone_children(&document, source_node, body)
+                }
+            }
+        }
+        cleanup_body_dom(&mut builder.document, body);
+
+        let mut variables = FxHashMap::from_iter([
+            ("title".into(), title),
+            ("author".into(), author),
+            ("site".into(), site),
+        ]);
+        if !metadata.published.is_empty() {
+            variables.insert("published".into(), metadata.published);
+        }
+        SiteExtraction {
+            content: builder.finish(html),
+            variables,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SubstackMode {
+    Article,
+    Preload,
+    Note,
+    Body,
+}
+
+enum ContentSource<'a> {
+    Borrowed(&'a Document, NodeId),
+    Owned(Document, NodeId),
+}
+
+fn detect_mode(doc: &Document) -> Option<SubstackMode> {
+    if !doc.query_selector_all("div.body.markup").is_empty() {
+        return Some(SubstackMode::Article);
+    }
+    if doc.query_selector_all("script").into_iter().any(|sc| {
+        let text = doc.text_content(sc);
+        text.contains("window._preloads") && text.contains("body_html")
+    }) {
+        return Some(SubstackMode::Preload);
+    }
+    if !doc
+        .query_selector_all(".ProseMirror, .FeedProseMirror")
+        .is_empty()
+    {
+        return Some(SubstackMode::Note);
+    }
+    Some(SubstackMode::Body)
+}
+
+struct MetadataValues {
+    title: String,
+    site: String,
+    author: String,
+    published: String,
+}
+
+impl MetadataValues {
+    fn title_or_document_title(&self, doc: &Document) -> String {
+        if !self.title.is_empty() {
+            return self.title.clone();
+        }
+        doc.query_selector_all("title")
+            .first()
+            .map(|id| doc.text_content(*id).trim().to_string())
+            .unwrap_or_default()
+    }
+
+    fn site_or_default(&self) -> String {
+        if self.site.is_empty() {
+            "Substack".to_string()
+        } else {
+            self.site.clone()
+        }
+    }
+}
+
+fn metadata(doc: &Document) -> MetadataValues {
+    let content = |selector: &str| {
+        doc.query_selector_all(selector)
+            .first()
+            .and_then(|id| doc.get_attr(*id, "content"))
+            .unwrap_or("")
+            .to_string()
+    };
+    MetadataValues {
+        title: content("meta[property=\"og:title\"]"),
+        site: content("meta[property=\"og:site_name\"]"),
+        author: content("meta[name=\"author\"]"),
+        published: content("meta[property=\"article:published_time\"]"),
+    }
+}
+
+fn note_content_node(doc: &Document) -> Option<NodeId> {
+    let canonical = doc.query_selector_all("link").into_iter().find_map(|id| {
+        let rel = doc.get_attr(id, "rel").unwrap_or("");
+        let href = doc.get_attr(id, "href").unwrap_or("");
+        (rel.eq_ignore_ascii_case("canonical") || href.contains("/note/c-"))
+            .then(|| href.to_string())
+    });
+    let note_key = canonical
+        .as_deref()
+        .and_then(|url| url.rsplit('/').next())
+        .filter(|key| key.starts_with("c-"));
+    if let Some(key) = note_key {
+        for link in doc.query_selector_all("a") {
+            if doc
+                .get_attr(link, "href")
+                .is_some_and(|href| href.contains(key))
+            {
+                let mut current = link;
+                loop {
+                    if let Some(note) = doc
+                        .query_selector_all_in_subtree(current, "div.ProseMirror.FeedProseMirror")
+                        .first()
+                        .copied()
+                    {
+                        return Some(note);
+                    }
+                    current = doc.parent(current)?;
+                }
+            }
+        }
+    }
+    doc.query_selector_all("[class*=\"feedPermalinkUnit\"]")
+        .first()
+        .and_then(|id| {
+            doc.query_selector_all_in_subtree(*id, "div.ProseMirror.FeedProseMirror")
+                .first()
+                .copied()
+        })
+        .or_else(|| {
+            doc.query_selector_all("div.ProseMirror.FeedProseMirror")
+                .first()
+                .copied()
+        })
+}
+
+fn cleanup_body_dom(doc: &mut Document, root: NodeId) {
+    for id in doc.query_selector_all_in_subtree(root, "p.button-wrapper") {
+        doc.remove(id);
+    }
+    for selector in [
+        "div[data-component-name=\"SubscribeWidgetToDOM\"]",
+        "div[data-component-name=\"DigestPostEmbed\"]",
+    ] {
+        for id in doc.query_selector_all_in_subtree(root, selector) {
+            doc.remove(id);
+        }
+    }
+    for id in doc.query_selector_all_in_subtree(root, "a") {
+        if doc
+            .text_content(id)
+            .trim()
+            .eq_ignore_ascii_case("Read full story")
+        {
+            doc.remove(id);
+        }
+    }
+    for id in doc.query_selector_all_in_subtree(root, "div") {
+        if doc.attr_names(id).is_empty()
+            && !doc.children(id).iter().any(|child| doc.is_element(*child))
+            && is_substack_date_text(&doc.text_content(id))
+        {
+            doc.remove(id);
+        }
+    }
+    for id in doc.query_selector_all_in_subtree(root, "p") {
+        if !doc.text_content(id).trim().starts_with("For More") {
+            continue;
+        }
+        let Some(parent) = doc.parent(id) else {
+            continue;
+        };
+        let siblings = doc.children(parent).to_vec();
+        let Some(position) = siblings.iter().position(|child| *child == id) else {
+            continue;
+        };
+        let Some(previous) = siblings[..position]
+            .iter()
+            .rev()
+            .copied()
+            .find(|child| doc.is_element(*child))
+        else {
+            continue;
+        };
+        if doc.outer_html(previous).trim() == "<div><hr></div>" {
+            for child in siblings.into_iter().skip(
+                doc.children(parent)
+                    .iter()
+                    .position(|child| *child == previous)
+                    .unwrap_or(position),
+            ) {
+                doc.remove(child);
+            }
+        }
+    }
+}
 
 pub fn create(doc: &Document, _url: &str) -> Option<Box<dyn Extractor>> {
     if !doc.query_selector_all("div.body.markup").is_empty() {

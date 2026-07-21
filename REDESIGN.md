@@ -113,8 +113,8 @@ Stage 4 validation is recorded in [`benchmarks/STAGE4.md`](benchmarks/STAGE4.md)
 
 ## Stage 5: Generalize only after the MVP is proven
 
-- [ ] Migrate one additional extractor chosen from the benchmark/profile results, preferably one with a different content shape such as GitHub or Substack.
-- [ ] Move site-specific preparation into adapter-owned DOM transforms and keep generic cleanup site-agnostic.
+- [x] Migrate Substack as the second adapter, covering article markup, Notes markup, ordinary body fallback, and embedded preload JSON content.
+- [x] Move Substack-specific preparation into adapter-owned DOM transforms and keep generic cleanup site-agnostic.
 - [ ] Convert `ExtractorResult` and remaining string-based extractor boundaries incrementally.
 - [ ] Split modules or crates only where the new ownership boundaries make the split obvious.
 
