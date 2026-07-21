@@ -1474,6 +1474,7 @@ pub mod substack {
                                 .map(|id| doc.inner_html(id))
                         })
                         .unwrap_or_default();
+                    let note_html = cleanup_body_html(&note_html);
                     let a = if meta_author.is_empty() {
                         meta_title
                             .rsplit(" (@")
@@ -1490,7 +1491,7 @@ pub mod substack {
                     let body_html = doc
                         .query_selector_all("body")
                         .first()
-                        .map(|&id| doc.inner_html(id))
+                        .map(|&id| cleanup_body_html(&doc.inner_html(id)))
                         .unwrap_or_default();
                     let t = if meta_title.is_empty() {
                         doc.query_selector_all("title")
@@ -1527,44 +1528,53 @@ pub mod substack {
         }
     }
 
+    fn cleanup_body_html(html: &str) -> String {
+        use std::sync::LazyLock;
+
+        static RE_BUTTON_WRAPPER: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+            regex_lite::Regex::new(r#"<p[^>]*class="button-wrapper"[^>]*>[\s\S]*?</p>"#).unwrap()
+        });
+        static RE_SUBSCRIBE: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+            regex_lite::Regex::new(
+                r#"<div[^>]*data-component-name="SubscribeWidgetToDOM"[^>]*>[\s\S]*?</div>"#,
+            )
+            .unwrap()
+        });
+        static RE_DIGEST: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+            regex_lite::Regex::new(
+                r#"<div[^>]*data-component-name="DigestPostEmbed"[^>]*>[\s\S]*?</div>"#,
+            )
+            .unwrap()
+        });
+        static RE_READ_FULL: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+            regex_lite::Regex::new(r#"<a[^>]*>\s*Read full story\s*</a>"#).unwrap()
+        });
+        static RE_DATE_DIV: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+            regex_lite::Regex::new(
+                r#"<div>\s*(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\s*</div>"#,
+            )
+            .unwrap()
+        });
+        static RE_FOR_MORE: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+            regex_lite::Regex::new(r#"<div><hr></div>\s*<p>For More[\s\S]*?</p>\s*"#).unwrap()
+        });
+
+        let html = RE_BUTTON_WRAPPER.replace_all(html, "");
+        let html = RE_SUBSCRIBE.replace_all(&html, "");
+        let html = RE_DIGEST.replace_all(&html, "");
+        let html = RE_READ_FULL.replace_all(&html, "");
+        let html = RE_DATE_DIV.replace_all(&html, "");
+        let html = RE_FOR_MORE.replace_all(&html, "");
+        html.trim().to_string()
+    }
+
     fn substack_article_body(doc: &Document) -> String {
         let all_body = doc.query_selector_all("div.body.markup");
         let body_id = match all_body.first() {
             Some(id) => *id,
             None => return String::new(),
         };
-        let mut html = doc.inner_html(body_id);
-        html = regex_lite::Regex::new(r#"<p[^>]*class="button-wrapper"[^>]*>[\s\S]*?</p>"#)
-            .unwrap()
-            .replace_all(&html, "")
-            .to_string();
-        html = regex_lite::Regex::new(
-            r#"<div[^>]*data-component-name="SubscribeWidgetToDOM"[^>]*>[\s\S]*?</div>"#,
-        )
-        .unwrap()
-        .replace_all(&html, "")
-        .to_string();
-        html = regex_lite::Regex::new(
-            r#"<div[^>]*data-component-name="DigestPostEmbed"[^>]*>[\s\S]*?</div>"#,
-        )
-        .unwrap()
-        .replace_all(&html, "")
-        .to_string();
-        html = regex_lite::Regex::new(r#"<div><hr></div>\s*<p>For More[\s\S]*?</p>\s*"#)
-            .unwrap()
-            .replace(&html, "")
-            .to_string();
-        html = regex_lite::Regex::new(
-            r#"<div>\s*(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\s*</div>"#,
-        )
-        .unwrap()
-        .replace_all(&html, "")
-        .to_string();
-        html = regex_lite::Regex::new(r#"<a[^>]*>\s*Read full story\s*</a>"#)
-            .unwrap()
-            .replace_all(&html, "")
-            .to_string();
-        html.trim().to_string()
+        cleanup_body_html(&doc.inner_html(body_id))
     }
 
     fn substack_preload(doc: &Document) -> (String, String, String, String) {
@@ -1610,7 +1620,7 @@ pub mod substack {
                         .unwrap_or("")
                         .to_string();
                     if !body.is_empty() {
-                        return (body, title, author, "Substack".to_string());
+                        return (cleanup_body_html(&body), title, author, "Substack".to_string());
                     }
                 }
                 break;
@@ -1622,6 +1632,39 @@ pub mod substack {
             String::new(),
             "Substack".to_string(),
         )
+    }
+    pub fn register_prune(registry: &mut crate::prune::Registry) {
+        registry.register(|doc| {
+            for id in doc.query_selector_all("button[aria-label=\"Link\"]") {
+                doc.remove(id);
+            }
+            for id in doc.query_selector_all("button[class*=\"icon-container restack-image\"]")
+            {
+                doc.remove(id);
+            }
+            for id in doc.query_selector_all("button[class*=\"icon-container view-image\"]")
+            {
+                doc.remove(id);
+            }
+            for id in doc.query_selector_all("p[class*=\"button-wrapper\"]") {
+                doc.remove(id);
+            }
+            for id in
+                doc.query_selector_all("div[data-component-name=\"SubscribeWidgetToDOM\"]")
+            {
+                doc.remove(id);
+            }
+            for id in
+                doc.query_selector_all("div[data-component-name=\"DigestPostEmbed\"]")
+            {
+                doc.remove(id);
+            }
+            for id in doc.query_selector_all("a") {
+                if doc.text_content(id).trim().eq_ignore_ascii_case("Read full story") {
+                    doc.remove(id);
+                }
+            }
+        });
     }
 }
 

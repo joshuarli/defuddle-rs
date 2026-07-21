@@ -44,9 +44,11 @@
 //! - Evaluate live browser CSS/layout
 //! - Access shadow DOM from extension isolated worlds
 //! - Support async/streaming extraction (future work)
-
 mod constants;
+
 mod dom;
+
+mod prune;
 pub mod extractor;
 mod footnotes;
 pub mod markdown;
@@ -159,7 +161,9 @@ pub enum DefuddleError {
 }
 
 pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult, DefuddleError> {
-    let doc = Document::parse(html);
+    let mut doc = Document::parse(html);
+    let prune_registry = prune::build_registry();
+    prune_registry.run(&mut doc);
 
     let url = options.url.as_deref().unwrap_or("");
     let schema_org_data = schema::extract_schema_org_data(&doc);
