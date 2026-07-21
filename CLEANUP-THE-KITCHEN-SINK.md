@@ -256,36 +256,7 @@ Every extractor individually:
 
 ## Cleanup Roadmap
 
-### Phase 1: Dead Code Removal (low risk, high signal)
-
-These are pure deletions — no behavior change.
-
-- [ ] **1.1** Remove `remove_by_selector_protected` (`pipeline.rs:265-416`)
-- [ ] **1.2** Remove `remove_small_images` stub (`pipeline.rs:497-501`)
-- [ ] **1.3** Remove `convert_callouts_to_markdown` + `strip_keep_inline_tags` (`markdown.rs:1282-1352`)
-- [ ] **1.4** Remove `is_likely_content` (`scoring.rs:169`)
-- [ ] **1.5** Remove unused constants: `BLOCK_ELEMENTS_SELECTOR`, `HIDDEN_EXACT_SKIP_SELECTOR`, `HIDDEN_EXACT_SELECTOR`, `FOOTNOTE_INLINE_REFERENCES_SELECTOR`
-- [ ] **1.6** Remove `ExtractorResult::content_selector` field and `GitHubExtractor::number` field
-- [ ] **1.7** Remove dead expressions: `pipeline.rs:217` (`class_val.contains("author-bio")`), `pipeline.rs:1095` (`let _ = parent`), `standardize.rs:1513` (`_tag`), `markdown.rs:309` (`url = String::new()`)
-- [ ] **1.8** Replace `#![allow(dead_code)]` on entire modules (`constants.rs:1`, `scoring.rs:1`) with targeted `#[allow(dead_code)]` on individual items, or remove the dead items
-
-### Phase 2: Unify Duplicated Utilities (low risk, cleaner code)
-
-- [ ] **2.1** Move `has_closest` into `dom.rs` as a method on `Document` (or into `utils.rs`). Update call sites in `pipeline.rs`, `math.rs`, `footnotes.rs`.
-- [ ] **2.2** Move `next_element_sibling` and `prev_element_sibling` into `dom.rs` as methods on `Document`. Update call sites in `pipeline.rs`, `metadata.rs`.
-- [ ] **2.3** Unify `escape_html` (utils.rs:183, extractor.rs:122) and `html_escape` (standardize.rs:2125) into a single function in `utils.rs`.
-- [ ] **2.4** Unify `extract_hostname` (extractor.rs:81) and `parse_domain` (metadata.rs:113) into a single URL utility.
-- [ ] **2.5** Factor `remove_by_selector` and `remove_by_selector_protected` into a shared implementation with a `protect: Option<NodeId>` parameter, then delete the dead `_protected` variant.
-- [ ] **2.6** Extract common extractor patterns into a `SharedExtractorUtils` trait or free functions: `extract_text`, `extract_attr`, `build_variables_map`, `split_iso_date`, `is_http_url`.
-
-### Phase 3: Cache Regex Compilations (low risk, measurable perf win)
-
-- [ ] **3.1** Move all inline regex compilations in `standardize.rs` (~12) to `OnceLock` or `LazyLock` statics
-- [ ] **3.2** Move all inline regex compilations in `markdown.rs` (~38) to `OnceLock`/`LazyLock` statics
-- [ ] **3.3** Move inline regex compilations in `pipeline.rs` (~6) to `OnceLock`/`LazyLock` statics
-- [ ] **3.4** Move inline regex compilations in `footnotes.rs` (~3) to `OnceLock`/`LazyLock` statics
-- [ ] **3.5** Move inline regex compilations in `metadata.rs` (~4) to `OnceLock`/`LazyLock` statics
-- [ ] **3.6** Move inline regex compilations in extractor modules (~6) to `OnceLock`/`LazyLock` statics
+Phases 1-3 are done.
 
 ### Phase 4: Reduce Allocation Churn (medium risk, requires careful review)
 
