@@ -1,33 +1,38 @@
 use crate::dom::Document;
-use crate::extractors::{Extractor, ExtractorResult, comments};
+use crate::extractors::{HtmlExtraction, SiteAdapter, SiteExtraction, comments};
+use crate::pipeline::PipelineContext;
 use crate::utils::escape_html;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
-pub fn create(doc: &Document, url: &str) -> Option<Box<dyn Extractor>> {
-    let is_pr = url.contains("/pull/");
-    let is_issue = url.contains("/issues/");
+pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
+    Box::new(GitHubAdapter)
+}
 
-    if !is_pr && !is_issue {
-        return None;
+struct GitHubAdapter;
+
+impl SiteAdapter for GitHubAdapter {
+    fn matches(&self, context: &PipelineContext<'_>) -> bool {
+        let is_page = context.url.contains("/pull/") || context.url.contains("/issues/");
+        let indicators = [
+            "meta[name=\"expected-hostname\"][content=\"github.com\"]",
+            ".js-header-wrapper",
+            "#js-repo-pjax-container",
+        ];
+        is_page
+            && indicators
+                .iter()
+                .any(|selector| !context.doc.query_selector_all(selector).is_empty())
     }
 
-    let indicators = [
-        "meta[name=\"expected-hostname\"][content=\"github.com\"]",
-        ".js-header-wrapper",
-        "#js-repo-pjax-container",
-    ];
-    let has_indicator = indicators
-        .iter()
-        .any(|sel| !doc.query_selector_all(sel).is_empty());
-
-    if !has_indicator {
-        return None;
+    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction {
+        let result = GitHubExtractor {
+            repo_info: extract_repo_info(context.url),
+            is_pr: context.url.contains("/pull/"),
+        }
+        .extract(&context.doc);
+        crate::extractors::site_extraction_from_html(result.content_html, result.variables)
     }
-
-    let repo_info = extract_repo_info(url);
-
-    Some(Box::new(GitHubExtractor { repo_info, is_pr }))
 }
 
 fn extract_repo_info(url: &str) -> (String, String) {
@@ -42,12 +47,8 @@ struct GitHubExtractor {
     is_pr: bool,
 }
 
-impl Extractor for GitHubExtractor {
-    fn can_extract(&self, _doc: &Document) -> bool {
-        true
-    }
-
-    fn extract(&self, doc: &Document) -> ExtractorResult {
+impl GitHubExtractor {
+    fn extract(&self, doc: &Document) -> HtmlExtraction {
         let (owner, repo) = &self.repo_info;
 
         let raw_title = doc
@@ -236,7 +237,7 @@ impl Extractor for GitHubExtractor {
 
         let content_html = comments::build_content_html("github", &post_content, &comments_html);
 
-        ExtractorResult {
+        HtmlExtraction {
             content_html,
             variables: FxHashMap::from_iter([
                 ("title".into(), title),

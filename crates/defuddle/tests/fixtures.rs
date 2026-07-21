@@ -264,8 +264,7 @@ fn expected_dir() -> PathBuf {
 
 #[test]
 fn local_fixtures_extractors() {
-    let registry = extractors::build_registry();
-    let extractors: Vec<&str> = registry.names();
+    let extractors = extractors::adapter_names();
 
     let fixtures_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let entries = fs::read_dir(&fixtures_dir).expect("tests/fixtures/ exists");
@@ -290,7 +289,7 @@ fn local_fixtures_extractors() {
             continue;
         }
 
-        for ext_name in &extractors {
+        for ext_name in extractors {
             let expected_html = fixtures_dir.join(format!("{stem}.{ext_name}.html"));
             let expected_md = fixtures_dir.join(format!("{stem}.{ext_name}.md"));
 

@@ -256,101 +256,32 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
         return Ok(result);
     }
 
-    let doc = context.doc;
-    let ext_registry = extractors::build_registry();
-    let found_extractor = if let Some(name) = options.extractor.as_deref() {
-        ext_registry.find_named(name, url, &doc)
-    } else {
-        ext_registry.find(url, &doc)
+    let config = PipelineConfig {
+        html,
+        metadata: &metadata,
+        meta: &meta,
+        schema_org_data: &schema_org_data,
+        url,
+        remove_exact,
+        remove_partial,
+        remove_hidden,
+        remove_iframes,
+        remove_small_images,
+        do_standardize,
+        separate_markdown,
+        content_selector,
+        debug,
     };
-    let (extractor_result, extractor_type): (Option<extractors::ExtractorResult>, Option<String>) =
-        if let Some((name, ext)) = found_extractor {
-            let result = ext.extract(&doc);
-            (Some(result), Some(name))
-        } else {
-            (None, None)
-        };
-
-    let result = if let Some(ext_result) = extractor_result {
-        let content_html = ext_result.content_html;
-
-        let mut variables = ext_result.variables;
-        let title = variables
-            .remove("title")
-            .unwrap_or_else(|| metadata.title.clone());
-        let author = variables
-            .remove("author")
-            .unwrap_or_else(|| metadata.author.clone());
-        let site = variables
-            .remove("site")
-            .unwrap_or_else(|| metadata.site.clone());
-        let published = variables
-            .remove("published")
-            .unwrap_or_else(|| metadata.published.clone());
-        let description = variables
-            .remove("description")
-            .unwrap_or_else(|| metadata.description.clone());
-
-        let content_markdown = if separate_markdown {
-            let markdown = markdown::html_to_markdown(&content_html);
-            Some(markdown::normalize_origin_links(&markdown))
-        } else {
-            None
-        };
-
-        let schema_val = if schema_org_data.is_empty() {
-            Value::Array(Array::new())
-        } else {
-            Value::Array(Array::from_iter(schema_org_data.iter().cloned()))
-        };
-
-        DefuddleResult {
-            content: content_html.clone(),
-            content_markdown,
-            title,
-            description,
-            domain: metadata.domain.clone(),
-            favicon: metadata.favicon.clone(),
-            image: metadata.image.clone(),
-            language: metadata.language.clone(),
-            meta_tags: meta,
-            published,
-            author,
-            site,
-            schema_org_data: schema_val,
-            extractor_type,
-            ..<DefuddleResult as Default>::default()
-        }
-    } else {
-        let config = PipelineConfig {
-            html,
-            metadata: &metadata,
-            meta: &meta,
-            schema_org_data: &schema_org_data,
-            url,
-            remove_exact,
-            remove_partial,
-            remove_hidden,
-            remove_iframes,
-            remove_small_images,
-            do_standardize,
-            separate_markdown,
-            content_selector,
-            debug,
-        };
-        parse_internal(pipeline::PipelineContext {
-            html,
-            doc,
-            metadata: config.metadata,
-            meta: config.meta,
-            schema_org_data: config.schema_org_data,
-            url: config.url,
-            options: &options,
-            diagnostics: context.diagnostics,
-        })
-    };
-
-    Ok(result)
+    Ok(parse_internal(pipeline::PipelineContext {
+        html,
+        doc: context.doc,
+        metadata: config.metadata,
+        meta: config.meta,
+        schema_org_data: config.schema_org_data,
+        url: config.url,
+        options: &options,
+        diagnostics: context.diagnostics,
+    }))
 }
 
 fn site_result(

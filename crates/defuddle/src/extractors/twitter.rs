@@ -1,18 +1,38 @@
 use crate::dom::Document;
-use crate::extractors::{Extractor, ExtractorResult, comments};
+use crate::extractors::{HtmlExtraction, SiteAdapter, SiteExtraction, comments};
+use crate::pipeline::PipelineContext;
 use crate::utils::escape_html;
 use rustc_hash::FxHashMap;
 
-pub fn create(doc: &Document, url: &str) -> Option<Box<dyn Extractor>> {
+pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
+    Box::new(TwitterAdapter)
+}
+
+struct TwitterAdapter;
+
+impl SiteAdapter for TwitterAdapter {
+    fn matches(&self, context: &PipelineContext<'_>) -> bool {
+        create(&context.doc, context.url).is_some()
+    }
+
+    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction {
+        let result = create(&context.doc, context.url)
+            .expect("Twitter adapter matched its document")
+            .extract(&context.doc);
+        crate::extractors::site_extraction_from_html(result.content_html, result.variables)
+    }
+}
+
+fn create(doc: &Document, url: &str) -> Option<XExtractor> {
     // Check for X Article pages (twitterArticleRichTextView with Draft.js blocks)
     if !doc
         .query_selector_all("[data-testid=\"twitterArticleRichTextView\"]")
         .is_empty()
     {
-        return Some(Box::new(XExtractor {
+        return Some(XExtractor {
             mode: XMode::Article,
             url: url.to_string(),
-        }));
+        });
     }
 
     // Check for conversation timeline pages (localized)
@@ -29,10 +49,10 @@ pub fn create(doc: &Document, url: &str) -> Option<Box<dyn Extractor>> {
                     .query_selector_all_in_subtree(*section_id, "article[data-testid=\"tweet\"]")
                     .is_empty()
             {
-                return Some(Box::new(XExtractor {
+                return Some(XExtractor {
                     mode: XMode::Conversation,
                     url: url.to_string(),
-                }));
+                });
             }
         }
     }
@@ -48,10 +68,10 @@ pub fn create(doc: &Document, url: &str) -> Option<Box<dyn Extractor>> {
             .and_then(|id| doc.get_attr(*id, "content"))
             .unwrap_or("");
         if meta_site.contains("X") || meta_site.contains("Twitter") {
-            return Some(Box::new(XExtractor {
+            return Some(XExtractor {
                 mode: XMode::Conversation,
                 url: url.to_string(),
-            }));
+            });
         }
     }
 
@@ -68,12 +88,8 @@ struct XExtractor {
     url: String,
 }
 
-impl Extractor for XExtractor {
-    fn can_extract(&self, _doc: &Document) -> bool {
-        true
-    }
-
-    fn extract(&self, doc: &Document) -> ExtractorResult {
+impl XExtractor {
+    fn extract(&self, doc: &Document) -> HtmlExtraction {
         match self.mode {
             XMode::Article => extract_article(doc, &self.url),
             XMode::Conversation => extract_conversation(doc),
@@ -82,7 +98,7 @@ impl Extractor for XExtractor {
 }
 
 /// Extract content from an X Article page (twitterArticleRichTextView with Draft.js blocks).
-fn extract_article(doc: &Document, url: &str) -> ExtractorResult {
+fn extract_article(doc: &Document, url: &str) -> HtmlExtraction {
     let wrapper = doc
         .query_selector_all("[data-testid=\"twitterArticleRichTextView\"]")
         .first()
@@ -202,7 +218,7 @@ fn extract_article(doc: &Document, url: &str) -> ExtractorResult {
         parse_article_title_from_og(og_title)
     };
 
-    ExtractorResult {
+    HtmlExtraction {
         content_html: content_html.trim().to_string(),
         variables: FxHashMap::from_iter([
             ("title".into(), title),
@@ -214,7 +230,7 @@ fn extract_article(doc: &Document, url: &str) -> ExtractorResult {
 }
 
 /// Extract a conversation timeline (localized section with tweets).
-fn extract_conversation(doc: &Document) -> ExtractorResult {
+fn extract_conversation(doc: &Document) -> HtmlExtraction {
     let sections = doc
         .query_selector_all("section")
         .into_iter()
@@ -358,7 +374,7 @@ fn extract_conversation(doc: &Document) -> ExtractorResult {
         format!("Post by {author_handle} on X")
     };
 
-    ExtractorResult {
+    HtmlExtraction {
         content_html: content_html.trim().to_string(),
         variables: FxHashMap::from_iter([
             ("title".into(), fallback_title),

@@ -9,7 +9,6 @@ The port tracks the upstream snapshot documented in `tests/upstream/SNAPSHOT.md`
 ```
 defuddle-rs/
 ├── Cargo.toml
-├── REDESIGN.md                  # targeted architecture migration plan
 ├── tests/
 │   ├── upstream/
 │   │   ├── SNAPSHOT.md
@@ -26,7 +25,7 @@ The core source is organized around the extraction pipeline rather than one larg
 
 | Module | Responsibility |
 |---|---|
-| `lib.rs` | Public API, options/results, metadata setup, extractor dispatch, retry loop |
+| `lib.rs` | Public API, options/results, metadata setup, adapter dispatch, retry loop |
 | `dom.rs` | Mutable DOM adapter over `html5ever` and `markup5ever_rcdom` |
 | `pipeline.rs` | Main-content selection, pruning, scoring, selector removal, hidden-content removal |
 | `prune.rs` | Document-wide pre-extraction cleanup hooks |
@@ -34,7 +33,7 @@ The core source is organized around the extraction pipeline rather than one larg
 | `standardize/` | DOM normalization after main-content selection |
 | `footnotes/` | Footnote reference/definition collection and canonicalization |
 | `embeds/` | Platform embed normalization, currently YouTube and Twitter/X iframe handling |
-| `extractors/` | Site-specific DOM extractors and their shared comment helpers |
+| `extractors/` | Site-specific `SiteAdapter` implementations, DOM output builders, and shared comment helpers |
 | `sanitize.rs` | Unsafe element, attribute, and URL removal |
 | `markdown.rs` | HTML-to-Markdown conversion and final Markdown normalization |
 | `overrides.rs` | Deliberate page-specific exceptions to the standard pipeline |
@@ -47,8 +46,8 @@ The core source is organized around the extraction pipeline rather than one larg
 1. Parse the input into the mutable `Document` tree.
 2. Run document-wide prune hooks.
 3. Extract schema data, meta tags, and metadata from the original document.
-4. Apply requested iframe removal and check the site-extractor registry.
-5. If an extractor matches, use its generated content and variables. Site extractors bypass the generic content pipeline.
+4. Apply requested iframe removal and check the site-adapter list.
+5. If an adapter matches, it returns a `ContentResult` containing its output DOM and variables. Site adapters bypass the generic content pipeline.
 6. Otherwise, run the standard pipeline:
    - select the main content element, or use the body/content selector;
    - remove selectors, hidden elements, low-scoring blocks, and boilerplate;
@@ -82,7 +81,7 @@ The selector parser supports tags, IDs, classes, attribute presence/equality/con
 
 ## Site extractors
 
-The registry in `extractors/mod.rs` maps URL patterns to DOM-only extractors:
+The adapter selector in `extractors/mod.rs` maps URL patterns and document shapes to synchronous site adapters:
 
 | Extractor | Domains | Scope |
 |---|---|---|
@@ -94,9 +93,9 @@ The registry in `extractors/mod.rs` maps URL patterns to DOM-only extractors:
 | Mastodon | `mastodon.*` | Posts, media, replies, and self-reply threads |
 | Twitter/X | `x.com`, `twitter.com` | Static articles and conversations |
 
-All extractors implement `Extractor::can_extract` and `Extractor::extract`. They must remain synchronous and DOM-only. Site-specific behavior belongs in the corresponding extractor module; generic embeds, footnotes, sanitization, and standardization should not be added there unless the behavior is genuinely shared.
+All site adapters implement `SiteAdapter::matches` and `SiteAdapter::extract`. They must remain synchronous and DOM-only. Site-specific behavior belongs in the corresponding extractor module; generic embeds, footnotes, sanitization, and standardization should not be added there unless the behavior is genuinely shared.
 
-There are no YouTube transcript or Bilibili extractors. Those require external fetching and are outside the core crate. Other upstream sites not represented by the registry are tracked as exclusions in `tests/upstream-exceptions.toml` where relevant.
+There are no YouTube transcript or Bilibili adapters. Those require external fetching and are outside the core crate. Other upstream sites not represented by the adapter list are tracked as exclusions in `tests/upstream-exceptions.toml` where relevant.
 
 ## Design boundaries
 
@@ -120,7 +119,7 @@ cargo test -- --nocapture
 
 The fixture harness compares the vendored upstream snapshot against expected output and validates the exception manifest. Do not silently update golden output: determine whether a mismatch is a regression, an intentional API difference, or a fixture that is outside the supported scope.
 
-Performance benchmarks and profiling are part of the planned architecture work in `REDESIGN.md`. New pipeline or extractor work should eventually include representative end-to-end measurements, not only microbenchmarks.
+Performance benchmarks and profiling live under `benchmarks/`. New pipeline or adapter work should include representative end-to-end measurements, not only microbenchmarks.
 
 To inspect one fixture while debugging:
 
@@ -130,11 +129,11 @@ cargo test -p defuddle --test fixtures -- --nocapture 2>&1 | grep -A 20 "EXTRACT
 
 ## Adding code
 
-To add an extractor:
+To add a site adapter:
 
 1. Add a module under `crates/defuddle/src/extractors/`.
-2. Implement the `Extractor` trait and a `create(doc, url)` factory.
-3. Register the factory in `extractors::build_registry()`.
+2. Implement `SiteAdapter::matches` and `SiteAdapter::extract`, returning a DOM-backed `SiteExtraction`.
+3. Add the adapter factory and name to `find_site_adapter`.
 4. Add focused integration coverage and representative fixture coverage when appropriate.
 
 To add a standardization rule:

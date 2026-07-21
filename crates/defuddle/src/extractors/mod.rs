@@ -13,14 +13,9 @@ pub mod reddit;
 pub mod substack;
 pub mod twitter;
 
-pub struct ExtractorResult {
+pub(crate) struct HtmlExtraction {
     pub content_html: String,
     pub variables: FxHashMap<String, String>,
-}
-
-pub trait Extractor {
-    fn can_extract(&self, doc: &Document) -> bool;
-    fn extract(&self, doc: &Document) -> ExtractorResult;
 }
 
 pub(crate) struct SiteExtraction {
@@ -34,10 +29,16 @@ pub(crate) trait SiteAdapter {
     fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction;
 }
 
-type ExtractorFactory = fn(doc: &Document, url: &str) -> Option<Box<dyn Extractor>>;
-
-pub struct Registry {
-    mappings: Vec<(String, String, ExtractorFactory)>,
+pub(crate) fn site_extraction_from_html(
+    content_html: String,
+    variables: FxHashMap<String, String>,
+) -> SiteExtraction {
+    let document = Document::parse(&content_html);
+    let root = document.root();
+    SiteExtraction {
+        content: ContentResult { document, root },
+        variables,
+    }
 }
 
 pub(crate) fn find_site_adapter(
@@ -47,6 +48,11 @@ pub(crate) fn find_site_adapter(
     let candidates: &[(&str, fn() -> Box<dyn SiteAdapter>)] = &[
         ("hackernews", hackernews::adapter),
         ("substack", substack::adapter),
+        ("reddit", reddit::adapter),
+        ("github", github::adapter),
+        ("chatgpt", chatgpt::adapter),
+        ("mastodon", mastodon::adapter),
+        ("twitter", twitter::adapter),
     ];
     candidates.iter().find_map(|(name, factory)| {
         if requested_name.is_some_and(|requested| !requested.eq_ignore_ascii_case(name)) {
@@ -55,6 +61,11 @@ pub(crate) fn find_site_adapter(
         let domain_matches = match *name {
             "hackernews" => context.url.contains("news.ycombinator.com"),
             "substack" => context.url.contains("substack.com"),
+            "reddit" => context.url.contains("reddit.com"),
+            "github" => context.url.contains("github.com"),
+            "chatgpt" => context.url.contains("chatgpt.com"),
+            "mastodon" => context.url.contains("mastodon."),
+            "twitter" => context.url.contains("x.com") || context.url.contains("twitter.com"),
             _ => false,
         };
         if requested_name.is_none() && !domain_matches {
@@ -65,80 +76,8 @@ pub(crate) fn find_site_adapter(
     })
 }
 
-impl Default for Registry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Registry {
-    pub fn new() -> Self {
-        Registry {
-            mappings: Vec::new(),
-        }
-    }
-
-    pub fn register(&mut self, domain: &str, name: &str, factory: ExtractorFactory) {
-        self.mappings
-            .push((domain.to_string(), name.to_string(), factory));
-    }
-
-    pub fn find(&self, url: &str, doc: &Document) -> Option<(String, Box<dyn Extractor>)> {
-        let hostname = crate::utils::extract_domain(url);
-        for (domain, name, factory) in &self.mappings {
-            if (hostname.contains(domain.as_str())
-                || url.contains(domain.as_str())
-                || domain.is_empty())
-                && let Some(extractor) = factory(doc, url)
-                && extractor.can_extract(doc)
-            {
-                return Some((name.clone(), extractor));
-            }
-        }
-        None
-    }
-
-    pub fn find_named(
-        &self,
-        name: &str,
-        url: &str,
-        doc: &Document,
-    ) -> Option<(String, Box<dyn Extractor>)> {
-        self.mappings
-            .iter()
-            .find(|(_, registered_name, _)| registered_name.eq_ignore_ascii_case(name))
-            .and_then(|(_, registered_name, factory)| {
-                factory(doc, url)
-                    .filter(|extractor| extractor.can_extract(doc))
-                    .map(|extractor| (registered_name.clone(), extractor))
-            })
-    }
-
-    pub fn names(&self) -> Vec<&str> {
-        let mut seen = std::collections::HashSet::new();
-        self.mappings
-            .iter()
-            .filter_map(|(_, name, _)| {
-                if seen.insert(name.as_str()) {
-                    Some(name.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-}
-
-pub fn build_registry() -> Registry {
-    let mut registry = Registry::new();
-
-    registry.register("old.reddit.com", "reddit", reddit::create);
-    registry.register("reddit.com", "reddit", reddit::create);
-    registry.register("github.com", "github", github::create);
-    registry.register("chatgpt.com", "chatgpt", chatgpt::create);
-    registry.register("mastodon", "mastodon", mastodon::create);
-    registry.register("x.com", "twitter", twitter::create);
-    registry.register("twitter.com", "twitter", twitter::create);
-
-    registry
+pub fn adapter_names() -> &'static [&'static str] {
+    &[
+        "hackernews", "substack", "reddit", "github", "chatgpt", "mastodon", "twitter",
+    ]
 }

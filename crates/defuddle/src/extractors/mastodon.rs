@@ -1,25 +1,32 @@
 use crate::dom::Document;
-use crate::extractors::{Extractor, ExtractorResult, comments};
+use crate::extractors::{HtmlExtraction, SiteAdapter, SiteExtraction, comments};
+use crate::pipeline::PipelineContext;
 use rustc_hash::FxHashMap;
 
-pub fn create(doc: &Document, _url: &str) -> Option<Box<dyn Extractor>> {
-    if doc
-        .query_selector_all(".detailed-status__wrapper, .status__wrapper")
-        .is_empty()
-    {
-        return None;
+pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
+    Box::new(MastodonAdapter)
+}
+
+struct MastodonAdapter;
+
+impl SiteAdapter for MastodonAdapter {
+    fn matches(&self, context: &PipelineContext<'_>) -> bool {
+        !context
+            .doc
+            .query_selector_all(".detailed-status__wrapper, .status__wrapper")
+            .is_empty()
     }
-    Some(Box::new(MastodonExtractor))
+
+    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction {
+        let result = MastodonExtractor.extract(&context.doc);
+        crate::extractors::site_extraction_from_html(result.content_html, result.variables)
+    }
 }
 
 struct MastodonExtractor;
 
-impl Extractor for MastodonExtractor {
-    fn can_extract(&self, _doc: &Document) -> bool {
-        true
-    }
-
-    fn extract(&self, doc: &Document) -> ExtractorResult {
+impl MastodonExtractor {
+    fn extract(&self, doc: &Document) -> HtmlExtraction {
         let main_post = doc
             .query_selector_all(".detailed-status__wrapper")
             .first()
@@ -201,7 +208,7 @@ impl Extractor for MastodonExtractor {
             site_name
         };
 
-        ExtractorResult {
+        HtmlExtraction {
             content_html,
             variables: FxHashMap::from_iter([
                 (

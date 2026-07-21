@@ -39,8 +39,7 @@ pub fn parse_page(html: &str, url: &str, extractor_name: &str) -> Result<String,
 
 #[wasm_bindgen]
 pub fn list_extractors() -> String {
-    let registry = defuddle::extractors::build_registry();
-    registry.names().join("\n")
+    defuddle::extractors::adapter_names().join("\n")
 }
 
 #[cfg(test)]

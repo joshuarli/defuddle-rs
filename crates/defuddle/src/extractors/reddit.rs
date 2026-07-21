@@ -1,16 +1,26 @@
 use crate::dom::Document;
-use crate::extractors::{Extractor, ExtractorResult, comments};
+use crate::extractors::{HtmlExtraction, SiteAdapter, SiteExtraction, comments};
+use crate::pipeline::PipelineContext;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
-pub fn create(doc: &Document, url: &str) -> Option<Box<dyn Extractor>> {
-    let is_old = !doc.query_selector_all(".thing.link").is_empty();
-    if is_old {
-        Some(Box::new(RedditExtractor {
-            url: url.to_string(),
-        }))
-    } else {
-        None
+pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
+    Box::new(RedditAdapter)
+}
+
+struct RedditAdapter;
+
+impl SiteAdapter for RedditAdapter {
+    fn matches(&self, context: &PipelineContext<'_>) -> bool {
+        !context.doc.query_selector_all(".thing.link").is_empty()
+    }
+
+    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction {
+        let result = RedditExtractor {
+            url: context.url.to_string(),
+        }
+        .extract(&context.doc);
+        crate::extractors::site_extraction_from_html(result.content_html, result.variables)
     }
 }
 
@@ -18,12 +28,8 @@ struct RedditExtractor {
     url: String,
 }
 
-impl Extractor for RedditExtractor {
-    fn can_extract(&self, _doc: &Document) -> bool {
-        true
-    }
-
-    fn extract(&self, doc: &Document) -> ExtractorResult {
+impl RedditExtractor {
+    fn extract(&self, doc: &Document) -> HtmlExtraction {
         let post_title = doc
             .query_selector_all("a.title")
             .first()
@@ -77,7 +83,7 @@ impl Extractor for RedditExtractor {
             .unwrap_or("")
             .to_string();
 
-        ExtractorResult {
+        HtmlExtraction {
             content_html,
             variables: FxHashMap::from_iter([
                 ("title".into(), post_title),
