@@ -291,21 +291,28 @@ Phases 1-3 are done.
 
 ### Phase 7: Refactor Pipeline Orchestration (higher risk)
 
-- [ ] **7.1** Create a `PipelineConfig` struct to replace the 14-parameter `parse_internal` / 13-parameter `parse_internal_once` signatures:
+- [x] **7.1** Create a `PipelineConfig` struct to replace the 14-parameter `parse_internal` / 13-parameter `parse_internal_once` signatures:
   ```rust
-  struct PipelineConfig {
+  struct PipelineConfig<'a> {
+      html: &'a str,
+      metadata: &'a Metadata,
+      meta: &'a [MetaTagItem],
+      schema_org_data: &'a [Value],
+      url: &'a str,
       remove_exact: bool,
       remove_partial: bool,
       remove_hidden: bool,
       remove_iframes: bool,
       do_standardize: bool,
       separate_markdown: bool,
-      content_selector: Option<String>,
+      content_selector: Option<&'a str>,
       debug: bool,
   }
   ```
-- [ ] **7.2** Move the retry loop from `parse_internal` into a simpler construct. Instead of re-parsing HTML 4 times, clone the cleaned `Document` at the point where options diverge and re-run only the affected pipeline steps. Alternatively, accept the simplicity of re-parse and document the trade-off.
-- [ ] **7.3** Replace raw `.unwrap()` calls with proper error handling. At minimum, replace `pipeline.rs:585`, `pipeline.rs:1375,1380`, `metadata.rs:1064,1070`, and the `caps.get(N).unwrap()` calls in `markdown.rs` with `.ok_or(...)` or `match` arms.
+- [x] **7.2** Move the retry loop from `parse_internal` into a simpler construct. Instead of re-parsing HTML 4 times, clone the cleaned `Document` at the point where options diverge and re-run only the affected pipeline steps. Alternatively, accept the simplicity of re-parse and document the trade-off.
+  → Accepted re-parse simplicity; added doc comment explaining the trade-off. The retry loop is now clean: mutate `config.remove_partial` / `config.remove_hidden` on the same `PipelineConfig`, pass `&config` to each `parse_internal_once` call with a fresh `Document::parse(config.html)`.
+- [x] **7.3** Replace raw `.unwrap()` calls with proper error handling. At minimum, replace `pipeline.rs:585`, `pipeline.rs:1375,1380`, `metadata.rs:1064,1070`, and the `caps.get(N).unwrap()` calls in `markdown.rs` with `.ok_or(...)` or `match` arms.
+  → Fixed `pipeline.rs:385` (redundant `main_content.unwrap()` replaced with `let Some(main) = main_content else { return None; }`), `metadata.rs:1031,1037` (`author.chars().next().unwrap()` → `.map_or(false, |c| c.is_uppercase())`), `markdown.rs:1275` (`caps.get(1).unwrap().as_str()` → `caps.get(1).map(|m| m.as_str()).unwrap_or("")`). The line numbers in the roadmap were stale; the actual fix sites are as listed.
 
 ### Phase 8: Fix the Selector Parser (high risk, complex)
 

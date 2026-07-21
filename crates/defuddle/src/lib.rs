@@ -155,6 +155,27 @@ impl Default for DefuddleResult {
     }
 }
 
+/// Bundles all configuration and input data for the content extraction pipeline.
+///
+/// Replaces the 14-parameter signatures of `parse_internal` / `parse_internal_once`.
+/// Boolean flags control which pipeline stages are active; reference fields hold
+/// the parsed metadata, schema data, and original HTML needed for retry logic.
+struct PipelineConfig<'a> {
+    html: &'a str,
+    metadata: &'a Metadata,
+    meta: &'a [MetaTagItem],
+    schema_org_data: &'a [Value],
+    url: &'a str,
+    remove_exact: bool,
+    remove_partial: bool,
+    remove_hidden: bool,
+    remove_iframes: bool,
+    do_standardize: bool,
+    separate_markdown: bool,
+    content_selector: Option<&'a str>,
+    debug: bool,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum DefuddleError {
     #[error("HTML parsing failed: {0}")]
@@ -258,9 +279,12 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
             ..<DefuddleResult as Default>::default()
         }
     } else {
-        parse_internal(
-            doc,
+        let config = PipelineConfig {
             html,
+            metadata: &metadata,
+            meta: &meta,
+            schema_org_data: &schema_org_data,
+            url,
             remove_exact,
             remove_partial,
             remove_hidden,
@@ -269,67 +293,30 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
             separate_markdown,
             content_selector,
             debug,
-            &metadata,
-            &meta,
-            &schema_org_data,
-            url,
-        )
+        };
+        parse_internal(config)
     };
 
     Ok(result)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn parse_internal(
-    doc: Document,
-    html: &str,
-    remove_exact: bool,
-    remove_partial: bool,
-    remove_hidden: bool,
-    remove_iframes: bool,
-    do_standardize: bool,
-    separate_markdown: bool,
-    content_selector: Option<&str>,
-    debug: bool,
-    metadata: &Metadata,
-    meta: &[MetaTagItem],
-    schema_org_data: &[Value],
-    url: &str,
-) -> DefuddleResult {
-    let mut result = parse_internal_once(
-        doc,
-        remove_exact,
-        remove_partial,
-        remove_hidden,
-        remove_iframes,
-        do_standardize,
-        separate_markdown,
-        content_selector,
-        debug,
-        metadata,
-        meta,
-        schema_org_data,
-        url,
-    );
+/// Run the standard pipeline with a low-word-count retry loop.
+///
+/// When the initial extraction yields fewer than 200 words, we retry once with
+/// `remove_partial` disabled. If still below 50 words we retry again with both
+/// `remove_partial` and `remove_hidden` disabled. Each retry re-parses the
+/// original HTML — this is simpler than cloning a mutated `Document` and
+/// re-running only the affected pipeline steps, and re-parsing is cheap enough
+/// for the short HTML documents that reach this path.
+fn parse_internal(mut config: PipelineConfig<'_>) -> DefuddleResult {
+    let doc = Document::parse(config.html);
+    let mut result = parse_internal_once(doc, &config);
 
     let mut wc = pipeline::count_html_words(&result.content);
 
     if wc < 200 {
-        let retry1 = parse_internal_once(
-            Document::parse(html),
-            remove_exact,
-            false,
-            remove_hidden,
-            remove_iframes,
-            do_standardize,
-            separate_markdown,
-            content_selector,
-            debug,
-            metadata,
-            meta,
-            schema_org_data,
-            url,
-        );
+        config.remove_partial = false;
+        let retry1 = parse_internal_once(Document::parse(config.html), &config);
         let wc1 = pipeline::count_html_words(&retry1.content);
         if wc1 > wc {
             result = retry1;
@@ -338,21 +325,8 @@ fn parse_internal(
     }
 
     if wc < 50 {
-        let retry2 = parse_internal_once(
-            Document::parse(html),
-            remove_exact,
-            false,
-            false,
-            remove_iframes,
-            do_standardize,
-            separate_markdown,
-            content_selector,
-            debug,
-            metadata,
-            meta,
-            schema_org_data,
-            url,
-        );
+        config.remove_hidden = false;
+        let retry2 = parse_internal_once(Document::parse(config.html), &config);
         let wc2 = pipeline::count_html_words(&retry2.content);
         if wc2 > wc {
             result = retry2;
@@ -361,21 +335,7 @@ fn parse_internal(
     }
 
     if wc < 50 {
-        let retry3 = parse_internal_once(
-            Document::parse(html),
-            remove_exact,
-            false,
-            false,
-            remove_iframes,
-            do_standardize,
-            separate_markdown,
-            content_selector,
-            debug,
-            metadata,
-            meta,
-            schema_org_data,
-            url,
-        );
+        let retry3 = parse_internal_once(Document::parse(config.html), &config);
         let wc3 = pipeline::count_html_words(&retry3.content);
         if wc3 > wc {
             result = retry3;
@@ -385,40 +345,28 @@ fn parse_internal(
     result
 }
 
-#[allow(clippy::too_many_arguments)]
 fn parse_internal_once(
     mut doc: Document,
-    remove_exact: bool,
-    remove_partial: bool,
-    remove_hidden: bool,
-    remove_iframes: bool,
-    do_standardize: bool,
-    separate_markdown: bool,
-    content_selector: Option<&str>,
-    debug: bool,
-    metadata: &Metadata,
-    meta: &[MetaTagItem],
-    schema_org_data: &[Value],
-    url: &str,
+    config: &PipelineConfig<'_>,
 ) -> DefuddleResult {
     // Find main content first
-    let main_content = pipeline::extract_content(&mut doc, content_selector, debug);
+    let main_content = pipeline::extract_content(&mut doc, config.content_selector, config.debug);
     let body_ids = doc.query_selector_all("body");
     let content_id = main_content.or_else(|| body_ids.first().copied());
-    let overrides = overrides::lookup_page_overrides(&metadata.title);
+    let overrides = overrides::lookup_page_overrides(&config.metadata.title);
 
     // Convert Bootstrap alerts and Hugo admonitions to callout format
     // BEFORE remove_by_selector strips .alert elements
     standardize::convert_alert_elements(&mut doc);
 
     // Then apply removals
-    if (remove_exact || remove_partial)
+    if (config.remove_exact || config.remove_partial)
         && !overrides.as_ref().is_some_and(|o| o.skip_remove_selectors)
     {
-        pipeline::remove_by_selector(&mut doc, remove_exact, remove_partial);
+        pipeline::remove_by_selector(&mut doc, config.remove_exact, config.remove_partial);
     }
 
-    if remove_hidden && !overrides.as_ref().is_some_and(|o| o.skip_hidden_removal) {
+    if config.remove_hidden && !overrides.as_ref().is_some_and(|o| o.skip_hidden_removal) {
         pipeline::remove_hidden_elements(&mut doc);
     }
 
@@ -444,17 +392,17 @@ fn parse_internal_once(
         if !overrides.as_ref().is_some_and(|o| o.skip_metadata_blocks) {
             pipeline::remove_metadata_blocks(&mut doc, content);
         }
-        pipeline::remove_author_sibling(&mut doc, content, &metadata.author);
+        pipeline::remove_author_sibling(&mut doc, content, &config.metadata.author);
 
         // Resolve relative URLs before standardization
-        standardize::resolve_urls(&mut doc, content, url);
+        standardize::resolve_urls(&mut doc, content, config.url);
 
-        if do_standardize {
-            standardize::standardize_content(&mut doc, content, &metadata.title, overrides.as_ref());
-            standardize::resolve_urls(&mut doc, content, url);
+        if config.do_standardize {
+            standardize::standardize_content(&mut doc, content, &config.metadata.title, overrides.as_ref());
+            standardize::resolve_urls(&mut doc, content, config.url);
         }
 
-        if remove_iframes {
+        if config.remove_iframes {
             sanitize::remove_iframes(&mut doc);
         }
         sanitize::strip_unsafe_elements(&mut doc);
@@ -465,7 +413,7 @@ fn parse_internal_once(
         {
             html = post(&html);
         }
-        let md = if separate_markdown {
+        let md = if config.separate_markdown {
             let markdown_raw = markdown::content_to_markdown(&doc, content);
             let mut markdown = markdown::normalize_origin_links(&markdown_raw)
                 .replace("Vox_\\(website) ", "Vox_\\(website\\) ");
@@ -480,7 +428,7 @@ fn parse_internal_once(
         };
         let word_count = pipeline::count_html_words(&html);
 
-        let debug_info = if debug {
+        let debug_info = if config.debug {
             let content_sel = element_selector(&doc, content);
             Some(DebugInfo {
                 content_selector: content_sel,
@@ -490,16 +438,16 @@ fn parse_internal_once(
             None
         };
 
-        let schema_val = if schema_org_data.is_empty() {
+        let schema_val = if config.schema_org_data.is_empty() {
             Value::Array(Array::new())
         } else {
-            Value::Array(Array::from_iter(schema_org_data.iter().cloned()))
+            Value::Array(Array::from_iter(config.schema_org_data.iter().cloned()))
         };
 
         // Schema text fallback: if schema.org has significantly longer text
         let content_md = if word_count < 50 {
             let mut best_md = md.clone();
-            for item in schema_org_data {
+            for item in config.schema_org_data {
                 if let Some(text) =
                     crate::schema::object_value(item, "text").and_then(crate::schema::as_str)
                 {
@@ -518,38 +466,38 @@ fn parse_internal_once(
         DefuddleResult {
             content: html,
             content_markdown: content_md,
-            title: metadata.title.clone(),
-            description: metadata.description.clone(),
-            domain: metadata.domain.clone(),
-            favicon: metadata.favicon.clone(),
-            image: metadata.image.clone(),
-            language: metadata.language.clone(),
-            meta_tags: meta.to_vec(),
-            published: metadata.published.clone(),
-            author: metadata.author.clone(),
-            site: metadata.site.clone(),
+            title: config.metadata.title.clone(),
+            description: config.metadata.description.clone(),
+            domain: config.metadata.domain.clone(),
+            favicon: config.metadata.favicon.clone(),
+            image: config.metadata.image.clone(),
+            language: config.metadata.language.clone(),
+            meta_tags: config.meta.to_vec(),
+            published: config.metadata.published.clone(),
+            author: config.metadata.author.clone(),
+            site: config.metadata.site.clone(),
             schema_org_data: schema_val,
             debug: debug_info,
             ..<DefuddleResult as Default>::default()
         }
     } else {
-        let schema_val = if schema_org_data.is_empty() {
+        let schema_val = if config.schema_org_data.is_empty() {
             Value::Array(Array::new())
         } else {
-            Value::Array(Array::from_iter(schema_org_data.iter().cloned()))
+            Value::Array(Array::from_iter(config.schema_org_data.iter().cloned()))
         };
 
         DefuddleResult {
-            title: metadata.title.clone(),
-            description: metadata.description.clone(),
-            domain: metadata.domain.clone(),
-            favicon: metadata.favicon.clone(),
-            image: metadata.image.clone(),
-            language: metadata.language.clone(),
-            meta_tags: meta.to_vec(),
-            published: metadata.published.clone(),
-            author: metadata.author.clone(),
-            site: metadata.site.clone(),
+            title: config.metadata.title.clone(),
+            description: config.metadata.description.clone(),
+            domain: config.metadata.domain.clone(),
+            favicon: config.metadata.favicon.clone(),
+            image: config.metadata.image.clone(),
+            language: config.metadata.language.clone(),
+            meta_tags: config.meta.to_vec(),
+            published: config.metadata.published.clone(),
+            author: config.metadata.author.clone(),
+            site: config.metadata.site.clone(),
             schema_org_data: schema_val,
             ..<DefuddleResult as Default>::default()
         }

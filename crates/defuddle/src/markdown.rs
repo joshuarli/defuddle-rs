@@ -1272,7 +1272,7 @@ fn format_link_destinations(md: &str) -> String {
     let link_re = LINK_DEST_RE.get_or_init(|| regex_lite::Regex::new(r"\]\(([^)]+)\)").unwrap());
     link_re
         .replace_all(md, |caps: &regex_lite::Captures| {
-            let url = caps.get(1).unwrap().as_str();
+            let url = caps.get(1).map(|m| m.as_str()).unwrap_or("");
             let formatted = if url.starts_with('<') && url.ends_with('>') {
                 url.to_string()
             } else if url.contains(char::is_whitespace) && !url.contains('"') {

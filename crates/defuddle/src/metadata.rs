@@ -1028,13 +1028,13 @@ fn extract_byline(doc: &Document, el: NodeId) -> Option<String> {
     if !text.is_empty() && text.len() < 50 {
         if let Some(author) = text.strip_prefix("By ") {
             let author = author.trim();
-            if !author.is_empty() && author.chars().next().unwrap().is_uppercase() {
+            if !author.is_empty() && author.chars().next().map_or(false, |c| c.is_uppercase()) {
                 return Some(author.to_string());
             }
         }
         if let Some(author) = text.strip_prefix("by ") {
             let author = author.trim();
-            if !author.is_empty() && author.chars().next().unwrap().is_uppercase() {
+            if !author.is_empty() && author.chars().next().map_or(false, |c| c.is_uppercase()) {
                 return Some(author.to_string());
             }
         }

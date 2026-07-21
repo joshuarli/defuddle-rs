@@ -380,9 +380,9 @@ pub fn extract_content(
         scoring::find_main_content(doc, ENTRY_POINT_ELEMENTS)
     };
 
-    main_content?;
-
-    let main = main_content.unwrap();
+    let Some(main) = main_content else {
+        return None;
+    };
 
     if doc.tag_name_is(main, "body") {
         if let Some(main_element) = doc.query_selector_all("main").first().copied()
