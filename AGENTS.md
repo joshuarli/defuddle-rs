@@ -10,7 +10,6 @@ The port tracks the upstream snapshot documented in `tests/upstream/SNAPSHOT.md`
 defuddle-rs/
 ├── Cargo.toml
 ├── REDESIGN.md                  # targeted architecture migration plan
-├── docs/dependencies.md         # dependency rationale
 ├── tests/
 │   ├── upstream/
 │   │   ├── SNAPSHOT.md

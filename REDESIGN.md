@@ -4,6 +4,18 @@ This plan moves `crates/defuddle` toward a disciplined, pluggable pipeline while
 
 The proof of concept is the Hacker News extractor. It will be migrated end to end, measured against the current implementation, and used to validate the architecture before the other extractors move.
 
+## Current baseline after cleanup
+
+The cleanup has already established several ownership boundaries that the redesign should preserve:
+
+- `extractors/` owns site-specific DOM interpretation and currently returns an `ExtractorResult` containing serialized HTML.
+- `standardize/` owns generic DOM normalization, with focused submodules for elements, headings, images, tables, URLs, whitespace, and callouts.
+- `footnotes/` owns footnote discovery and canonical DOM construction; Markdown rendering of the canonical form remains at the output boundary.
+- `embeds/` owns static platform-embed normalization, currently YouTube and Twitter/X iframe handling.
+- Renderer-specific code-block heuristics, BBCode, and math/LaTeX handling are intentionally out of scope and should not be reintroduced as generic pipeline stages.
+
+The remaining architectural problem is therefore not “split every special case into a module.” It is the string boundary between site extraction and the generic DOM pipeline, plus the lack of explicit context, diagnostics, and end-to-end performance measurement.
+
 ## Target MVP
 
 The MVP has one defining constraint:
@@ -17,7 +29,7 @@ HTML
   → Document + PipelineContext
   → site adapter selection
   → site preparation / extraction
-  → generic cleanup stages
+  → generic cleanup stages (including standardize, footnotes, callouts, embeds, sanitize)
   → DOM-backed content result
   → HTML / Markdown serialization
 ```
@@ -45,6 +57,7 @@ Acceptance gate: `cargo test -p defuddle` passes, benchmarks are repeatable, and
 - [ ] Add a `PipelineContext` containing the working `Document`, URL information, metadata, options, and diagnostics.
 - [ ] Add a DOM-backed content result, initially using the existing `Document` and `NodeId` types rather than introducing a second DOM abstraction.
 - [ ] Change the standard pipeline to consume and return the context/content boundary explicitly.
+- [ ] Keep existing focused boundaries (`standardize/callouts/`, `footnotes/`, and `embeds/`) intact while changing ownership around them; do not fold them back into a monolithic standardizer.
 - [ ] Keep public `DefuddleResult` unchanged; HTML and Markdown serialization remain output concerns.
 - [ ] Add phase timing hooks to the context or a small diagnostics structure so benchmarks and profiling can attribute work to stages without logging by default.
 
@@ -59,6 +72,7 @@ Acceptance gate: behavior is unchanged, the full fixture suite passes, and the b
   - Preserve the existing metadata and nested comment behavior.
   - Keep generated headings or separators as DOM nodes, not serialized HTML fragments.
 - [ ] Remove Hacker News-specific reparsing, HTML concatenation, and generic-pipeline conditionals.
+- [ ] Define how shared stages such as footnotes, callouts, embeds, sanitization, and Markdown serialization consume the adapter-owned content result.
 - [ ] Add adapter contract tests for listing pages, post pages, nested comments, empty comments, and malformed/missing optional fields.
 
 Acceptance gate: Hacker News HTML, Markdown, metadata, and all existing fixture outputs are byte-for-byte compatible unless a difference is explicitly justified. Benchmark and profile the migrated path against the Stage 1 baseline.
