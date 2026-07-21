@@ -10,6 +10,7 @@ struct ParseResult {
     published: String,
     site: String,
     domain: String,
+    extractor_type: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -34,6 +35,7 @@ pub fn parse_page(html: &str, url: &str, extractor_name: &str) -> Result<String,
         published: result.published,
         site: result.site,
         domain: result.domain,
+        extractor_type: result.extractor_type,
     }))
 }
 
