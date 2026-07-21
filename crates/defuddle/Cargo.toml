@@ -20,3 +20,7 @@ workspace = true
 
 [dev-dependencies]
 walkdir = "2"
+
+[[bench]]
+name = "baseline"
+harness = false

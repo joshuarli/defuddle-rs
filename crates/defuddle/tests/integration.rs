@@ -641,3 +641,75 @@ fn strips_object_and_embed_elements() {
         "evil URLs should be stripped"
     );
 }
+
+#[test]
+fn hackernews_adapter_handles_listing_and_more_link() {
+    let html = r#"
+        <html><head><title>Hacker News</title></head><body>
+        <table><tr class="athing" id="42">
+          <td class="titleline"><a href="https://example.com/story">A story</a></td>
+          <span class="sitestr">example.com</span>
+        </tr><tr><td class="subtext"><span class="score">10 points</span>
+          <a class="hnuser">alice</a><a href="item?id=42">3 comments</a>
+        </td></tr></table>
+        <a class="morelink" href="news?p=2">More</a>
+        </body></html>
+    "#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://news.ycombinator.com/news".into()),
+            separate_markdown: true,
+            ..Default::default()
+        },
+    )
+    .expect("listing extraction succeeds");
+
+    assert_eq!(result.extractor_type.as_deref(), Some("hackernews"));
+    assert!(result.content.contains("<ol>"));
+    assert!(
+        result
+            .content
+            .contains("href=\"https://news.ycombinator.com/news?p=2\"")
+    );
+    assert!(
+        result
+            .content_markdown
+            .unwrap_or_default()
+            .contains("A story")
+    );
+}
+
+#[test]
+fn hackernews_adapter_handles_posts_without_comments() {
+    let html = r#"
+        <html><head><title>A post | Hacker News</title></head><body>
+        <table class="fatitem"><tr class="athing" id="42">
+          <td class="titleline"><a href="https://example.com/story">A post</a></td>
+          <a class="hnuser">alice</a><span class="age" title="2025-01-15T12:00:00 1736942400">today</span>
+          <div class="toptext"><p>Post body.</p></div>
+        </tr></table>
+        </body></html>
+    "#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://news.ycombinator.com/item?id=42".into()),
+            separate_markdown: true,
+            ..Default::default()
+        },
+    )
+    .expect("post extraction succeeds");
+
+    assert_eq!(result.title, "A post");
+    assert_eq!(result.author, "alice");
+    assert!(!result.content.contains("Comments"));
+    assert!(
+        result
+            .content_markdown
+            .unwrap_or_default()
+            .contains("Post body.")
+    );
+}

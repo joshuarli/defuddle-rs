@@ -4,6 +4,62 @@ use crate::scoring;
 use crate::utils::count_words;
 use rustc_hash::FxHashSet;
 use std::sync::OnceLock;
+use std::time::Instant;
+
+use crate::{DefuddleOptions, MetaTagItem, Metadata};
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Diagnostics {
+    pub phases: Vec<PhaseTiming>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PhaseTiming {
+    pub name: &'static str,
+    pub elapsed_nanos: u128,
+}
+
+impl Diagnostics {
+    pub(crate) fn measure<T>(&mut self, name: &'static str, operation: impl FnOnce() -> T) -> T {
+        let start = Instant::now();
+        let result = operation();
+        self.phases.push(PhaseTiming {
+            name,
+            elapsed_nanos: start.elapsed().as_nanos(),
+        });
+        result
+    }
+
+    pub(crate) fn total_nanos(&self) -> u128 {
+        self.phases
+            .iter()
+            .filter(|phase| !phase.name.is_empty())
+            .map(|phase| phase.elapsed_nanos)
+            .sum()
+    }
+}
+
+pub(crate) struct PipelineContext<'a> {
+    pub html: &'a str,
+    pub doc: Document,
+    pub metadata: &'a Metadata,
+    pub meta: &'a [MetaTagItem],
+    pub schema_org_data: &'a [miniserde::json::Value],
+    pub url: &'a str,
+    pub options: &'a DefuddleOptions,
+    pub diagnostics: Diagnostics,
+}
+
+pub(crate) struct ContentResult {
+    pub document: Document,
+    pub root: NodeId,
+}
+
+impl ContentResult {
+    pub(crate) fn html(&self) -> String {
+        self.document.outer_html(self.root)
+    }
+}
 
 static RELATED_HEADING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static CTA_HEADING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();

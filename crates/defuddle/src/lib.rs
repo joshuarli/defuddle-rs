@@ -185,13 +185,14 @@ pub enum DefuddleError {
 }
 
 pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult, DefuddleError> {
-    let mut doc = Document::parse(html);
+    let mut diagnostics = pipeline::Diagnostics::default();
+    let mut doc = diagnostics.measure("parsing", || Document::parse(html));
     let prune_registry = prune::build_registry();
-    prune_registry.run(&mut doc);
+    diagnostics.measure("prune", || prune_registry.run(&mut doc));
 
     let url = options.url.as_deref().unwrap_or("");
-    let schema_org_data = schema::extract_schema_org_data(&doc);
-    let meta_tags_raw = schema::collect_meta_tags(&doc);
+    let schema_org_data = diagnostics.measure("schema", || schema::extract_schema_org_data(&doc));
+    let meta_tags_raw = diagnostics.measure("metadata", || schema::collect_meta_tags(&doc));
 
     let meta: Vec<MetaTagItem> = meta_tags_raw
         .iter()
@@ -202,7 +203,9 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
         })
         .collect();
 
-    let metadata = metadata::extract_metadata(&doc, &schema_org_data, &meta_tags_raw, url);
+    let metadata = diagnostics.measure("metadata", || {
+        metadata::extract_metadata(&doc, &schema_org_data, &meta_tags_raw, url)
+    });
 
     let debug = options.debug;
     let separate_markdown = options.separate_markdown;
@@ -218,6 +221,42 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
         sanitize::remove_iframes(&mut doc);
     }
 
+    let mut context = pipeline::PipelineContext {
+        html,
+        doc,
+        metadata: &metadata,
+        meta: &meta,
+        schema_org_data: &schema_org_data,
+        url,
+        options: &options,
+        diagnostics,
+    };
+
+    if let Some((name, adapter)) =
+        extractors::find_site_adapter(&context, options.extractor.as_deref())
+    {
+        adapter.prepare(&mut context);
+        let start = std::time::Instant::now();
+        let extraction = adapter.extract(&mut context);
+        context.diagnostics.phases.push(pipeline::PhaseTiming {
+            name: "site extraction",
+            elapsed_nanos: start.elapsed().as_nanos(),
+        });
+        let mut result = site_result(
+            extraction,
+            name,
+            &metadata,
+            &meta,
+            &schema_org_data,
+            separate_markdown,
+        );
+        if options.profile {
+            result.parse_time = context.diagnostics.total_nanos() as u64 / 1_000_000;
+        }
+        return Ok(result);
+    }
+
+    let doc = context.doc;
     let ext_registry = extractors::build_registry();
     let found_extractor = if let Some(name) = options.extractor.as_deref() {
         ext_registry.find_named(name, url, &doc)
@@ -299,10 +338,75 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
             content_selector,
             debug,
         };
-        parse_internal(config)
+        parse_internal(pipeline::PipelineContext {
+            html,
+            doc,
+            metadata: config.metadata,
+            meta: config.meta,
+            schema_org_data: config.schema_org_data,
+            url: config.url,
+            options: &options,
+            diagnostics: context.diagnostics,
+        })
     };
 
     Ok(result)
+}
+
+fn site_result(
+    extraction: extractors::SiteExtraction,
+    extractor_type: &str,
+    metadata: &Metadata,
+    meta: &[MetaTagItem],
+    schema_org_data: &[Value],
+    separate_markdown: bool,
+) -> DefuddleResult {
+    let mut variables = extraction.variables;
+    let content_html = extraction.content.html();
+    let content_markdown = separate_markdown
+        .then(|| markdown::normalize_origin_links(&markdown::html_to_markdown(&content_html)));
+    let schema_org_data = if schema_org_data.is_empty() {
+        Value::Array(Array::new())
+    } else {
+        Value::Array(Array::from_iter(schema_org_data.iter().cloned()))
+    };
+
+    DefuddleResult {
+        content: content_html,
+        content_markdown,
+        title: variables
+            .remove("title")
+            .unwrap_or_else(|| metadata.title.clone()),
+        description: variables
+            .remove("description")
+            .unwrap_or_else(|| metadata.description.clone()),
+        domain: metadata.domain.clone(),
+        favicon: metadata.favicon.clone(),
+        image: metadata.image.clone(),
+        language: metadata.language.clone(),
+        meta_tags: meta.to_vec(),
+        published: variables
+            .remove("published")
+            .unwrap_or_else(|| metadata.published.clone()),
+        author: variables
+            .remove("author")
+            .unwrap_or_else(|| metadata.author.clone()),
+        site: variables
+            .remove("site")
+            .unwrap_or_else(|| metadata.site.clone()),
+        schema_org_data,
+        extractor_type: Some(extractor_type.to_string()),
+        variables: if variables.is_empty() {
+            None
+        } else {
+            Some(Object::from_iter(
+                variables
+                    .into_iter()
+                    .map(|(key, value)| (key, Value::String(value))),
+            ))
+        },
+        ..Default::default()
+    }
 }
 
 /// Run the standard pipeline with a low-word-count retry loop.
@@ -313,8 +417,24 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
 /// original HTML — this is simpler than cloning a mutated `Document` and
 /// re-running only the affected pipeline steps, and re-parsing is cheap enough
 /// for the short HTML documents that reach this path.
-fn parse_internal(mut config: PipelineConfig<'_>) -> DefuddleResult {
-    let doc = Document::parse(config.html);
+fn parse_internal(mut context: pipeline::PipelineContext<'_>) -> DefuddleResult {
+    let mut config = PipelineConfig {
+        html: context.html,
+        metadata: context.metadata,
+        meta: context.meta,
+        schema_org_data: context.schema_org_data,
+        url: context.url,
+        remove_exact: context.options.remove_exact_selectors.unwrap_or(true),
+        remove_partial: context.options.remove_partial_selectors.unwrap_or(true),
+        remove_hidden: context.options.remove_hidden_elements.unwrap_or(true),
+        remove_iframes: context.options.remove_iframes,
+        remove_small_images: context.options.remove_small_images.unwrap_or(true),
+        do_standardize: context.options.standardize.unwrap_or(true),
+        separate_markdown: context.options.separate_markdown,
+        content_selector: context.options.content_selector.as_deref(),
+        debug: context.options.debug,
+    };
+    let doc = std::mem::replace(&mut context.doc, Document::empty());
     let mut result = parse_internal_once(doc, &config);
 
     let mut wc = pipeline::count_html_words(&result.content);
@@ -347,6 +467,9 @@ fn parse_internal(mut config: PipelineConfig<'_>) -> DefuddleResult {
         }
     }
 
+    if context.options.profile {
+        result.parse_time = context.diagnostics.total_nanos() as u64 / 1_000_000;
+    }
     result
 }
 

@@ -38,58 +38,78 @@ The first version does not need a new crate, a dynamic plugin system, or a compl
 
 ## Stage 1: Establish the measurement baseline
 
-- [ ] Add a repeatable benchmark harness for end-to-end extraction.
+- [x] Add a repeatable benchmark harness for end-to-end extraction.
   - Benchmark at least the Hacker News fixture, one ordinary article fixture, and one extractor-free document.
   - Measure both HTML output and Markdown output.
   - Report throughput and input size; keep fixture inputs vendored and deterministic.
-- [ ] Add a correctness baseline alongside the benchmark cases.
+- [x] Add a correctness baseline alongside the benchmark cases.
   - Compare metadata, HTML, and Markdown against the current golden outputs.
   - Include Hacker News listings, posts, and nested comments if representative fixtures exist.
-- [ ] Add profiling instructions and a profile-friendly benchmark command.
+- [x] Add profiling instructions and a profile-friendly benchmark command.
   - Document release-mode profiling with `cargo flamegraph` or an equivalent platform profiler.
   - Identify the top-level phases to inspect: parsing, metadata, site extraction, standardization, Markdown conversion.
-- [ ] Record the baseline in this document or a checked-in benchmark summary.
+- [x] Record the baseline in this document or a checked-in benchmark summary.
 
 Acceptance gate: `cargo test -p defuddle` passes, benchmarks are repeatable, and a profile can distinguish the major pipeline phases.
 
+The benchmark command is:
+
+```bash
+cargo bench -p defuddle --bench baseline
+```
+
+It runs 10 warmup iterations and 100 measured iterations for five vendored fixtures: Hacker News listing, post, and nested comments; an ordinary Wikipedia article; and an extractor-free footnote document. Each case compares the metadata preamble and Markdown against its checked-in golden. Cases with an HTML golden compare that output too. The benchmark reports input/output sizes, median latency, and input-throughput for HTML-only and Markdown-enabled extraction.
+
+For a release-mode profile, install `cargo-flamegraph` and run:
+
+```bash
+cargo flamegraph -p defuddle --bench baseline -- --profile baseline.svg
+```
+
+The custom benchmark is intentionally profile-friendly: it performs the correctness checks once, then repeats only extraction in the timed loop. Inspect these top-level phases in the resulting profile: parsing (`Document::parse`), metadata/schema (`extract_metadata` and `extract_schema_org_data`), site extraction (`extractors`), generic standardization (`standardize`), and Markdown conversion (`markdown`). On macOS, an equivalent Instruments Time Profiler recording can launch `target/release/deps/baseline-*` after `cargo bench -p defuddle --bench baseline --no-run`.
+
+See [`benchmarks/BASELINE.md`](benchmarks/BASELINE.md) for the recorded run.
+
 ## Stage 2: Introduce the internal pipeline boundary
 
-- [ ] Add a `PipelineContext` containing the working `Document`, URL information, metadata, options, and diagnostics.
-- [ ] Add a DOM-backed content result, initially using the existing `Document` and `NodeId` types rather than introducing a second DOM abstraction.
-- [ ] Change the standard pipeline to consume and return the context/content boundary explicitly.
-- [ ] Keep existing focused boundaries (`standardize/callouts/`, `footnotes/`, and `embeds/`) intact while changing ownership around them; do not fold them back into a monolithic standardizer.
-- [ ] Keep public `DefuddleResult` unchanged; HTML and Markdown serialization remain output concerns.
-- [ ] Add phase timing hooks to the context or a small diagnostics structure so benchmarks and profiling can attribute work to stages without logging by default.
+- [x] Add a `PipelineContext` containing the working `Document`, URL information, metadata, options, and diagnostics.
+- [x] Add a DOM-backed content result, initially using the existing `Document` and `NodeId` types rather than introducing a second DOM abstraction.
+- [x] Change the standard pipeline to consume and return the context/content boundary explicitly.
+- [x] Keep existing focused boundaries (`standardize/callouts/`, `footnotes/`, and `embeds/`) intact while changing ownership around them; do not fold them back into a monolithic standardizer.
+- [x] Keep public `DefuddleResult` unchanged; HTML and Markdown serialization remain output concerns.
+- [x] Add phase timing hooks to the context or a small diagnostics structure so benchmarks and profiling can attribute work to stages without logging by default.
 
 Acceptance gate: behavior is unchanged, the full fixture suite passes, and the benchmark reports the same baseline phases without material regression.
 
 ## Stage 3: Migrate Hacker News as the proof of concept
 
-- [ ] Define a `SiteAdapter` boundary with `matches`, `prepare`, and `extract` responsibilities.
-- [ ] Adapt the registry to select a Hacker News adapter without exposing Hacker News details to the generic pipeline.
-- [ ] Make Hacker News extraction return a DOM-backed content result instead of an HTML string.
-  - Move or clone selected post/comment nodes into the content root.
-  - Preserve the existing metadata and nested comment behavior.
-  - Keep generated headings or separators as DOM nodes, not serialized HTML fragments.
-- [ ] Remove Hacker News-specific reparsing, HTML concatenation, and generic-pipeline conditionals.
-- [ ] Define how shared stages such as footnotes, callouts, embeds, sanitization, and Markdown serialization consume the adapter-owned content result.
-- [ ] Add adapter contract tests for listing pages, post pages, nested comments, empty comments, and malformed/missing optional fields.
+- [x] Define a `SiteAdapter` boundary with `matches`, `prepare`, and `extract` responsibilities.
+- [x] Adapt the registry to select a Hacker News adapter without exposing Hacker News details to the generic pipeline.
+- [x] Make Hacker News extraction return a DOM-backed content result instead of an HTML string.
+  - [x] Move or clone selected post/comment nodes into the content root.
+  - [x] Preserve the existing metadata and nested comment behavior.
+  - [x] Keep generated headings or separators as DOM nodes, not serialized HTML fragments.
+- [x] Remove Hacker News-specific reparsing, HTML concatenation, and generic-pipeline conditionals.
+- [x] Define how shared stages such as footnotes, callouts, embeds, sanitization, and Markdown serialization consume the adapter-owned content result.
+- [x] Add adapter contract tests for listing pages, post pages, nested comments, empty comments, and malformed/missing optional fields.
 
 Acceptance gate: Hacker News HTML, Markdown, metadata, and all existing fixture outputs are byte-for-byte compatible unless a difference is explicitly justified. Benchmark and profile the migrated path against the Stage 1 baseline.
 
 ## Stage 4: Validate the architectural MVP
 
-- [ ] Compare before/after end-to-end performance for Hacker News and the non-Hacker-News controls.
+- [x] Compare before/after end-to-end performance for Hacker News and the non-Hacker-News controls.
   - Throughput and median latency must be reported.
   - Investigate allocation or memory regressions where the profiler makes them visible.
-- [ ] Capture a before/after profile for the Hacker News path.
+- [x] Capture a before/after profile for the Hacker News path.
   - Confirm that extraction no longer spends time reparsing its own generated HTML.
   - Confirm that any new DOM movement cost is understood and bounded.
-- [ ] Add an invariant test or debug assertion that site extraction does not require serialized HTML to continue through the pipeline.
-- [ ] Document the adapter contract, context ownership, output boundary, and benchmark commands for future extractor migrations.
-- [ ] Decide whether the boundary is good enough to migrate the next extractor. If not, fix the boundary before adding more adapters.
+- [x] Add an invariant test or debug assertion that site extraction does not require serialized HTML to continue through the pipeline.
+- [x] Document the adapter contract, context ownership, output boundary, and benchmark commands for future extractor migrations.
+- [x] Decide whether the boundary is good enough to migrate the next extractor. If not, fix the boundary before adding more adapters.
 
 Acceptance gate: all core tests pass, Hacker News parity passes, benchmark results are recorded, and profiling demonstrates the intended architectural change rather than merely moving work around.
+
+Stage 4 validation is recorded in [`benchmarks/STAGE4.md`](benchmarks/STAGE4.md). The boundary is good enough to migrate one additional extractor in Stage 5. The next migration should retain the existing legacy `Extractor` path as a control until the adapter contract has been exercised by a second content shape.
 
 ## Stage 5: Generalize only after the MVP is proven
 

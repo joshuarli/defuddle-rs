@@ -6,6 +6,15 @@ use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 use std::sync::Arc;
 
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+thread_local! {
+    static PARSE_COUNT: Cell<usize> = const { Cell::new(0) };
+    static SERIALIZE_COUNT: Cell<usize> = const { Cell::new(0) };
+}
+
 type ParsedSelector = Vec<Vec<SimpleSelector>>;
 
 fn parse_selector(selector: &str) -> ParsedSelector {
@@ -40,6 +49,35 @@ impl Clone for Document {
 }
 
 impl Document {
+    pub(crate) fn empty() -> Self {
+        Self {
+            nodes: vec![Node {
+                parent: None,
+                children: Vec::new(),
+                kind: NodeKind::Document,
+                removed: false,
+            }],
+            root: NodeId(0),
+            selector_cache: RefCell::new(FxHashMap::default()),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reset_test_counters() {
+        PARSE_COUNT.with(|count| count.set(0));
+        SERIALIZE_COUNT.with(|count| count.set(0));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_parse_count() -> usize {
+        PARSE_COUNT.with(Cell::get)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_serialize_count() -> usize {
+        SERIALIZE_COUNT.with(Cell::get)
+    }
+
     fn parsed_selector(&self, selector: &str) -> Arc<ParsedSelector> {
         if let Some(parsed) = self.selector_cache.borrow().get(selector).cloned() {
             return parsed;
@@ -337,6 +375,8 @@ struct Node {
 
 impl Document {
     pub fn parse(html: &str) -> Self {
+        #[cfg(test)]
+        PARSE_COUNT.with(|count| count.set(count.get() + 1));
         html5ever::parse_document(ParseSink::new(), Default::default()).one(html)
     }
 
@@ -379,6 +419,35 @@ impl Document {
         }
         let child = self.push_node(NodeKind::Text(text.to_string()), Some(parent));
         debug_assert_eq!(self.node(parent).children.last(), Some(&child));
+    }
+
+    pub(crate) fn create_element(
+        &mut self,
+        parent: NodeId,
+        name: &str,
+        attrs: &[(&str, &str)],
+    ) -> NodeId {
+        let node = self.push_node(
+            NodeKind::Element {
+                name: name.to_string(),
+                attrs: attrs
+                    .iter()
+                    .map(|(name, value)| ((*name).to_string(), (*value).to_string()))
+                    .collect(),
+            },
+            Some(parent),
+        );
+        debug_assert_eq!(self.parent(node), Some(parent));
+        node
+    }
+
+    pub(crate) fn clone_node_from(
+        &mut self,
+        source: &Document,
+        source_id: NodeId,
+        parent: NodeId,
+    ) -> NodeId {
+        self.clone_subtree_from(source, source_id, Some(parent))
     }
 
     pub fn tag_name(&self, node: NodeId) -> &str {
@@ -709,6 +778,8 @@ impl Document {
     }
 
     pub fn outer_html(&self, node: NodeId) -> String {
+        #[cfg(test)]
+        SERIALIZE_COUNT.with(|count| count.set(count.get() + 1));
         let mut out = String::new();
         self.serialize_node(node, &mut out);
         out

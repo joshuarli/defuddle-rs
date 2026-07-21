@@ -1,6 +1,7 @@
 use rustc_hash::FxHashMap;
 
 use crate::dom::Document;
+use crate::pipeline::{ContentResult, PipelineContext};
 
 pub mod chatgpt;
 pub mod comments;
@@ -21,10 +22,39 @@ pub trait Extractor {
     fn extract(&self, doc: &Document) -> ExtractorResult;
 }
 
+pub(crate) struct SiteExtraction {
+    pub content: ContentResult,
+    pub variables: FxHashMap<String, String>,
+}
+
+pub(crate) trait SiteAdapter {
+    fn matches(&self, context: &PipelineContext<'_>) -> bool;
+    fn prepare(&self, _context: &mut PipelineContext<'_>) {}
+    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction;
+}
+
 type ExtractorFactory = fn(doc: &Document, url: &str) -> Option<Box<dyn Extractor>>;
 
 pub struct Registry {
     mappings: Vec<(String, String, ExtractorFactory)>,
+}
+
+pub(crate) fn find_site_adapter(
+    context: &PipelineContext<'_>,
+    requested_name: Option<&str>,
+) -> Option<(&'static str, Box<dyn SiteAdapter>)> {
+    if requested_name.is_some_and(|name| !name.eq_ignore_ascii_case("hackernews")) {
+        return None;
+    }
+    if requested_name.is_none() && !context.url.contains("news.ycombinator.com") {
+        return None;
+    }
+    let adapter = hackernews::adapter();
+    if adapter.matches(context) {
+        Some(("hackernews", adapter))
+    } else {
+        None
+    }
 }
 
 impl Default for Registry {
@@ -94,7 +124,6 @@ impl Registry {
 pub fn build_registry() -> Registry {
     let mut registry = Registry::new();
 
-    registry.register("news.ycombinator.com", "hackernews", hackernews::create);
     registry.register("old.reddit.com", "reddit", reddit::create);
     registry.register("reddit.com", "reddit", reddit::create);
     registry.register("github.com", "github", github::create);
