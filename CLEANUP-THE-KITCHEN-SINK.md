@@ -274,11 +274,11 @@ Phases 1-3 are done.
 
 ### Phase 5: Eliminate Article-Specific Hacks (medium-high risk, affects fixtures)
 
-- [ ] **5.1** Create a `PageOverrides` struct with fields for `skip_remove_selectors`, `skip_hidden_removal`, `skip_scoring`, `skip_content_patterns`, `skip_metadata_blocks`, `custom_html_postprocess`, `custom_markdown_postprocess`, `standardize_exceptions`.
-- [ ] **5.2** Define overrides for the Figma article, Lazy Profiling article, and Numeric Anchor-ID Footnote article in a lookup (either inline in the overrides system or in `tests/` as test-only fixtures).
-- [ ] **5.3** Remove all hardcoded title checks from `lib.rs`, `standardize.rs`, `pipeline.rs`.
-- [ ] **5.4** Move the `standardize_figma_header`, `trim_figma_footer`, and lazy-profile-specific handling into the override definitions.
-- [ ] **5.5** Move the Substack `cleanup_body_html` regex chain to use the `prune` module (DOM-level removal) for patterns where DOM matching works, falling back to string manipulation only for the patterns that require regex over serialized HTML.
+- [x] **5.1** Create a `PageOverrides` struct with fields for `skip_remove_selectors`, `skip_hidden_removal`, `skip_scoring`, `skip_content_patterns`, `skip_metadata_blocks`, `custom_html_postprocess`, `custom_markdown_postprocess`, `standardize_exceptions`.
+- [x] **5.2** Define overrides for the Figma article, Lazy Profiling article, and Numeric Anchor-ID Footnote article in a lookup (either inline in the overrides system or in `tests/` as test-only fixtures).
+- [x] **5.3** Remove all hardcoded title checks from `lib.rs`, `standardize.rs`, `pipeline.rs`.
+- [x] **5.4** Move the `standardize_figma_header`, `trim_figma_footer`, and lazy-profile-specific handling into the override definitions.
+- [x] **5.5** Move the Substack `cleanup_body_html` regex chain to use the `prune` module (DOM-level removal) for patterns where DOM matching works, falling back to string manipulation only for the patterns that require regex over serialized HTML.
 
 ### Phase 6: Split Monolithic Modules (low risk, structural only)
 

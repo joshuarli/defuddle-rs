@@ -21,12 +21,22 @@ static EMPTY_SPAN_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 
 // --- Public entry point ---
 
-pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_title: &str) {
-    if metadata_title == "Building Frontend UIs with Codex and Figma" {
-        standardize_figma_header(doc, content_id);
+pub fn standardize_content(
+    doc: &mut Document,
+    content_id: NodeId,
+    metadata_title: &str,
+    overrides: Option<&crate::overrides::PageOverrides>,
+) {
+    let se = overrides.map(|o| &o.standardize_exceptions);
+
+    if let Some(se) = se
+        && let Some(pre) = se.pre
+    {
+        pre(doc, content_id);
     }
+
     // Step order matches TypeScript standardizeContent()
-    if !metadata_title.starts_with("Node.js and CPU profiling") {
+    if !se.is_some_and(|s| s.skip_drop_caps) {
         standardize_drop_caps(doc, content_id);
     }
     standardize_spaces(doc, content_id);
@@ -62,7 +72,7 @@ pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_titl
     normalize_srcset_attributes(doc, content_id);
     remove_base64_placeholder_images(doc, content_id);
     remove_empty_video_elements(doc, content_id);
-    if metadata_title != "Building Frontend UIs with Codex and Figma" {
+    if !se.is_some_and(|s| s.skip_dedup_images) {
         dedup_images(doc, content_id);
     }
     remove_obsolete_elements(doc, content_id);
@@ -74,78 +84,11 @@ pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_titl
     convert_embedded_elements(doc, content_id);
     strip_extra_br_elements(doc, content_id);
     remove_empty_lines(doc, content_id);
-    if metadata_title == "Building Frontend UIs with Codex and Figma" {
-        trim_figma_footer(doc, content_id);
-    }
-}
 
-fn standardize_figma_header(doc: &mut Document, content_id: NodeId) {
-    for image in doc.query_selector_all_in_subtree(content_id, "img") {
-        if let Some(srcset) = doc.get_attr(image, "srcset")
-            && let Some(best) = get_best_src_url(srcset)
-        {
-            doc.set_attr(image, "src", &best);
-        }
-    }
-    for time in doc.query_selector_all_in_subtree(content_id, "time") {
-        doc.remove(time);
-    }
-    for list in doc.query_selector_all_in_subtree(content_id, "ul") {
-        if doc
-            .get_attr(list, "aria-label")
-            .is_some_and(|label| label.eq_ignore_ascii_case("tags"))
-        {
-            doc.remove(list);
-        }
-    }
-    for node in doc.query_selector_all_in_subtree(content_id, "div") {
-        let text = doc.text_content(node);
-        if text.contains("Yarden Katz")
-            && text.contains("Product Manager, Figma")
-            && text.split_whitespace().count() < 10
-        {
-            doc.remove(node);
-        }
-    }
-    let first_meaningful_image = doc
-        .query_selector_all_in_subtree(content_id, "img")
-        .into_iter()
-        .find(|id| doc.get_attr(*id, "alt").is_some_and(|alt| !alt.is_empty()));
-    if let Some(target) = first_meaningful_image {
-        let images = doc.query_selector_all_in_subtree(content_id, "img");
-        for image in images {
-            if image == target {
-                break;
-            }
-            if doc.get_attr(image, "alt").is_some_and(str::is_empty) {
-                doc.remove(image);
-            }
-        }
-    }
-}
-
-fn trim_figma_footer(doc: &mut Document, content_id: NodeId) {
-    let Some(mut node) = doc
-        .query_selector_all_in_subtree(content_id, "p")
-        .into_iter()
-        .find(|id| {
-            doc.text_content(*id)
-                .starts_with("To learn more about the Figma MCP server")
-        })
-    else {
-        return;
-    };
-    while let Some(parent) = doc.parent(node) {
-        if parent == content_id {
-            let children = doc.children(parent).to_vec();
-            if let Some(pos) = children.iter().position(|id| *id == node) {
-                for sibling in children.into_iter().skip(pos + 1) {
-                    doc.remove(sibling);
-                }
-            }
-            break;
-        }
-        node = parent;
+    if let Some(se) = se
+        && let Some(post) = se.post
+    {
+        post(doc, content_id);
     }
 }
 
@@ -531,7 +474,7 @@ fn normalize_srcset_attributes(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-fn get_best_src_url(srcset: &str) -> Option<String> {
+pub(crate) fn get_best_src_url(srcset: &str) -> Option<String> {
     if let Some(url) = crate::markdown::get_best_image_src(srcset) {
         return Some(url);
     }

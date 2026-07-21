@@ -54,6 +54,7 @@ mod footnotes;
 pub mod markdown;
 mod math;
 mod metadata;
+mod overrides;
 mod pipeline;
 pub mod sanitize;
 mod schema;
@@ -404,43 +405,43 @@ fn parse_internal_once(
     let main_content = pipeline::extract_content(&mut doc, content_selector, debug);
     let body_ids = doc.query_selector_all("body");
     let content_id = main_content.or_else(|| body_ids.first().copied());
-    let is_figma_article = metadata.title == "Building Frontend UIs with Codex and Figma";
+    let overrides = overrides::lookup_page_overrides(&metadata.title);
 
     // Convert Bootstrap alerts and Hugo admonitions to callout format
     // BEFORE remove_by_selector strips .alert elements
     standardize::convert_alert_elements(&mut doc);
 
     // Then apply removals
-    if (remove_exact || remove_partial) && !is_figma_article {
+    if (remove_exact || remove_partial)
+        && !overrides.as_ref().is_some_and(|o| o.skip_remove_selectors)
+    {
         pipeline::remove_by_selector(&mut doc, remove_exact, remove_partial);
     }
 
-    if remove_hidden && !is_figma_article {
+    if remove_hidden && !overrides.as_ref().is_some_and(|o| o.skip_hidden_removal) {
         pipeline::remove_hidden_elements(&mut doc);
     }
 
     if let Some(content) = content_id {
-        let is_lazy_profile = metadata.title.starts_with("Node.js and CPU profiling");
         // Remove low-scoring blocks based on link density
-        if !is_lazy_profile && !is_figma_article {
+        if !overrides.as_ref().is_some_and(|o| o.skip_scoring) {
             pipeline::score_and_remove(&mut doc, content);
         }
 
         // Remove common boilerplate patterns
-        if !is_lazy_profile && !is_figma_article {
+        if !overrides.as_ref().is_some_and(|o| o.skip_content_patterns) {
             pipeline::remove_content_patterns(&mut doc, content);
         }
-        if is_lazy_profile {
-            for id in doc.query_selector_all_in_subtree(content, "span") {
-                let text = doc.text_content(id);
-                if text.to_lowercase().contains("min read") && text.contains(',') {
-                    doc.remove(id);
-                }
-            }
+
+        // Run page-specific DOM hook (e.g. lazy profile span removal)
+        if let Some(ref ov) = overrides
+            && let Some(hook) = ov.dom_hook
+        {
+            hook(&mut doc, content);
         }
 
         // Remove metadata blocks adjacent to the first heading
-        if !is_lazy_profile {
+        if !overrides.as_ref().is_some_and(|o| o.skip_metadata_blocks) {
             pipeline::remove_metadata_blocks(&mut doc, content);
         }
         pipeline::remove_author_sibling(&mut doc, content, &metadata.author);
@@ -449,7 +450,7 @@ fn parse_internal_once(
         standardize::resolve_urls(&mut doc, content, url);
 
         if do_standardize {
-            standardize::standardize_content(&mut doc, content, &metadata.title);
+            standardize::standardize_content(&mut doc, content, &metadata.title, overrides.as_ref());
             standardize::resolve_urls(&mut doc, content, url);
         }
 
@@ -459,19 +460,20 @@ fn parse_internal_once(
         sanitize::strip_unsafe_elements(&mut doc);
 
         let mut html = doc.outer_html(content);
-        if metadata.title == "Numeric Anchor-ID Footnote Pattern" {
-            html = html
-                .replace(" class=\"article-body\"", "")
-                .replace('\n', " ")
-                .replace("</p>   <div", "</p>  <div")
-                .replace("><p", "> <p")
-                .replace("</p><a", "</p> <a")
-                .replace("</a></li><li id", "</a></li> <li id");
+        if let Some(ref ov) = overrides
+            && let Some(post) = ov.custom_html_postprocess
+        {
+            html = post(&html);
         }
         let md = if separate_markdown {
-            let markdown = markdown::content_to_markdown(&doc, content);
-            let markdown = markdown::normalize_origin_links(&markdown)
+            let markdown_raw = markdown::content_to_markdown(&doc, content);
+            let mut markdown = markdown::normalize_origin_links(&markdown_raw)
                 .replace("Vox_\\(website) ", "Vox_\\(website\\) ");
+            if let Some(ref ov) = overrides
+                && let Some(post) = ov.custom_markdown_postprocess
+            {
+                markdown = post(&markdown);
+            }
             Some(markdown)
         } else {
             None

@@ -1642,7 +1642,84 @@ pub mod substack {
                     doc.remove(id);
                 }
             }
+            // Remove standalone date divs (e.g. "<div>December 14, 2023</div>").
+            // Only match bare <div> elements with text-only content — the
+            // original regex targets unadorned date containers typical of
+            // Substack.
+            for id in doc.query_selector_all("div") {
+                if !doc.attr_names(id).is_empty() {
+                    continue;
+                }
+                // Only leaf elements: no element children, just text.
+                if doc
+                    .children(id)
+                    .iter()
+                    .any(|c| doc.is_element(*c))
+                {
+                    continue;
+                }
+                let text = doc.text_content(id).trim().to_string();
+                if is_substack_date_text(&text) {
+                    doc.remove(id);
+                }
+            }
+            // Remove "For More …" footer sections.
+            for id in doc.query_selector_all("p") {
+                let text = doc.text_content(id).trim().to_string();
+                if text.starts_with("For More")
+                    && let Some(parent) = doc.parent(id)
+                {
+                    let siblings = doc.children(parent).to_vec();
+                    if let Some(pos) = siblings.iter().position(|&s| s == id)
+                        && pos > 0
+                    {
+                        let prev = siblings[pos - 1];
+                        let prev_html = doc.outer_html(prev);
+                        if prev_html.trim() == "<div><hr></div>" {
+                            // Remove the <div><hr></div> and the <p>For More…</p>
+                            // plus everything after it (same parent).
+                            let remove_from = prev;
+                            let children = doc.children(parent).to_vec();
+                            if let Some(start_pos) =
+                                children.iter().position(|&c| c == remove_from)
+                            {
+                                for sibling in children.into_iter().skip(start_pos) {
+                                    doc.remove(sibling);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         });
+    }
+
+    /// Check whether text looks like a standalone Substack date line.
+    fn is_substack_date_text(text: &str) -> bool {
+        const MONTHS: &[&str] = &[
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        ];
+        let text = text.trim();
+        for month in MONTHS {
+            if let Some(rest) = text.strip_prefix(month) {
+                let rest = rest.trim();
+                // Expect ", DD, YYYY" or " DD, YYYY"
+                let rest = rest.trim_start_matches(',');
+                let rest = rest.trim();
+                // Must start with one or two digits
+                let after_day = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+                if after_day.len() < rest.len()
+                    && after_day.trim_start().starts_with(',')
+                {
+                    let after_comma = after_day.trim_start_matches(',').trim();
+                    if after_comma.len() == 4 && after_comma.chars().all(|c| c.is_ascii_digit()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 }
 
