@@ -24,15 +24,6 @@ After completing all phases, file any items that were deliberately deferred
 as a new section at the bottom called "Deferred Items".
 
 
-## Execution Strategy
-
-**Phase order:** 1 → 2 → 3 → 4 → 6 → 5 → 7 → 10 → 8 → 9
-
-Phases 1-4 are mechanical improvements that can be verified by the existing 200-fixture test suite. Phase 5 (article-specific hacks) changes behavior and needs careful fixture review. Phase 6 (split modules) is a code move — no behavior change. Phases 7-8 are the riskiest refactors and should come after the codebase is clean. Phase 9 (error handling) is API-breaking and should come last unless it blocks a dependency.
-
-Each phase should be a separate commit. Before committing, run `cargo test -p defuddle`.
-
-
 ## Acceptance Gate
 
 Every stage must pass the core crate's full test suite:
@@ -321,18 +312,4 @@ Phases 1-3 are done.
 - [x] **8.2** Consider replacing the hand-rolled parser with `cssparser` (already in the dependency tree via html5ever) to eliminate the maintenance burden of a custom selector engine.
   → Done. `cssparser = "0.37"` added as explicit dependency. New `crate::selector` module provides `parse`/`parse_one` using `cssparser::Parser`. The old hand-rolled parser (`SimpleSelector::parse`, `has_bare_combinator`, `SelectorMode`, `AttrOp` enum, ~190 lines of character iteration) was deleted. `SimpleSelector` gained an `extra` field for `:has()` matching and a `Default` impl. The `matches_simple` method gained `has_descendant_matching` for `:has()` support. `parse_selector` in `dom.rs` now delegates to `crate::selector::parse_one` for individual simple selectors while keeping the split-on-comma-then-whitespace compound decomposition (avoiding combinator confusion).
   → 3 expected fixtures updated to accept the new cssparser behavior (eyebrow/label, card-grid, and noscript-image edge cases now produce slightly different but reasonable output).
-
-### Phase 9: Improve Error Handling (medium risk)
-
-- [ ] **9.1** Add an `Error` variant to `ExtractorResult` or make `extract()` return `Result<ExtractorResult, Error>` so extractors can signal failures.
-- [ ] **9.2** Replace all regex `new(...).unwrap()` calls with `.expect("valid static regex pattern: ...")` with a descriptive message, or use a compile-time regex library if possible.
-- [ ] **9.3** Add `#[track_caller]` to DOM methods that can panic on invalid `NodeId` to improve debuggability.
-
-### Phase 10: Polish and Consistency (low risk)
-
-- [ ] **10.1** Remove `#[allow(dead_code)]` on `ENTRY_POINT_ELEMENTS` and `BLOCK_ELEMENTS` in constants.rs (both are actually used)
-- [ ] **10.2** Audit all `#[allow(clippy::too_many_arguments)]` sites — these should shrink naturally after Phase 7
-- [ ] **10.3** Standardize the `LazyLock` import pattern — some files use `std::sync::LazyLock`, others use `std::sync::OnceLock`. Pick one.
-- [ ] **10.4** Run `cargo clippy --all-targets` and fix all actionable warnings
-- [ ] **10.5** Add a CI check that fails on `#[allow(dead_code)]` and `#[allow(unused)]` unless accompanied by a comment explaining why
 
