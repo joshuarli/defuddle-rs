@@ -1510,7 +1510,6 @@ fn wrap_preformatted_code(doc: &mut Document, content_id: NodeId) {
             continue;
         }
         // Wrap in a <pre> element
-        let _tag = doc.tag_name(code_id).to_string();
         let attrs: Vec<(String, String)> = doc
             .attr_names(code_id)
             .iter()

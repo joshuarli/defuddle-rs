@@ -4,8 +4,6 @@ use crate::dom::Document;
 
 pub struct ExtractorResult {
     pub content_html: String,
-    #[allow(dead_code)]
-    pub content_selector: Option<String>,
     pub variables: FxHashMap<String, String>,
 }
 
@@ -405,7 +403,6 @@ pub mod hackernews {
 
             ExtractorResult {
                 content_html,
-                content_selector: None,
                 variables: FxHashMap::from_iter([
                     ("title".into(), title),
                     ("site".into(), "Hacker News".into()),
@@ -426,7 +423,6 @@ pub mod hackernews {
 
             ExtractorResult {
                 content_html,
-                content_selector: None,
                 variables: FxHashMap::from_iter([
                     ("title".into(), post_title),
                     ("author".into(), post_author),
@@ -685,7 +681,6 @@ pub mod reddit {
 
             ExtractorResult {
                 content_html,
-                content_selector: None,
                 variables: FxHashMap::from_iter([
                     ("title".into(), post_title),
                     ("author".into(), post_author),
@@ -819,11 +814,9 @@ pub mod github {
         }
 
         let repo_info = extract_repo_info(url);
-        let number = extract_number(url);
 
         Some(Box::new(GitHubExtractor {
             repo_info,
-            number,
             is_pr,
         }))
     }
@@ -835,15 +828,8 @@ pub mod github {
         (owner, repo)
     }
 
-    fn extract_number(url: &str) -> String {
-        let parts: Vec<&str> = url.split('/').collect();
-        parts.get(5).map(|s| s.to_string()).unwrap_or_default()
-    }
-
     struct GitHubExtractor {
         repo_info: (String, String),
-        #[allow(dead_code)]
-        number: String,
         is_pr: bool,
     }
 
@@ -1047,7 +1033,6 @@ pub mod github {
 
             ExtractorResult {
                 content_html,
-                content_selector: None,
                 variables: FxHashMap::from_iter([
                     ("title".into(), title),
                     (
@@ -1251,7 +1236,6 @@ pub mod chatgpt {
 
             ExtractorResult {
                 content_html: html,
-                content_selector: None,
                 variables: FxHashMap::from_iter([
                     ("title".into(), title),
                     ("site".into(), "ChatGPT".into()),
@@ -1531,7 +1515,6 @@ pub mod substack {
             }
             ExtractorResult {
                 content_html: wrap_html(&content_html),
-                content_selector: None,
                 variables,
             }
         }
@@ -1885,7 +1868,6 @@ pub mod mastodon {
 
             ExtractorResult {
                 content_html,
-                content_selector: None,
                 variables: FxHashMap::from_iter([
                     (
                         "title".into(),
@@ -2109,7 +2091,6 @@ pub mod twitter {
 
         ExtractorResult {
             content_html: content_html.trim().to_string(),
-            content_selector: None,
             variables: FxHashMap::from_iter([
                 ("title".into(), title),
                 ("author".into(), author),
@@ -2271,7 +2252,6 @@ pub mod twitter {
 
         ExtractorResult {
             content_html: content_html.trim().to_string(),
-            content_selector: None,
             variables: FxHashMap::from_iter([
                 ("title".into(), fallback_title),
                 ("author".into(), author_handle),

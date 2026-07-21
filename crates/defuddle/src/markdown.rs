@@ -306,7 +306,6 @@ fn build_converter() -> HtmlToMarkdown {
                             if let Some(num) = lid.strip_prefix("fn:") {
                                 // Collect text from all children, skipping backref <a> links
                                 let mut text = String::new();
-                                let url = String::new();
                                 for lc in &*li.children.borrow() {
                                     match &lc.data {
                                         markup5ever_rcdom::NodeData::Text { contents } => {
@@ -378,12 +377,7 @@ fn build_converter() -> HtmlToMarkdown {
                                 }
                                 let trimmed = text.trim();
                                 if !trimmed.is_empty() {
-                                    if !url.is_empty() {
-                                        result
-                                            .push_str(&format!("[^{num}]: [{trimmed}]({url})\n\n"));
-                                    } else {
-                                        result.push_str(&format!("[^{num}]: {trimmed}\n\n"));
-                                    }
+                                    result.push_str(&format!("[^{num}]: {trimmed}\n\n"));
                                 }
                             }
                         }
@@ -1277,80 +1271,6 @@ fn escape_link_parens(url: &str) -> String {
     }
     output
 }
-
-/// Convert Obsidian-style callout blocks to blockquote format.
-#[allow(dead_code)]
-fn convert_callouts_to_markdown(html: &str) -> String {
-    // Match div with data-callout attribute (order-independent)
-    let re =
-        regex_lite::Regex::new(r##"<div[^>]*\bdata-callout="([^"]*)"[^>]*>(.*?)</div>"##).unwrap();
-    re.replace_all(html, |caps: &regex_lite::Captures| {
-        let ct = caps.get(1).map_or("", |m| m.as_str());
-        let content = caps.get(2).map_or("", |m| m.as_str());
-
-        // Extract title from callout-title-inner if present
-        let title_re = regex_lite::Regex::new(
-            r#"<div[^>]*class="[^"]*\bcallout-title-inner\b[^"]*"[^>]*>(.*?)</div>"#,
-        )
-        .unwrap();
-        let title = if let Some(tc) = title_re.captures(content) {
-            tc.get(1).map_or("", |m| m.as_str())
-        } else {
-            ""
-        };
-
-        // Extract body from callout-content if present
-        let body_re = regex_lite::Regex::new(
-            r#"<div[^>]*class="[^"]*\bcallout-content\b[^"]*"[^>]*>(.*?)</div>"#,
-        )
-        .unwrap();
-        let body = if let Some(bc) = body_re.captures(content) {
-            bc.get(1).map_or("", |m| m.as_str())
-        } else {
-            content
-        };
-        // Clean body: strip remaining HTML tags except <strong>, <em>, <code>, <a>
-        let body = strip_keep_inline_tags(body);
-
-        let fold_marker = if ct.starts_with('-') { "- " } else { "" };
-        let clean_ct = ct.trim_start_matches('-');
-        let type_upper: String = clean_ct
-            .chars()
-            .enumerate()
-            .map(|(i, c)| if i == 0 { c.to_ascii_uppercase() } else { c })
-            .collect();
-        let title_part = if title.is_empty() {
-            format!("[!{}]", type_upper)
-        } else {
-            format!("[!{}] {}", type_upper, title)
-        };
-        let mut out = format!("> {}{}\n>\n> {}", fold_marker, title_part, body);
-        // Replace newlines in body with \n>
-        out = out.replace("\n", "\n> ");
-        format!("\n{}\n", out)
-    })
-    .to_string()
-}
-
-#[allow(dead_code)]
-fn strip_keep_inline_tags(s: &str) -> String {
-    // Keep: strong, em, b, i, code, a, p, br, mark, del, s, strike, sup, sub, span
-    let keep_tags = [
-        "strong", "em", "b", "i", "code", "a", "p", "br", "mark", "del", "s", "strike", "sup",
-        "sub", "span",
-    ];
-    let re = regex_lite::Regex::new(r"</?(\w+)(?:\s[^>]*)?>").unwrap();
-    re.replace_all(s, |caps: &regex_lite::Captures| {
-        let tag = caps.get(1).map_or("", |m| m.as_str()).to_lowercase();
-        if keep_tags.contains(&tag.as_str()) {
-            caps.get(0).unwrap().as_str().to_string()
-        } else {
-            String::new()
-        }
-    })
-    .to_string()
-}
-
 /// Convert footnote references and lists.
 fn convert_footnotes_to_markdown(html: &str) -> String {
     let re = regex_lite::Regex::new(

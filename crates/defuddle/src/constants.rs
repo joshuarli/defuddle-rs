@@ -1,6 +1,3 @@
-#![allow(dead_code)]
-
-#[allow(dead_code)]
 pub const ENTRY_POINT_ELEMENTS: &[&str] = &[
     "#post",
     ".post-content",
@@ -24,21 +21,9 @@ pub const ENTRY_POINT_ELEMENTS: &[&str] = &[
     "body",
 ];
 
-#[allow(dead_code)]
 pub const BLOCK_ELEMENTS: &[&str] = &[
     "div", "section", "article", "main", "aside", "header", "footer", "nav", "content",
 ];
-
-pub const BLOCK_ELEMENTS_SELECTOR: &str =
-    "div,section,article,main,aside,header,footer,nav,content";
-
-pub const HIDDEN_EXACT_SKIP_SELECTOR: &str = "[hidden],[aria-hidden=\"true\"],.hidden,.invisible";
-
-pub const HIDDEN_EXACT_SELECTOR: &str = "\
-[hidden],\
-[aria-hidden=\"true\"]:not([class*=\"math\"]):not(svg):not([class*=\"paywall\"]),\
-.hidden,\
-.invisible";
 
 pub const EXACT_SELECTORS: &[&str] = &[
     "script:not([type^=\"math/\"])",
@@ -734,37 +719,6 @@ pub const PARTIAL_SELECTORS: &[&str] = &[
     "w-form-done",
     "w-form-fail",
 ];
-
-pub const FOOTNOTE_INLINE_REFERENCES_SELECTOR: &str = "\
-sup.reference,\
-cite.ltx_cite,\
-sup[id^=\"fnr\"],\
-span[id^=\"fnr\"],\
-span[class*=\"footnote_ref\"],\
-span[class*=\"footnote-ref\"],\
-span.footnote-link,\
-a.citation,\
-a[id^=\"ref-link\"],\
-a[href^=\"#fn\"],\
-a[href^=\"#cite\"],\
-a[href^=\"#reference\"],\
-a[href^=\"#footnote\"],\
-a[href^=\"#r\"],\
-a[href^=\"#b\"],\
-a[href*=\"cite_note\"],\
-a[href*=\"cite_ref\"],\
-a.footnote-anchor,\
-span.footnote-hovercard-target a,\
-a[role=\"doc-biblioref\"],\
-a[id^=\"fnref\"],\
-a[id^=\"ref-link\"],\
-sup.footnoteref,\
-sup.footnote-reference,\
-sup[data-fn] > a[href^=\"#\"],\
-sup[id^=\"ftnt_ref\"] a[href^=\"#ftnt\"],\
-span.easy-footnote > a[href^=\"#easy-footnote-bottom-\"],\
-a.footnote[href^=\"#\"],\
-a[data-type=\"noteref\"]";
 
 // Elements that are allowed to be empty (not removed during cleanup)
 pub const ALLOWED_EMPTY_ELEMENTS: &[&str] = &[

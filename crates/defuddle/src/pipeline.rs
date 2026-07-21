@@ -214,7 +214,6 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
                 if attr_values.contains("reference-accessdate") {
                     continue;
                 }
-                class_val.contains("author-bio");
                 if attr_values.contains("author-bio") && {
                     let mut ancestor = doc.parent(id);
                     let mut inside_article = false;
@@ -260,161 +259,6 @@ fn is_word_boundary_match(haystack: &str, pattern: &str) -> bool {
     }
     false
 }
-
-/// Like remove_by_selector but skips ancestors of the content element.
-#[allow(dead_code)]
-pub fn remove_by_selector_protected(
-    doc: &mut Document,
-    content_id: NodeId,
-    remove_exact: bool,
-    remove_partial: bool,
-) {
-    if remove_exact {
-        for selector in EXACT_SELECTORS {
-            let matches = doc.query_selector_all(selector);
-            for id in matches {
-                if doc.tag_name(id).is_empty() {
-                    continue;
-                }
-                if id == content_id || doc.contains(id, content_id) {
-                    continue;
-                }
-                let tag = doc.tag_name(id).to_lowercase();
-                if tag == "pre" || tag == "code" {
-                    continue;
-                }
-                if has_closest(doc, id, &["pre", "code"]) {
-                    continue;
-                }
-                doc.remove(id);
-            }
-        }
-    }
-
-    if remove_partial {
-        let test_attrs = [
-            "class",
-            "id",
-            "data-component",
-            "data-test",
-            "data-testid",
-            "data-test-id",
-            "data-qa",
-            "data-cy",
-        ];
-
-        let elements: Vec<NodeId> = test_attrs
-            .iter()
-            .flat_map(|attr| doc.query_selector_all(&format!("[{attr}]")))
-            .collect();
-
-        let mut seen = FxHashSet::default();
-        let mut to_remove = Vec::new();
-
-        for id in elements {
-            if !seen.insert(id) {
-                continue;
-            }
-            if id == content_id || doc.contains(id, content_id) {
-                continue;
-            }
-
-            let tag = doc.tag_name(id).to_lowercase();
-            if tag == "pre" || tag == "code" {
-                continue;
-            }
-
-            if has_closest(doc, id, &["pre", "code"]) {
-                continue;
-            }
-
-            let class_val = doc.get_attr(id, "class").unwrap_or("").to_lowercase();
-
-            let mut attr_values = class_val.clone();
-            if tag != "h1"
-                && tag != "h2"
-                && tag != "h3"
-                && tag != "h4"
-                && tag != "h5"
-                && tag != "h6"
-            {
-                for attr_name in &[
-                    "data-component",
-                    "data-test",
-                    "data-testid",
-                    "data-test-id",
-                    "data-qa",
-                    "data-cy",
-                ] {
-                    if let Some(v) = doc.get_attr(id, attr_name) {
-                        attr_values.push(' ');
-                        attr_values.push_str(&v.to_lowercase());
-                    }
-                }
-            }
-
-            let id_str = if tag == "h1"
-                || tag == "h2"
-                || tag == "h3"
-                || tag == "h4"
-                || tag == "h5"
-                || tag == "h6"
-            {
-                String::new()
-            } else {
-                doc.get_attr(id, "id").unwrap_or("").to_lowercase()
-            };
-
-            if attr_values.is_empty() && id_str.is_empty() {
-                continue;
-            }
-
-            let mut matched = false;
-            for pattern in PARTIAL_SELECTORS {
-                let pat = pattern.to_lowercase();
-                if attr_values.contains(&pat) {
-                    if pat.starts_with('-') || pat.ends_with('-') {
-                        if is_word_boundary_match(&attr_values, &pat) {
-                            matched = true;
-                            break;
-                        }
-                    } else {
-                        matched = true;
-                        break;
-                    }
-                }
-                if !id_str.is_empty() {
-                    let has_delimiter = id_str.contains([' ', '_', '-', ':', '.']);
-                    if has_delimiter {
-                        if id_str.contains(&pat) {
-                            if pat.starts_with('-') || pat.ends_with('-') {
-                                if is_word_boundary_match(&id_str, &pat) {
-                                    matched = true;
-                                    break;
-                                }
-                            } else {
-                                matched = true;
-                                break;
-                            }
-                        }
-                    } else if id_str == pat {
-                        matched = true;
-                        break;
-                    }
-                }
-            }
-
-            if matched {
-                to_remove.push(id);
-            }
-        }
-
-        for id in to_remove {
-            doc.remove(id);
-        }
-    }
-}
-
 pub fn remove_hidden_elements(doc: &mut Document) {
     let all_elements = doc.query_selector_all("*");
     let mut to_remove = Vec::new();
@@ -493,13 +337,6 @@ pub fn remove_hidden_elements(doc: &mut Document) {
         doc.remove(id);
     }
 }
-
-#[allow(dead_code)]
-pub fn remove_small_images(_doc: &mut Document) {
-    // In static HTML parsing, we can't measure actual rendered sizes.
-    // This is a best-effort implementation using explicit width/height attributes.
-}
-
 /// Remove low-scoring elements based on link-density heuristics.
 pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
     // Process repeatedly since removals may create new low-scoring parents
@@ -1063,7 +900,7 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
             }
             wrapper = parent;
         }
-        if let Some(parent) = doc.parent(wrapper) {
+        if let Some(_parent) = doc.parent(wrapper) {
             if let Some(next) = next_element_sibling(doc, wrapper) {
                 let class = doc.get_attr(next, "class").unwrap_or("").to_lowercase();
                 let text = doc.text_content(next).to_lowercase();
@@ -1092,7 +929,6 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
                     }
                 }
             }
-            let _ = parent;
         }
     }
 }

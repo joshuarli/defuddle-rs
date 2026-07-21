@@ -1,24 +1,5 @@
-#![allow(dead_code)]
-
 use crate::dom::{Document, NodeId};
 use crate::utils::{contains_ascii_case_insensitive, count_words};
-
-const CONTENT_INDICATORS: &[&str] = &[
-    "admonition",
-    "article",
-    "content",
-    "entry",
-    "image",
-    "img",
-    "font",
-    "figure",
-    "figcaption",
-    "pre",
-    "main",
-    "post",
-    "story",
-    "table",
-];
 
 const NAVIGATION_INDICATORS: &[&str] = &[
     "advertisement",
@@ -164,84 +145,6 @@ fn for_each_descendant_tag(
         }
         for_each_descendant_tag(doc, child, tag, visit);
     }
-}
-
-pub fn is_likely_content(doc: &Document, node: NodeId) -> bool {
-    let role = doc.get_attr(node, "role").unwrap_or("");
-    if role.eq_ignore_ascii_case("article") || role.eq_ignore_ascii_case("main") {
-        return true;
-    }
-
-    let class_val = doc.get_attr(node, "class").unwrap_or("");
-    let id_str = doc.get_attr(node, "id").unwrap_or("");
-
-    for indicator in CONTENT_INDICATORS {
-        if contains_ascii_case_insensitive(class_val, indicator)
-            || contains_ascii_case_insensitive(id_str, indicator)
-        {
-            return true;
-        }
-    }
-
-    let has_rich = count_descendant_tag(doc, node, "pre") > 0
-        || count_descendant_tag(doc, node, "table") > 0
-        || count_descendant_tag(doc, node, "figure") > 0
-        || count_descendant_tag(doc, node, "picture") > 0;
-    if has_rich {
-        return true;
-    }
-
-    let text = doc.text_content(node);
-    let words = count_words(&text);
-
-    let heading = doc
-        .children(node)
-        .iter()
-        .copied()
-        .find(|&child| matches!(doc.tag_name(child), "h1" | "h2" | "h3" | "h4" | "h5" | "h6"));
-
-    if let Some(heading) = heading {
-        let heading_text = doc.text_content(heading);
-        if heading_text.trim() == text.trim() {
-            let is_nav_heading = NAVIGATION_INDICATORS
-                .iter()
-                .any(|ind| contains_ascii_case_insensitive(heading_text.trim(), ind));
-            let heading_trimmed = heading_text.trim();
-            let is_toc = heading_trimmed.eq_ignore_ascii_case("contents")
-                || heading_trimmed.eq_ignore_ascii_case("table of contents")
-                || contains_ascii_case_insensitive(heading_trimmed, "on this page");
-            if !is_nav_heading && !is_toc {
-                return true;
-            }
-        }
-    }
-
-    let paragraphs = count_descendant_tag(doc, node, "p");
-    let list_items = count_descendant_tag(doc, node, "li");
-    let content_blocks = paragraphs + list_items;
-
-    if words > 50 && content_blocks > 1 {
-        return true;
-    }
-    if words > 100 {
-        return true;
-    }
-    if words > 30 && content_blocks > 0 {
-        return true;
-    }
-    if words >= 10
-        && ["?", "!", "."].iter().any(|&p| text.contains(p))
-        && (count_descendant_tag(doc, node, "a") as f64) / (words as f64) < 0.1
-    {
-        return true;
-    }
-
-    false
-}
-
-pub fn score_non_content_block(doc: &Document, node: NodeId) -> f64 {
-    let text = doc.text_content(node);
-    score_non_content_block_with_text(doc, node, &text)
 }
 
 pub fn score_non_content_block_with_text(doc: &Document, node: NodeId, text: &str) -> f64 {
