@@ -236,11 +236,10 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
         extractors::find_site_adapter(&context, options.extractor.as_deref())
     {
         adapter.prepare(&mut context);
-        let start = std::time::Instant::now();
-        let extraction = adapter.extract(&mut context);
+        let (extraction, elapsed_nanos) = pipeline::timed(|| adapter.extract(&mut context));
         context.diagnostics.phases.push(pipeline::PhaseTiming {
             name: "site extraction",
-            elapsed_nanos: start.elapsed().as_nanos(),
+            elapsed_nanos,
         });
         let mut result = site_result(
             extraction,

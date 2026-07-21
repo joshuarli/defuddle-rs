@@ -46,6 +46,18 @@ pub fn list_extractors() -> String {
 mod tests {
     use super::parse_page;
 
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn parses_minimal_html_in_wasm() {
+        let html = "<html><head><title>Test</title></head><body><article><p>Readable content.</p></article></body></html>";
+        let result = parse_page(html, "https://example.com/article", "").expect("parse succeeds");
+
+        assert!(result.contains("Readable content."));
+    }
+
     #[test]
     fn returns_extracted_html_and_markdown_as_json() {
         let html = "<html><head><title>Test</title></head><body><article><h1>Test</h1><p>A readable paragraph.</p></article></body></html>";

@@ -78,6 +78,12 @@ pub(crate) fn find_site_adapter(
 
 pub fn adapter_names() -> &'static [&'static str] {
     &[
-        "hackernews", "substack", "reddit", "github", "chatgpt", "mastodon", "twitter",
+        "hackernews",
+        "substack",
+        "reddit",
+        "github",
+        "chatgpt",
+        "mastodon",
+        "twitter",
     ]
 }

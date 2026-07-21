@@ -4,7 +4,6 @@ use crate::scoring;
 use crate::utils::count_words;
 use rustc_hash::FxHashSet;
 use std::sync::OnceLock;
-use std::time::Instant;
 
 use crate::{DefuddleOptions, MetaTagItem, Metadata};
 
@@ -21,11 +20,10 @@ pub(crate) struct PhaseTiming {
 
 impl Diagnostics {
     pub(crate) fn measure<T>(&mut self, name: &'static str, operation: impl FnOnce() -> T) -> T {
-        let start = Instant::now();
-        let result = operation();
+        let (result, elapsed_nanos) = timed(operation);
         self.phases.push(PhaseTiming {
             name,
-            elapsed_nanos: start.elapsed().as_nanos(),
+            elapsed_nanos,
         });
         result
     }
@@ -36,6 +34,20 @@ impl Diagnostics {
             .filter(|phase| !phase.name.is_empty())
             .map(|phase| phase.elapsed_nanos)
             .sum()
+    }
+}
+
+pub(crate) fn timed<T>(operation: impl FnOnce() -> T) -> (T, u128) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        (operation(), 0)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let start = std::time::Instant::now();
+        let result = operation();
+        (result, start.elapsed().as_nanos())
     }
 }
 

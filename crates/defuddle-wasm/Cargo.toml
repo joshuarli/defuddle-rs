@@ -13,5 +13,8 @@ defuddle = { path = "../defuddle" }
 miniserde = "0.1"
 wasm-bindgen = "=0.2.108"
 
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
 [lints]
 workspace = true
