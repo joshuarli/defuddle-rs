@@ -1347,7 +1347,7 @@ pub mod substack {
         {
             return Some(Box::new(SubstackExtractor { mode: 1 }));
         }
-        None
+        Some(Box::new(SubstackExtractor { mode: 3 }))
     }
 
     struct SubstackExtractor {
@@ -1486,18 +1486,43 @@ pub mod substack {
                     };
                     (note_html, meta_title, a, "Substack".to_string())
                 }
+                3 => {
+                    let body_html = doc
+                        .query_selector_all("body")
+                        .first()
+                        .map(|&id| doc.inner_html(id))
+                        .unwrap_or_default();
+                    let t = if meta_title.is_empty() {
+                        doc.query_selector_all("title")
+                            .first()
+                            .map(|id| doc.text_content(*id).trim().to_string())
+                            .unwrap_or_default()
+                    } else {
+                        meta_title.clone()
+                    };
+                    let a = meta_author.clone();
+                    let s = if meta_site.is_empty() {
+                        "Substack".to_string()
+                    } else {
+                        meta_site.clone()
+                    };
+                    (body_html, t, a, s)
+                }
                 _ => substack_preload(doc),
             };
 
+            let mut variables = FxHashMap::from_iter([
+                ("title".into(), title),
+                ("author".into(), author),
+                ("site".into(), site),
+            ]);
+            if !meta_published.is_empty() {
+                variables.insert("published".into(), meta_published);
+            }
             ExtractorResult {
                 content_html,
                 content_selector: None,
-                variables: FxHashMap::from_iter([
-                    ("title".into(), title),
-                    ("author".into(), author),
-                    ("site".into(), site),
-                    ("published".into(), meta_published),
-                ]),
+                variables,
             }
         }
     }
