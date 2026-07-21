@@ -18,7 +18,6 @@ pub struct Metadata {
     pub published: String,
     pub author: String,
     pub site: String,
-    pub word_count: usize,
 }
 
 pub fn extract_metadata(
@@ -64,7 +63,6 @@ pub fn extract_metadata(
         published: get_published(doc, schema_org_data, meta_tags, &resolved_url),
         author,
         site,
-        word_count: 0,
     }
 }
 

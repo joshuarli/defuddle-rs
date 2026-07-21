@@ -123,7 +123,6 @@ pub struct DefuddleResult {
     pub author: String,
     pub site: String,
     pub schema_org_data: Value,
-    pub word_count: usize,
     pub extractor_type: Option<String>,
     pub debug: Option<DebugInfo>,
     pub variables: Option<Object>,
@@ -146,7 +145,6 @@ impl Default for DefuddleResult {
             author: String::new(),
             site: String::new(),
             schema_org_data: Value::Array(Array::new()),
-            word_count: 0,
             extractor_type: None,
             debug: None,
             variables: None,
@@ -206,7 +204,6 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
         if remove_iframes {
             content_html = sanitize::remove_iframes_from_html(&content_html);
         }
-        let word_count = pipeline::count_html_words(&content_html);
 
         let mut variables = ext_result.variables;
         let title = variables
@@ -252,7 +249,6 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
             author,
             site,
             schema_org_data: schema_val,
-            word_count,
             extractor_type,
             ..<DefuddleResult as Default>::default()
         }
@@ -299,7 +295,6 @@ fn parse_internal(
     schema_org_data: &[Value],
     url: &str,
 ) -> DefuddleResult {
-    // First attempt with full aggressiveness
     let mut result = parse_internal_once(
         doc,
         remove_exact,
@@ -316,13 +311,13 @@ fn parse_internal(
         url,
     );
 
-    // Retry with reduced aggressiveness if word count is low
-    if result.word_count < 200 {
-        // Retry with removePartialSelectors: false
+    let mut wc = pipeline::count_html_words(&result.content);
+
+    if wc < 200 {
         let retry1 = parse_internal_once(
             Document::parse(html),
             remove_exact,
-            false, // remove_partial disabled
+            false,
             remove_hidden,
             remove_iframes,
             do_standardize,
@@ -334,18 +329,19 @@ fn parse_internal(
             schema_org_data,
             url,
         );
-        if retry1.word_count > result.word_count {
+        let wc1 = pipeline::count_html_words(&retry1.content);
+        if wc1 > wc {
             result = retry1;
+            wc = wc1;
         }
     }
 
-    if result.word_count < 50 {
-        // Retry with removeHiddenElements: false
+    if wc < 50 {
         let retry2 = parse_internal_once(
             Document::parse(html),
             remove_exact,
             false,
-            false, // remove_hidden disabled
+            false,
             remove_iframes,
             do_standardize,
             separate_markdown,
@@ -356,18 +352,19 @@ fn parse_internal(
             schema_org_data,
             url,
         );
-        if retry2.word_count > result.word_count {
+        let wc2 = pipeline::count_html_words(&retry2.content);
+        if wc2 > wc {
             result = retry2;
+            wc = wc2;
         }
     }
 
-    if result.word_count < 50 {
-        // Retry with removeLowScoring and removeContentPatterns disabled
+    if wc < 50 {
         let retry3 = parse_internal_once(
             Document::parse(html),
             remove_exact,
             false,
-            false, // remove_hidden and remove_partial disabled
+            false,
             remove_iframes,
             do_standardize,
             separate_markdown,
@@ -378,7 +375,8 @@ fn parse_internal(
             schema_org_data,
             url,
         );
-        if retry3.word_count > result.word_count {
+        let wc3 = pipeline::count_html_words(&retry3.content);
+        if wc3 > wc {
             result = retry3;
         }
     }
@@ -529,12 +527,10 @@ fn parse_internal_once(
             author: metadata.author.clone(),
             site: metadata.site.clone(),
             schema_org_data: schema_val,
-            word_count,
             debug: debug_info,
             ..<DefuddleResult as Default>::default()
         }
     } else {
-        let word_count = 0;
         let schema_val = if schema_org_data.is_empty() {
             Value::Array(Array::new())
         } else {
@@ -553,7 +549,6 @@ fn parse_internal_once(
             author: metadata.author.clone(),
             site: metadata.site.clone(),
             schema_org_data: schema_val,
-            word_count,
             ..<DefuddleResult as Default>::default()
         }
     }

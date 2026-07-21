@@ -5,7 +5,11 @@ struct ParseResult {
     content: String,
     content_markdown: Option<String>,
     title: String,
-    word_count: usize,
+    author: String,
+    description: String,
+    published: String,
+    site: String,
+    domain: String,
 }
 
 #[wasm_bindgen]
@@ -25,7 +29,11 @@ pub fn parse_page(html: &str, url: &str, extractor_name: &str) -> Result<String,
         content: result.content,
         content_markdown: result.content_markdown,
         title: result.title,
-        word_count: result.word_count,
+        author: result.author,
+        description: result.description,
+        published: result.published,
+        site: result.site,
+        domain: result.domain,
     }))
 }
 
@@ -47,7 +55,6 @@ mod tests {
         assert!(result.contains("\"content\":"));
         assert!(result.contains("\"content_markdown\":"));
         assert!(result.contains("\"title\":\"Test\""));
-        assert!(result.contains("\"word_count\":"));
         assert!(!result.contains("schema_org_data"));
         assert!(!result.contains("meta_tags"));
     }

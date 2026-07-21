@@ -121,7 +121,6 @@ pub fn remove_iframes_from_result(result: &mut crate::DefuddleResult) {
     let mut doc = crate::dom::Document::parse(&result.content);
     remove_iframes(&mut doc);
     result.content = doc.outer_html(doc.root());
-    result.word_count = crate::pipeline::count_html_words(&result.content);
 }
 
 pub fn remove_iframes(doc: &mut crate::dom::Document) {

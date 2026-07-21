@@ -357,7 +357,7 @@ fn remove_low_scoring_false_produces_more_content() {
     .expect("parse");
 
     assert!(
-        all_off.word_count >= defaults.word_count,
+        all_off.content.len() >= defaults.content.len(),
         "all-off should produce >= content"
     );
 }
