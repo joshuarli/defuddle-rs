@@ -2,8 +2,8 @@ use rustc_hash::FxHashMap;
 
 use crate::dom::Document;
 
-pub mod comments;
 pub mod chatgpt;
+pub mod comments;
 pub mod github;
 pub mod hackernews;
 pub mod mastodon;
@@ -25,6 +25,12 @@ type ExtractorFactory = fn(doc: &Document, url: &str) -> Option<Box<dyn Extracto
 
 pub struct Registry {
     mappings: Vec<(String, String, ExtractorFactory)>,
+}
+
+impl Default for Registry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Registry {

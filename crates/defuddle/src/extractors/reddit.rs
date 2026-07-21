@@ -1,5 +1,5 @@
 use crate::dom::Document;
-use crate::extractors::{comments, Extractor, ExtractorResult};
+use crate::extractors::{Extractor, ExtractorResult, comments};
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
@@ -68,8 +68,7 @@ impl Extractor for RedditExtractor {
             String::new()
         };
 
-        let content_html =
-            comments::build_content_html("reddit", &post_body, &comments_html);
+        let content_html = comments::build_content_html("reddit", &post_body, &comments_html);
         let _post_id = self
             .url
             .split("/comments/")

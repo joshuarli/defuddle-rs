@@ -268,8 +268,7 @@ fn local_fixtures_extractors() {
     let registry = extractors::build_registry();
     let extractors: Vec<&str> = registry.names();
 
-    let fixtures_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures");
+    let fixtures_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let entries = fs::read_dir(&fixtures_dir).expect("tests/fixtures/ exists");
     let mut count = 0;
 
@@ -338,7 +337,6 @@ fn local_fixtures_extractors() {
     // Allow zero fixtures — local extractor fixtures are added incrementally
     // and may not be present at all times.
     if count == 0 {
-        return;
     }
 }
 

@@ -70,11 +70,10 @@ pub(crate) fn move_inline_whitespace(doc: &mut Document, content_id: NodeId) {
 
 pub(crate) fn standardize_spaces(doc: &mut Document, node: NodeId) {
     // Skip pre, code, and SVG elements to preserve whitespace inside code blocks and SVGs
-    if doc.is_element(node) {
-        if doc.tag_name_is_any(node, &["pre", "code", "svg"]) {
+    if doc.is_element(node)
+        && doc.tag_name_is_any(node, &["pre", "code", "svg"]) {
             return;
         }
-    }
 
     let children = doc.children(node).to_vec();
     for child in children {
@@ -89,7 +88,6 @@ pub(crate) fn standardize_spaces(doc: &mut Document, node: NodeId) {
     }
 }
 
-
 pub(crate) fn remove_html_comments(doc: &mut Document, node: NodeId) {
     let children = doc.children(node).to_vec();
     for child in children {
@@ -100,4 +98,3 @@ pub(crate) fn remove_html_comments(doc: &mut Document, node: NodeId) {
         }
     }
 }
-

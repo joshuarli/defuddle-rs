@@ -1,5 +1,5 @@
 use crate::dom::Document;
-use crate::extractors::{comments, Extractor, ExtractorResult};
+use crate::extractors::{Extractor, ExtractorResult, comments};
 use crate::utils::escape_html;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
@@ -160,15 +160,14 @@ impl HackerNewsExtractor {
             let mut html = format!("<ol>{}</ol>", stories.join("\n"));
             if let Some((href, text)) = more_link {
                 let escaped_text = escape_html(&text);
-                let absolute_href =
-                    if crate::utils::is_absolute_url(&href) {
-                        href
-                    } else {
-                        format!(
-                            "https://news.ycombinator.com/{}",
-                            href.trim_start_matches('/')
-                        )
-                    };
+                let absolute_href = if crate::utils::is_absolute_url(&href) {
+                    href
+                } else {
+                    format!(
+                        "https://news.ycombinator.com/{}",
+                        href.trim_start_matches('/')
+                    )
+                };
                 let escaped_href = escape_html(&absolute_href);
                 html.push_str(&format!(
                     "\n\n<a href=\"{escaped_href}\">{escaped_text}</a>"
@@ -202,8 +201,7 @@ impl HackerNewsExtractor {
     fn extract_post(&self, doc: &Document) -> ExtractorResult {
         let post_content = self.get_post_content(doc);
         let comments = self.extract_comments(doc);
-        let content_html =
-            comments::build_content_html("hackernews", &post_content, &comments);
+        let content_html = comments::build_content_html("hackernews", &post_content, &comments);
 
         let post_title = self.get_post_title(doc);
         let post_author = self.get_post_author(doc);

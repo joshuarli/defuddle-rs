@@ -1,4 +1,7 @@
-use crate::constants::{ALLOWED_EMPTY_ELEMENTS, BLOCK_ELEMENTS, BLOCK_LEVEL_ELEMENTS, INLINE_ELEMENTS, PRESERVE_ELEMENTS};
+use crate::constants::{
+    ALLOWED_EMPTY_ELEMENTS, BLOCK_ELEMENTS, BLOCK_LEVEL_ELEMENTS, INLINE_ELEMENTS,
+    PRESERVE_ELEMENTS,
+};
 use crate::dom::{Document, NodeId};
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -6,7 +9,6 @@ pub fn convert_alert_elements(doc: &mut Document) {
     convert_bootstrap_alerts(doc);
     convert_hugo_admonitions(doc);
 }
-
 
 pub(crate) fn convert_bootstrap_alerts(doc: &mut Document) {
     let alert_classes = ["info", "warning", "danger", "success"];
@@ -38,29 +40,35 @@ pub(crate) fn convert_bootstrap_alerts(doc: &mut Document) {
                     doc.remove(child);
                 }
             }
-            // Build new inner HTML with callout structure
-            let title_div = if heading_text.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    "<div class=\"callout-title\"><div class=\"callout-title-inner\">{heading_text}</div></div>"
-                )
-            };
             let remaining = doc.children(id).to_vec();
-            let body = remaining
-                .iter()
-                .map(|&c| doc.outer_html(c))
-                .collect::<Vec<_>>()
-                .join("");
-            for &child in &remaining {
-                doc.remove(child);
+            let wrapper = if heading_text.is_empty() {
+                "<div class=\"callout-content\"></div>"
+            } else {
+                "<div class=\"callout-title\"><div class=\"callout-title-inner\"></div></div><div class=\"callout-content\"></div>"
+            };
+            doc.append_html(id, wrapper);
+            if !heading_text.is_empty()
+                && let Some(title_inner) = doc
+                    .query_selector_all_in_subtree(id, ".callout-title-inner")
+                    .last()
+                    .copied()
+            {
+                doc.append_text(title_inner, &heading_text);
             }
-            let full_html = format!("{title_div}<div class=\"callout-content\">{body}</div>");
-            doc.append_html(id, &full_html);
+            if let Some(content) = doc
+                .query_selector_all_in_subtree(id, ".callout-content")
+                .last()
+                .copied()
+            {
+                for child in remaining {
+                    if !doc.is_removed(child) {
+                        doc.append_node(content, child);
+                    }
+                }
+            }
         }
     }
 }
-
 
 pub(crate) fn convert_hugo_admonitions(doc: &mut Document) {
     let admonition_types = ["info", "warning", "danger", "tip", "note", "success"];
@@ -80,21 +88,19 @@ pub(crate) fn convert_hugo_admonitions(doc: &mut Document) {
             }
             // Extract content from .admonition-content
             let content_els = doc.query_selector_all_in_subtree(id, ".admonition-content");
-            let content_html = if let Some(&content_id) = content_els.first() {
-                doc.inner_html(content_id)
+            let content_children = if let Some(&content_id) = content_els.first() {
+                doc.children(content_id).to_vec()
             } else {
-                // fallback: everything except the title element
-                let children = doc.children(id).to_vec();
-                children
+                doc.children(id)
                     .iter()
-                    .filter(|&&c| {
+                    .copied()
+                    .filter(|&c| {
                         let cclass = doc.get_attr(c, "class").unwrap_or("");
                         !cclass.contains("admonition-title") && !cclass.contains("details-summary")
                     })
-                    .map(|&c| doc.outer_html(c))
-                    .collect::<Vec<_>>()
-                    .join("")
+                    .collect()
             };
+            let content_parent = content_els.first().and_then(|&content| doc.parent(content));
 
             // Rebuild as callout
             if let Some(class) = doc.get_attr(id, "class") {
@@ -110,22 +116,44 @@ pub(crate) fn convert_hugo_admonitions(doc: &mut Document) {
             }
             doc.set_attr(id, "data-callout", ad_type);
 
-            let title_div = if title.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    "<div class=\"callout-title\"><div class=\"callout-title-inner\">{title}</div></div>"
-                )
-            };
-            // Remove all children, set new content
             let children = doc.children(id).to_vec();
             for child in children {
-                doc.remove(child);
+                let is_content_wrapper = content_els.first().copied() == Some(child);
+                if !content_children.contains(&child)
+                    && !is_content_wrapper
+                    && content_parent != Some(child)
+                {
+                    doc.remove(child);
+                }
             }
-            doc.append_html(
-                id,
-                &format!("{title_div}<div class=\"callout-content\">{content_html}</div>"),
-            );
+            let wrapper = if title.is_empty() {
+                "<div class=\"callout-content\"></div>"
+            } else {
+                "<div class=\"callout-title\"><div class=\"callout-title-inner\"></div></div><div class=\"callout-content\"></div>"
+            };
+            doc.append_html(id, wrapper);
+            if !title.is_empty()
+                && let Some(title_inner) = doc
+                    .query_selector_all_in_subtree(id, ".callout-title-inner")
+                    .last()
+                    .copied()
+            {
+                doc.append_text(title_inner, &title);
+            }
+            if let Some(content) = doc
+                .query_selector_all_in_subtree(id, ".callout-content")
+                .last()
+                .copied()
+            {
+                for child in content_children {
+                    if !doc.is_removed(child) {
+                        doc.append_node(content, child);
+                    }
+                }
+            }
+            if let Some(&old_content) = content_els.first() {
+                doc.remove(old_content);
+            }
         }
     }
 }
@@ -140,7 +168,22 @@ pub(crate) fn unwrap_figure_content_wrappers(doc: &mut Document, content_id: Nod
             if !doc.is_element(c) {
                 return false;
             }
-            doc.tag_name_is_any(c, &["p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "blockquote", "pre"])
+            doc.tag_name_is_any(
+                c,
+                &[
+                    "p",
+                    "h1",
+                    "h2",
+                    "h3",
+                    "h4",
+                    "h5",
+                    "h6",
+                    "ul",
+                    "ol",
+                    "blockquote",
+                    "pre",
+                ],
+            )
         });
         if has_block {
             doc.unwrap(id);
@@ -198,7 +241,6 @@ pub(crate) fn remove_empty_elements(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-
 pub(crate) fn remove_orphaned_dividers(doc: &mut Document, content_id: NodeId) {
     let direct = doc.children(content_id).to_vec();
     let leading_hrs: Vec<NodeId> = direct
@@ -250,7 +292,6 @@ pub(crate) fn remove_orphaned_dividers(doc: &mut Document, content_id: NodeId) {
         }
     }
 }
-
 
 pub(crate) fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
     let block_set: FxHashSet<&str> = BLOCK_ELEMENTS.iter().copied().collect();
@@ -445,7 +486,6 @@ pub(crate) fn strip_extra_br_elements(doc: &mut Document, content_id: NodeId) {
     remove_empty_br_paragraphs(doc, content_id);
 }
 
-
 pub(crate) fn remove_empty_br_paragraphs(doc: &mut Document, content_id: NodeId) {
     loop {
         let mut removed = false;
@@ -470,7 +510,6 @@ pub(crate) fn remove_empty_br_paragraphs(doc: &mut Document, content_id: NodeId)
         }
     }
 }
-
 
 pub(crate) fn remove_empty_lines(doc: &mut Document, content_id: NodeId) {
     let children = doc.children(content_id).to_vec();
@@ -533,7 +572,6 @@ pub(crate) fn replace_custom_elements(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-
 pub(crate) fn convert_data_as_spans(doc: &mut Document, content_id: NodeId) {
     let allowed: FxHashSet<&str> = ["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote"]
         .iter()
@@ -554,7 +592,6 @@ pub(crate) fn convert_data_as_spans(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-
 pub(crate) fn convert_block_spans(doc: &mut Document, content_id: NodeId) {
     let spans = doc.query_selector_all_in_subtree(content_id, "span");
     for id in spans {
@@ -569,7 +606,6 @@ pub(crate) fn convert_block_spans(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-
 pub(crate) fn standardize_drop_caps(doc: &mut Document, content_id: NodeId) {
     let caps = doc.query_selector_all_in_subtree(content_id, r#"span[data-caps="initial"]"#);
     for id in caps {
@@ -579,7 +615,6 @@ pub(crate) fn standardize_drop_caps(doc: &mut Document, content_id: NodeId) {
         doc.unwrap(id);
     }
 }
-
 
 pub(crate) fn remove_permalink_anchors(doc: &mut Document, content_id: NodeId) {
     for level in 1..=6 {
@@ -608,7 +643,6 @@ pub(crate) fn remove_permalink_anchors(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-
 pub(crate) fn convert_embedded_elements(doc: &mut Document, content_id: NodeId) {
     // Handle lite-youtube → iframe with src
     let yt = doc.query_selector_all_in_subtree(content_id, "lite-youtube");
@@ -629,7 +663,6 @@ pub(crate) fn convert_embedded_elements(doc: &mut Document, content_id: NodeId) 
         }
     }
 }
-
 
 pub(crate) fn standardize_element_roles(doc: &mut Document, content_id: NodeId) {
     // div[role="paragraph"] → p
@@ -690,7 +723,6 @@ pub(crate) fn flatten_definition_lists(doc: &mut Document, content_id: NodeId) {
         doc.replace_with_html(dl_id, &replacement);
     }
 }
-
 
 pub(crate) fn resolve_svg_colors(doc: &mut Document, content_id: NodeId) {
     let tailwind_colors: &[(&str, &str)] = &[

@@ -13,7 +13,14 @@ pub(crate) fn parse(selector: &str) -> ParsedSelector {
                 while parser.try_parse(|p| p.expect_whitespace()).is_ok() {}
                 // Reject combinators (>, +, ~) — not supported by our matching
                 let s = parser.state();
-                if parser.next().ok().is_some_and(|t| matches!(t, cssparser::Token::Delim('>') | cssparser::Token::Delim('+') | cssparser::Token::Delim('~'))) {
+                if parser.next().ok().is_some_and(|t| {
+                    matches!(
+                        t,
+                        cssparser::Token::Delim('>')
+                            | cssparser::Token::Delim('+')
+                            | cssparser::Token::Delim('~')
+                    )
+                }) {
                     // Combinator found — bail out of this entire compound
                     compound.clear();
                     // Consume the rest until comma or EOF
@@ -33,12 +40,21 @@ pub(crate) fn parse(selector: &str) -> ParsedSelector {
                 while parser.try_parse(|p| p.expect_whitespace()).is_ok() {}
                 let s = parser.state();
                 let stop = parser.next().is_err()
-                    || parser.next().ok().is_some_and(|t| matches!(t, cssparser::Token::Comma));
+                    || parser
+                        .next()
+                        .ok()
+                        .is_some_and(|t| matches!(t, cssparser::Token::Comma));
                 parser.reset(&s);
-                if stop { break; }
+                if stop {
+                    break;
+                }
             }
-            if !compound.is_empty() { result.push(compound); }
-            if parser.expect_comma().is_err() { break; }
+            if !compound.is_empty() {
+                result.push(compound);
+            }
+            if parser.expect_comma().is_err() {
+                break;
+            }
         }
     }
     result
@@ -63,10 +79,14 @@ fn parse_simple(p: &mut cssparser::Parser<'_, '_>) -> Option<SimpleSelector> {
         match p.next().ok() {
             None => break,
             Some(cssparser::Token::Ident(name)) => {
-                if sel.tag.is_none() { sel.tag = Some(name.as_ref().to_string()); }
+                if sel.tag.is_none() {
+                    sel.tag = Some(name.as_ref().to_string());
+                }
                 hit = true;
             }
-            Some(cssparser::Token::Delim('*')) => { hit = true; }
+            Some(cssparser::Token::Delim('*')) => {
+                hit = true;
+            }
             Some(cssparser::Token::IDHash(id)) => {
                 sel.id = Some(id.as_ref().to_string());
                 hit = true;
@@ -75,7 +95,9 @@ fn parse_simple(p: &mut cssparser::Parser<'_, '_>) -> Option<SimpleSelector> {
                 if let Ok(ident) = p.expect_ident_cloned() {
                     sel.classes.push(ident.as_ref().to_string());
                     hit = true;
-                } else { break; }
+                } else {
+                    break;
+                }
             }
             Some(cssparser::Token::Colon) => {
                 let next = p.next().ok();
@@ -106,7 +128,10 @@ fn parse_simple(p: &mut cssparser::Parser<'_, '_>) -> Option<SimpleSelector> {
                     hit = true;
                 }
             }
-            _ => { p.reset(&s); break; }
+            _ => {
+                p.reset(&s);
+                break;
+            }
         }
     }
     if hit { Some(sel) } else { None }
@@ -116,7 +141,8 @@ fn parse_inner(p: &mut cssparser::Parser<'_, '_>) -> Option<SimpleSelector> {
     p.parse_nested_block(|pp| {
         while pp.try_parse(|ppp| ppp.expect_whitespace()).is_ok() {}
         parse_simple(pp).ok_or(pp.new_custom_error::<(), ()>(()))
-    }).ok()
+    })
+    .ok()
 }
 
 enum Attr {
@@ -143,15 +169,22 @@ fn parse_attr(p: &mut cssparser::Parser<'_, '_>) -> Option<Attr> {
             Ok(cssparser::Token::SubstringMatch) => 6,
             Ok(_) => 99,
         };
-        if op == 0 { return Ok(Attr::Presence(name)); }
-        if op == 99 { return Err(pp.new_custom_error::<(), ()>(())); }
+        if op == 0 {
+            return Ok(Attr::Presence(name));
+        }
+        if op == 99 {
+            return Err(pp.new_custom_error::<(), ()>(()));
+        }
         let val = match pp.next() {
             Ok(cssparser::Token::Ident(v)) => v.as_ref().to_string(),
             Ok(cssparser::Token::QuotedString(v)) => v.as_ref().to_string(),
             _ => return Err(pp.new_custom_error::<(), ()>(())),
         };
         let attr = match op {
-            1 => { ci = consume_i_flag(pp); Attr::Equals(name, val, ci) }
+            1 => {
+                ci = consume_i_flag(pp);
+                Attr::Equals(name, val, ci)
+            }
             2 => Attr::Word(name, val, ci),
             3 | 4 => Attr::Starts(name, val, ci),
             5 => Attr::Ends(name, val, ci),
@@ -159,9 +192,9 @@ fn parse_attr(p: &mut cssparser::Parser<'_, '_>) -> Option<Attr> {
             _ => return Err(pp.new_custom_error::<(), ()>(())),
         };
         Ok(attr)
-    }).ok()
+    })
+    .ok()
 }
-
 
 fn consume_i_flag(p: &mut cssparser::Parser<'_, '_>) -> bool {
     let s = p.state();
@@ -182,7 +215,6 @@ fn apply_attr(sel: &mut SimpleSelector, attr: Attr) {
         Attr::Word(name, val, ci) => sel.attr_word = Some((name, val, ci)),
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -223,9 +255,15 @@ mod tests {
     fn test_iframe_not_src_parsing() {
         let s = parse_one("iframe:not([src])").expect("should parse");
         assert_eq!(s.tag.as_deref(), Some("iframe"));
-        assert!(s.negation.is_some(), "negation should be present for :not([src])");
+        assert!(
+            s.negation.is_some(),
+            "negation should be present for :not([src])"
+        );
         let neg = s.negation.as_ref().unwrap();
-        assert!(neg.attr_presence.as_deref() == Some("src"), "negation should check [src] presence");
+        assert!(
+            neg.attr_presence.as_deref() == Some("src"),
+            "negation should check [src] presence"
+        );
     }
 
     #[test]

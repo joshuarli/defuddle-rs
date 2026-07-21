@@ -111,7 +111,10 @@ fn extract_domain_and_url(
         if let Some(base_id) = base_tags.first()
             && let Some(base_href) = doc.get_attr(*base_id, "href")
         {
-            return (crate::utils::extract_domain(base_href), base_href.to_string());
+            return (
+                crate::utils::extract_domain(base_href),
+                base_href.to_string(),
+            );
         }
     }
 
@@ -694,7 +697,7 @@ impl ParsedUrl {
 }
 
 fn resolve_url(href: &str, base: &str) -> String {
-    if crate::utils::is_absolute_url(&href) {
+    if crate::utils::is_absolute_url(href) {
         let without_query = href.split(['?', '#']).next().unwrap_or(href);
         if without_query.matches('/').count() == 2 && !href.contains(['?', '#']) {
             return format!("{href}/");
@@ -1028,13 +1031,13 @@ fn extract_byline(doc: &Document, el: NodeId) -> Option<String> {
     if !text.is_empty() && text.len() < 50 {
         if let Some(author) = text.strip_prefix("By ") {
             let author = author.trim();
-            if !author.is_empty() && author.chars().next().map_or(false, |c| c.is_uppercase()) {
+            if !author.is_empty() && author.chars().next().is_some_and(|c| c.is_uppercase()) {
                 return Some(author.to_string());
             }
         }
         if let Some(author) = text.strip_prefix("by ") {
             let author = author.trim();
-            if !author.is_empty() && author.chars().next().map_or(false, |c| c.is_uppercase()) {
+            if !author.is_empty() && author.chars().next().is_some_and(|c| c.is_uppercase()) {
                 return Some(author.to_string());
             }
         }
@@ -1050,7 +1053,8 @@ fn clean_author_string(s: &str) -> String {
     let s = s.trim();
 
     // Remove URLs (including surrounding parentheses) — ported from upstream
-    let url_re = AUTHOR_URL_RE.get_or_init(|| regex_lite::Regex::new(r"\(?\s*https?://\S+\s*\)?").unwrap());
+    let url_re =
+        AUTHOR_URL_RE.get_or_init(|| regex_lite::Regex::new(r"\(?\s*https?://\S+\s*\)?").unwrap());
     let s = url_re.replace_all(s, "").to_string();
 
     if crate::utils::is_absolute_url(&s) {

@@ -21,11 +21,10 @@ pub(crate) use urls::resolve_urls;
 use code_blocks::{standardize_code_blocks, wrap_preformatted_code};
 use elements::{
     convert_block_spans, convert_data_as_spans, convert_embedded_elements,
-    flatten_definition_lists, flatten_wrapper_elements, remove_empty_elements,
-    remove_empty_lines, remove_obsolete_elements, remove_orphaned_dividers,
-    remove_permalink_anchors, replace_custom_elements, resolve_svg_colors,
-    standardize_drop_caps, standardize_element_roles, strip_extra_br_elements,
-    unwrap_figure_content_wrappers,
+    flatten_definition_lists, flatten_wrapper_elements, remove_empty_elements, remove_empty_lines,
+    remove_obsolete_elements, remove_orphaned_dividers, remove_permalink_anchors,
+    replace_custom_elements, resolve_svg_colors, standardize_drop_caps, standardize_element_roles,
+    strip_extra_br_elements, unwrap_figure_content_wrappers,
 };
 use headings::{remove_trailing_headings, simplify_heading_children, standardize_headings};
 use images::{
@@ -120,7 +119,6 @@ fn strip_unwanted_attributes(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-
 fn unwrap_bare_spans(doc: &mut Document, content_id: NodeId) {
     let spans = doc.query_selector_all_in_subtree(content_id, "span");
     for id in spans {
@@ -129,7 +127,6 @@ fn unwrap_bare_spans(doc: &mut Document, content_id: NodeId) {
         }
     }
 }
-
 
 fn unwrap_special_links(doc: &mut Document, content_id: NodeId) {
     let code_links = doc.query_selector_all_in_subtree(content_id, "code a");
@@ -146,4 +143,3 @@ fn unwrap_special_links(doc: &mut Document, content_id: NodeId) {
         }
     }
 }
-

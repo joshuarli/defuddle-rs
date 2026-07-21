@@ -1,5 +1,5 @@
 use crate::dom::Document;
-use crate::extractors::{comments, Extractor, ExtractorResult};
+use crate::extractors::{Extractor, ExtractorResult, comments};
 use crate::utils::escape_html;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
@@ -27,10 +27,7 @@ pub fn create(doc: &Document, url: &str) -> Option<Box<dyn Extractor>> {
 
     let repo_info = extract_repo_info(url);
 
-    Some(Box::new(GitHubExtractor {
-        repo_info,
-        is_pr,
-    }))
+    Some(Box::new(GitHubExtractor { repo_info, is_pr }))
 }
 
 fn extract_repo_info(url: &str) -> (String, String) {
@@ -123,10 +120,8 @@ impl Extractor for GitHubExtractor {
                     if !code.is_empty() {
                         let table_html = doc.outer_html(table);
                         let escaped = escape_html(&code);
-                        body = body.replace(
-                            &table_html,
-                            &format!("<pre><code>{escaped}</code></pre>"),
-                        );
+                        body = body
+                            .replace(&table_html, &format!("<pre><code>{escaped}</code></pre>"));
                     }
                 }
                 if let Some(table) = doc
@@ -207,12 +202,11 @@ impl Extractor for GitHubExtractor {
                 .and_then(|id| doc.get_attr(id, "href"))
                 .map(|href| href.trim_start_matches('/').to_string())
                 .unwrap_or_else(|| author_val.clone());
-            let author_href =
-                if crate::utils::is_absolute_url(&author_link) {
-                    author_link.clone()
-                } else {
-                    format!("https://github.com/{author_link}")
-                };
+            let author_href = if crate::utils::is_absolute_url(&author_link) {
+                author_link.clone()
+            } else {
+                format!("https://github.com/{author_link}")
+            };
             let association = doc
                 .query_selector_all("[data-testid=\"comment-author-association\"]")
                 .first()
@@ -240,8 +234,7 @@ impl Extractor for GitHubExtractor {
             String::new()
         };
 
-        let content_html =
-            comments::build_content_html("github", &post_content, &comments_html);
+        let content_html = comments::build_content_html("github", &post_content, &comments_html);
 
         ExtractorResult {
             content_html,

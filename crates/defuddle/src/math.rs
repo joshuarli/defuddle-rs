@@ -214,4 +214,3 @@ fn is_block_mathjax(doc: &Document, node: NodeId) -> bool {
     }
     false
 }
-

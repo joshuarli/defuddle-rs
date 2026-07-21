@@ -129,8 +129,9 @@ pub(crate) fn normalize_codemirror_blocks(doc: &mut Document, content_id: NodeId
         }
         // Also try to find language from a dedicated language-label element
         if language.is_empty() {
-            let re2 = CODE_MIRROR_SPAN_LANG_RE
-                .get_or_init(|| regex_lite::Regex::new(r#"<span[^>]*>\s*(\w+)\s*</span>"#).unwrap());
+            let re2 = CODE_MIRROR_SPAN_LANG_RE.get_or_init(|| {
+                regex_lite::Regex::new(r#"<span[^>]*>\s*(\w+)\s*</span>"#).unwrap()
+            });
             if let Some(caps) = re2.captures(&html) {
                 let candidate = caps
                     .get(1)
@@ -155,8 +156,8 @@ pub(crate) fn normalize_codemirror_blocks(doc: &mut Document, content_id: NodeId
             doc.text_content(pre_id)
         };
         text = text.trim().to_string();
-        let collapse_code_gaps = CODE_GAP_COLLAPSE_RE
-            .get_or_init(|| regex_lite::Regex::new(r"\n{3,}").unwrap());
+        let collapse_code_gaps =
+            CODE_GAP_COLLAPSE_RE.get_or_init(|| regex_lite::Regex::new(r"\n{3,}").unwrap());
         text = collapse_code_gaps.replace_all(&text, "\n\n").to_string();
 
         if language == "def"
@@ -268,18 +269,7 @@ pub(crate) fn standardize_code_blocks(doc: &mut Document, content_id: NodeId) {
                     }
                 }
             }
-            let inner = clean_code_html_for_text(&doc.inner_html(*pre_id));
-            let text = inner
-                .replace("<br>", "\n")
-                .replace("<br/>", "\n")
-                .replace("<br />", "\n");
-            let re = STRIP_HTML_TAGS_RE
-                .get_or_init(|| regex_lite::Regex::new(r"<[^>]*>").unwrap());
-            let text = re.replace_all(&text, "").to_string();
-            let text = text
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&amp;", "&");
+            let text = code_text_from_dom(doc, *pre_id);
             parts.push(text);
         }
         if parts.is_empty() {
@@ -382,8 +372,7 @@ pub(crate) fn normalize_code_pre_nesting(doc: &mut Document, content_id: NodeId)
                 }
             }
         }
-        let html = doc.outer_html(pre_id);
-        doc.replace_with_html(code_id, &html);
+        doc.replace_with_node(code_id, pre_id);
     }
 }
 
@@ -600,9 +589,40 @@ pub(crate) fn clean_code_html_for_text(html: &str) -> String {
         .unwrap()
     });
     let html = user_select_re.replace_all(&html, "").to_string();
-    let empty_span_re = EMPTY_SPAN_RE
-        .get_or_init(|| regex_lite::Regex::new(r#"<span[^>]*></span>"#).unwrap());
+    let empty_span_re =
+        EMPTY_SPAN_RE.get_or_init(|| regex_lite::Regex::new(r#"<span[^>]*></span>"#).unwrap());
     empty_span_re.replace_all(&html, "").to_string()
+}
+
+fn code_text_from_dom(doc: &Document, node: NodeId) -> String {
+    if doc.tag_name_is(node, "br") {
+        return "\n".to_string();
+    }
+    if doc.is_element(node) {
+        let class = doc
+            .get_attr(node, "class")
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let style = doc
+            .get_attr(node, "style")
+            .unwrap_or("")
+            .to_ascii_lowercase()
+            .replace(' ', "");
+        if class.split_whitespace().any(|part| {
+            part == "lineno" || part == "line-number" || part.starts_with("line-number-")
+        }) || style.contains("user-select:none")
+        {
+            return String::new();
+        }
+    }
+    if doc.is_text(node) {
+        return doc.text_content(node);
+    }
+    let mut text = String::new();
+    for child in doc.children(node).iter().copied() {
+        text.push_str(&code_text_from_dom(doc, child));
+    }
+    text
 }
 
 pub(crate) fn code_text_from_html(html: &str) -> String {
@@ -611,8 +631,7 @@ pub(crate) fn code_text_from_html(html: &str) -> String {
         .replace("<br>", "\n")
         .replace("<br/>", "\n")
         .replace("<br />", "\n");
-    let re = STRIP_HTML_TAGS_RE
-        .get_or_init(|| regex_lite::Regex::new(r"<[^>]*>").unwrap());
+    let re = STRIP_HTML_TAGS_RE.get_or_init(|| regex_lite::Regex::new(r"<[^>]*>").unwrap());
     re.replace_all(&text, "")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
@@ -645,4 +664,3 @@ pub(crate) fn dedent_code(code: &str) -> String {
         .trim_end()
         .to_string()
 }
-

@@ -221,9 +221,8 @@ fn cleanup_body_html(html: &str) -> String {
         )
         .unwrap()
     });
-    static RE_READ_FULL: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
-        regex_lite::Regex::new(r#"<a[^>]*>\s*Read full story\s*</a>"#).unwrap()
-    });
+    static RE_READ_FULL: LazyLock<regex_lite::Regex> =
+        LazyLock::new(|| regex_lite::Regex::new(r#"<a[^>]*>\s*Read full story\s*</a>"#).unwrap());
     static RE_DATE_DIV: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
         regex_lite::Regex::new(
             r#"<div>\s*(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\s*</div>"#,
@@ -295,7 +294,12 @@ fn substack_preload(doc: &Document) -> (String, String, String, String) {
                     .unwrap_or("")
                     .to_string();
                 if !body.is_empty() {
-                    return (cleanup_body_html(&body), title, author, "Substack".to_string());
+                    return (
+                        cleanup_body_html(&body),
+                        title,
+                        author,
+                        "Substack".to_string(),
+                    );
                 }
             }
             break;
@@ -313,29 +317,27 @@ pub fn register_prune(registry: &mut crate::prune::Registry) {
         for id in doc.query_selector_all("button[aria-label=\"Link\"]") {
             doc.remove(id);
         }
-        for id in doc.query_selector_all("button[class*=\"icon-container restack-image\"]")
-        {
+        for id in doc.query_selector_all("button[class*=\"icon-container restack-image\"]") {
             doc.remove(id);
         }
-        for id in doc.query_selector_all("button[class*=\"icon-container view-image\"]")
-        {
+        for id in doc.query_selector_all("button[class*=\"icon-container view-image\"]") {
             doc.remove(id);
         }
         for id in doc.query_selector_all("p[class*=\"button-wrapper\"]") {
             doc.remove(id);
         }
-        for id in
-            doc.query_selector_all("div[data-component-name=\"SubscribeWidgetToDOM\"]")
-        {
+        for id in doc.query_selector_all("div[data-component-name=\"SubscribeWidgetToDOM\"]") {
             doc.remove(id);
         }
-        for id in
-            doc.query_selector_all("div[data-component-name=\"DigestPostEmbed\"]")
-        {
+        for id in doc.query_selector_all("div[data-component-name=\"DigestPostEmbed\"]") {
             doc.remove(id);
         }
         for id in doc.query_selector_all("a") {
-            if doc.text_content(id).trim().eq_ignore_ascii_case("Read full story") {
+            if doc
+                .text_content(id)
+                .trim()
+                .eq_ignore_ascii_case("Read full story")
+            {
                 doc.remove(id);
             }
         }
@@ -348,11 +350,7 @@ pub fn register_prune(registry: &mut crate::prune::Registry) {
                 continue;
             }
             // Only leaf elements: no element children, just text.
-            if doc
-                .children(id)
-                .iter()
-                .any(|c| doc.is_element(*c))
-            {
+            if doc.children(id).iter().any(|c| doc.is_element(*c)) {
                 continue;
             }
             let text = doc.text_content(id).trim().to_string();
@@ -377,9 +375,7 @@ pub fn register_prune(registry: &mut crate::prune::Registry) {
                         // plus everything after it (same parent).
                         let remove_from = prev;
                         let children = doc.children(parent).to_vec();
-                        if let Some(start_pos) =
-                            children.iter().position(|&c| c == remove_from)
-                        {
+                        if let Some(start_pos) = children.iter().position(|&c| c == remove_from) {
                             for sibling in children.into_iter().skip(start_pos) {
                                 doc.remove(sibling);
                             }
@@ -394,8 +390,18 @@ pub fn register_prune(registry: &mut crate::prune::Registry) {
 /// Check whether text looks like a standalone Substack date line.
 fn is_substack_date_text(text: &str) -> bool {
     const MONTHS: &[&str] = &[
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ];
     let text = text.trim();
     for month in MONTHS {
@@ -406,9 +412,7 @@ fn is_substack_date_text(text: &str) -> bool {
             let rest = rest.trim();
             // Must start with one or two digits
             let after_day = rest.trim_start_matches(|c: char| c.is_ascii_digit());
-            if after_day.len() < rest.len()
-                && after_day.trim_start().starts_with(',')
-            {
+            if after_day.len() < rest.len() && after_day.trim_start().starts_with(',') {
                 let after_comma = after_day.trim_start_matches(',').trim();
                 if after_comma.len() == 4 && after_comma.chars().all(|c| c.is_ascii_digit()) {
                     return true;

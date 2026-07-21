@@ -352,6 +352,35 @@ impl Document {
         &self.node(node).children
     }
 
+    pub fn append_node(&mut self, parent: NodeId, child: NodeId) {
+        if self.node(parent).removed
+            || self.node(child).removed
+            || parent == child
+            || self.contains(child, parent)
+        {
+            return;
+        }
+        if let Some(old_parent) = self.node(child).parent {
+            self.node_mut(old_parent).children.retain(|&id| id != child);
+        }
+        self.node_mut(child).parent = Some(parent);
+        self.node_mut(parent).children.push(child);
+    }
+
+    pub fn append_text(&mut self, parent: NodeId, text: &str) {
+        if self.node(parent).removed || text.is_empty() {
+            return;
+        }
+        if let Some(&last) = self.node(parent).children.last()
+            && let NodeKind::Text(last_text) = &mut self.node_mut(last).kind
+        {
+            last_text.push_str(text);
+            return;
+        }
+        let child = self.push_node(NodeKind::Text(text.to_string()), Some(parent));
+        debug_assert_eq!(self.node(parent).children.last(), Some(&child));
+    }
+
     pub fn tag_name(&self, node: NodeId) -> &str {
         match &self.node(node).kind {
             NodeKind::Element { name, .. } => name.as_str(),
@@ -372,7 +401,9 @@ impl Document {
     /// Returns true if the element's tag name matches any of `names`.
     pub fn tag_name_is_any(&self, node: NodeId, names: &[&str]) -> bool {
         match &self.node(node).kind {
-            NodeKind::Element { name: n, .. } => names.iter().any(|&name| n.eq_ignore_ascii_case(name)),
+            NodeKind::Element { name: n, .. } => {
+                names.iter().any(|&name| n.eq_ignore_ascii_case(name))
+            }
             _ => false,
         }
     }
@@ -477,7 +508,11 @@ impl Document {
         if let Some(parent) = self.parent(node) {
             let children = self.children(parent);
             let pos = children.iter().position(|&c| c == node)?;
-            children.iter().skip(pos + 1).copied().find(|id| self.is_element(*id))
+            children
+                .iter()
+                .skip(pos + 1)
+                .copied()
+                .find(|id| self.is_element(*id))
         } else {
             None
         }
@@ -487,11 +522,17 @@ impl Document {
         let parent = self.parent(node)?;
         let children = self.children(parent);
         let pos = children.iter().position(|&c| c == node)?;
-        children[..pos].iter().rev().copied().find(|id| self.is_element(*id))
+        children[..pos]
+            .iter()
+            .rev()
+            .copied()
+            .find(|id| self.is_element(*id))
     }
 
     pub fn has_closest(&self, node: NodeId, selectors: &[&str]) -> bool {
-        selectors.iter().any(|selector| self.closest(node, selector).is_some())
+        selectors
+            .iter()
+            .any(|selector| self.closest(node, selector).is_some())
     }
 
     pub fn text_content(&self, node: NodeId) -> String {
@@ -814,7 +855,11 @@ impl Document {
             return false;
         }
         if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_contains {
-            let aval_lower = if case_insensitive { aval.to_lowercase() } else { String::new() };
+            let aval_lower = if case_insensitive {
+                aval.to_lowercase()
+            } else {
+                String::new()
+            };
             if !attr_match(attrs, aname, |val| {
                 if case_insensitive {
                     val.to_lowercase().contains(&aval_lower)
@@ -826,7 +871,11 @@ impl Document {
             }
         }
         if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_starts {
-            let aval_lower = if case_insensitive { aval.to_lowercase() } else { String::new() };
+            let aval_lower = if case_insensitive {
+                aval.to_lowercase()
+            } else {
+                String::new()
+            };
             if !attr_match(attrs, aname, |val| {
                 if case_insensitive {
                     val.to_lowercase().starts_with(&aval_lower)
@@ -838,7 +887,11 @@ impl Document {
             }
         }
         if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_ends {
-            let aval_lower = if case_insensitive { aval.to_lowercase() } else { String::new() };
+            let aval_lower = if case_insensitive {
+                aval.to_lowercase()
+            } else {
+                String::new()
+            };
             if !attr_match(attrs, aname, |val| {
                 if case_insensitive {
                     val.to_lowercase().ends_with(&aval_lower)
@@ -876,8 +929,7 @@ impl Document {
 
     fn has_descendant_matching(&self, node: NodeId, selector: &SimpleSelector) -> bool {
         for &child in &self.node(node).children {
-            if self.matches_simple(child, selector)
-                || self.has_descendant_matching(child, selector)
+            if self.matches_simple(child, selector) || self.has_descendant_matching(child, selector)
             {
                 return true;
             }
@@ -924,12 +976,12 @@ impl Document {
         if target == self.root || self.node(target).removed {
             return;
         }
-        if target == replacement || self.contains(target, replacement) {
+        if target == replacement || self.contains(replacement, target) {
             return;
         }
         let target_parent = self.node(target).parent;
-        let target_pos = target_parent
-            .and_then(|p| self.node(p).children.iter().position(|&c| c == target));
+        let target_pos =
+            target_parent.and_then(|p| self.node(p).children.iter().position(|&c| c == target));
 
         if let Some(rp) = self.node(replacement).parent {
             self.node_mut(rp).children.retain(|&c| c != replacement);
@@ -990,6 +1042,7 @@ impl Document {
 }
 
 #[derive(Debug)]
+#[derive(Default)]
 pub(crate) struct SimpleSelector {
     pub(crate) tag: Option<String>,
     pub(crate) id: Option<String>,
@@ -1004,25 +1057,6 @@ pub(crate) struct SimpleSelector {
     /// For `:has(sel)` — inner selector to check in descendants.
     pub(crate) extra: Option<Box<SimpleSelector>>,
 }
-
-impl Default for SimpleSelector {
-    fn default() -> Self {
-        Self {
-            tag: None,
-            id: None,
-            classes: Vec::new(),
-            attr_presence: None,
-            attr_equals: None,
-            attr_contains: None,
-            attr_starts: None,
-            attr_ends: None,
-            attr_word: None,
-            negation: None,
-            extra: None,
-        }
-    }
-}
-
 
 
 fn eq_ignore_case(a: &str, b: &str) -> bool {

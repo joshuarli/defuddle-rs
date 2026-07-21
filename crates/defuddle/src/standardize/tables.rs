@@ -55,7 +55,7 @@ pub(crate) fn unwrap_layout_tables(doc: &mut Document, content_id: NodeId) {
             let child = cell_children[0];
             let child_tag = doc.tag_name(child).to_lowercase();
             if BLOCK_LEVEL_ELEMENTS.contains(&child_tag.as_str()) {
-                doc.replace_with_html(table_id, &doc.outer_html(child));
+                doc.replace_with_node(table_id, child);
             }
         } else if cell_children.len() > 1 {
             // Multiple block children in the cell: flatten the layout table,

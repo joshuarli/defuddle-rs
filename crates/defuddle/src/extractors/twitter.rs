@@ -1,5 +1,5 @@
 use crate::dom::Document;
-use crate::extractors::{comments, Extractor, ExtractorResult};
+use crate::extractors::{Extractor, ExtractorResult, comments};
 use crate::utils::escape_html;
 use rustc_hash::FxHashMap;
 
@@ -24,14 +24,9 @@ pub fn create(doc: &Document, url: &str) -> Option<Box<dyn Extractor>> {
     for section_id in &sections {
         if let Some(label) = doc.get_attr(*section_id, "aria-label") {
             let lower = label.to_lowercase();
-            if (lower.contains("time")
-                || lower.contains("conversation")
-                || lower.contains("对话"))
+            if (lower.contains("time") || lower.contains("conversation") || lower.contains("对话"))
                 && !doc
-                    .query_selector_all_in_subtree(
-                        *section_id,
-                        "article[data-testid=\"tweet\"]",
-                    )
+                    .query_selector_all_in_subtree(*section_id, "article[data-testid=\"tweet\"]")
                     .is_empty()
             {
                 return Some(Box::new(XExtractor {
@@ -230,9 +225,7 @@ fn extract_conversation(doc: &Document) -> ExtractorResult {
     for &section_id in &sections {
         if let Some(label) = doc.get_attr(section_id, "aria-label") {
             let lower = label.to_lowercase();
-            if (lower.contains("time")
-                || lower.contains("conversation")
-                || lower.contains("对话"))
+            if (lower.contains("time") || lower.contains("conversation") || lower.contains("对话"))
                 && !doc
                     .query_selector_all_in_subtree(section_id, "article[data-testid=\"tweet\"]")
                     .is_empty()
@@ -289,7 +282,7 @@ fn extract_conversation(doc: &Document) -> ExtractorResult {
         let date = time_id
             .as_ref()
             .and_then(|&tid| doc.get_attr(tid, "datetime"))
-            .map(|s| crate::utils::extract_date(s))
+            .map(crate::utils::extract_date)
             .unwrap_or_default();
 
         let permalink = time_id
@@ -477,8 +470,7 @@ fn process_draft_block(doc: &Document, block_id: crate::NodeId, html: &mut Strin
 
 /// Extract text content from a longform-unstyled paragraph block.
 fn extract_draft_text(doc: &Document, block_id: crate::NodeId) -> String {
-    let blocks =
-        doc.query_selector_all_in_subtree(block_id, "div.public-DraftStyleDefault-block");
+    let blocks = doc.query_selector_all_in_subtree(block_id, "div.public-DraftStyleDefault-block");
     let mut result = String::new();
     if blocks.is_empty() {
         for &child_id in doc.children(block_id) {
@@ -520,8 +512,7 @@ fn extract_draft_text_recursive(doc: &Document, node_id: crate::NodeId) -> Strin
     if spans.is_empty() && tag != "ol" && tag != "ul" {
         return String::new();
     }
-    let blocks =
-        doc.query_selector_all_in_subtree(node_id, "div.public-DraftStyleDefault-block");
+    let blocks = doc.query_selector_all_in_subtree(node_id, "div.public-DraftStyleDefault-block");
     let mut result = String::new();
     if blocks.is_empty() {
         for &child_id in doc.children(node_id) {

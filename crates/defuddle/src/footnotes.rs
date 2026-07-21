@@ -147,7 +147,8 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
     }
 
     // Phase 1b: Detect bare <sup> elements with numeric markers (e.g., <sup>1</sup>, <sup>[2]</sup>)
-    let footnote_marker_re = FOOTNOTE_MARKER_RE.get_or_init(|| regex_lite::Regex::new(r"^\[?\(?(\d{1,4})\)?\]?$").unwrap());
+    let footnote_marker_re = FOOTNOTE_MARKER_RE
+        .get_or_init(|| regex_lite::Regex::new(r"^\[?\(?(\d{1,4})\)?\]?$").unwrap());
     let bare_sups = doc.query_selector_all_in_subtree(content_id, "sup");
     for sup_id in bare_sups {
         if doc.has_closest(sup_id, &["pre", "code"]) {
@@ -404,7 +405,8 @@ fn collect_pulldown_cmark_defs(
         {
             defs.entry(num).or_insert_with(|| {
                 let html = doc.inner_html(def_id);
-                let terminal_period = TERMINAL_PERIOD_RE.get_or_init(|| regex_lite::Regex::new(r"\.</p>\s*$").unwrap());
+                let terminal_period = TERMINAL_PERIOD_RE
+                    .get_or_init(|| regex_lite::Regex::new(r"\.</p>\s*$").unwrap());
                 terminal_period.replace(&html, "</p>").to_string()
             });
         }
@@ -746,7 +748,8 @@ fn collect_heading_separated_defs(
     content_id: NodeId,
     defs: &mut FxHashMap<usize, String>,
 ) {
-    let re = FOOTNOTE_SECTION_REGEX.get_or_init(|| regex_lite::Regex::new(FOOTNOTE_SECTION_RE).unwrap());
+    let re =
+        FOOTNOTE_SECTION_REGEX.get_or_init(|| regex_lite::Regex::new(FOOTNOTE_SECTION_RE).unwrap());
     let headings = doc.query_selector_all_in_subtree(content_id, "h2,h3,h4,h5,h6");
     let children = doc.children(content_id).to_vec();
 
@@ -847,4 +850,3 @@ fn collect_p_class_defs(
         doc.remove(p_id);
     }
 }
-

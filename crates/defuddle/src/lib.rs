@@ -48,7 +48,6 @@ mod constants;
 
 mod dom;
 
-mod prune;
 pub mod extractors;
 mod footnotes;
 pub mod markdown;
@@ -56,10 +55,11 @@ mod math;
 mod metadata;
 mod overrides;
 mod pipeline;
+mod prune;
 pub mod sanitize;
-mod selector;
 mod schema;
 mod scoring;
+mod selector;
 mod standardize;
 pub mod utils;
 
@@ -350,10 +350,7 @@ fn parse_internal(mut config: PipelineConfig<'_>) -> DefuddleResult {
     result
 }
 
-fn parse_internal_once(
-    mut doc: Document,
-    config: &PipelineConfig<'_>,
-) -> DefuddleResult {
+fn parse_internal_once(mut doc: Document, config: &PipelineConfig<'_>) -> DefuddleResult {
     // Find main content first
     let main_content = pipeline::extract_content(&mut doc, config.content_selector, config.debug);
     let body_ids = doc.query_selector_all("body");
@@ -407,7 +404,12 @@ fn parse_internal_once(
         standardize::resolve_urls(&mut doc, content, config.url);
 
         if config.do_standardize {
-            standardize::standardize_content(&mut doc, content, &config.metadata.title, overrides.as_ref());
+            standardize::standardize_content(
+                &mut doc,
+                content,
+                &config.metadata.title,
+                overrides.as_ref(),
+            );
             standardize::resolve_urls(&mut doc, content, config.url);
         }
 

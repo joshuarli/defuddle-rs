@@ -58,7 +58,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
         // Remove iframes without src or with empty src
         doc.query_selector_all_into("iframe", &mut matches);
         for &id in &matches {
-            if doc.get_attr(id, "src").map_or(true, |s| s.is_empty()) {
+            if doc.get_attr(id, "src").is_none_or(|s| s.is_empty()) {
                 doc.remove(id);
             }
         }
@@ -394,11 +394,10 @@ pub fn extract_content(
             return Some(main_element);
         }
         // Try to find a more specific element
-        if let Some(specific) = scoring::find_main_content(doc, ENTRY_POINT_ELEMENTS) {
-            if !doc.tag_name_is(specific, "body") && specific != main {
+        if let Some(specific) = scoring::find_main_content(doc, ENTRY_POINT_ELEMENTS)
+            && !doc.tag_name_is(specific, "body") && specific != main {
                 return Some(specific);
             }
-        }
     }
 
     Some(main)
@@ -583,8 +582,9 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
 
     // Remove author/share labels: elements whose text is just "Share", "Author",
     // "Follow", "Written by" — common sidebar widget labels
-    let share_author_re = SHARE_AUTHOR_LABEL_RE
-        .get_or_init(|| regex_lite::Regex::new(r"(?i)^(share|follow|authors?|written\s+by)$").unwrap());
+    let share_author_re = SHARE_AUTHOR_LABEL_RE.get_or_init(|| {
+        regex_lite::Regex::new(r"(?i)^(share|follow|authors?|written\s+by)$").unwrap()
+    });
     doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
         if !doc.is_element(id) {
@@ -673,16 +673,16 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
     }
 
     // Remove ISO date lines (YYYY-MM-DD), "N min read", and date formats like "May 22, 2026"
-    let date_re = ISO_DATE_RE
-        .get_or_init(|| regex_lite::Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap());
+    let date_re =
+        ISO_DATE_RE.get_or_init(|| regex_lite::Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap());
     let named_date_re = NAMED_DATE_RE.get_or_init(|| {
         regex_lite::Regex::new(
             r"^(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}(?:,\s*\d{4})?|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*(?:,\s*\d{4})?)$",
         )
         .unwrap()
     });
-    let min_read_re = MIN_READ_RE
-        .get_or_init(|| regex_lite::Regex::new(r"^\d+\s*min\s*read$").unwrap());
+    let min_read_re =
+        MIN_READ_RE.get_or_init(|| regex_lite::Regex::new(r"^\d+\s*min\s*read$").unwrap());
     let compact_read_meta_re = COMPACT_DATE_RE.get_or_init(|| {
         regex_lite::Regex::new(
             r"(?i)(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}",
@@ -870,8 +870,8 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
             }
             wrapper = parent;
         }
-        if let Some(_parent) = doc.parent(wrapper) {
-            if let Some(next) = doc.next_element_sibling(wrapper) {
+        if let Some(_parent) = doc.parent(wrapper)
+            && let Some(next) = doc.next_element_sibling(wrapper) {
                 let class = doc.get_attr(next, "class").unwrap_or("").to_lowercase();
                 let text = doc.text_content(next).to_lowercase();
                 if class.contains("author")
@@ -899,7 +899,6 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
                     }
                 }
             }
-        }
     }
 }
 
@@ -1082,14 +1081,12 @@ fn remove_related_posts_sections(doc: &mut Document, content_id: NodeId) {
                 let pos = siblings.iter().position(|&s| s == h_id);
                 if let Some(p) = pos
                     && let Some(&sib) = siblings[p + 1..].first()
-                {
-                    if doc.tag_name_is_any(sib, &["ul", "ol", "div"]) {
+                    && doc.tag_name_is_any(sib, &["ul", "ol", "div"]) {
                         let sib_text = doc.text_content(sib).trim().to_string();
                         if sib_text.split_whitespace().count() < 80 {
                             to_remove.push(sib);
                         }
                     }
-                }
             }
         }
     }
@@ -1248,8 +1245,8 @@ fn remove_social_counters(doc: &mut Document, content_id: NodeId) {
 
 /// Remove social counter links: anchors wrapping "Likes" / "Comments" text.
 fn remove_social_counter_links(doc: &mut Document, content_id: NodeId) {
-    let likes_re =
-        LIKES_RE.get_or_init(|| regex_lite::Regex::new(r"(?i)^\d+\s+(?:Likes?|Comments?)$").unwrap());
+    let likes_re = LIKES_RE
+        .get_or_init(|| regex_lite::Regex::new(r"(?i)^\d+\s+(?:Likes?|Comments?)$").unwrap());
     let anchors = doc.query_selector_all_in_subtree(content_id, "a");
     let mut text = String::new();
     for a_id in anchors {

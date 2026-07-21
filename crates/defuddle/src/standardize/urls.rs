@@ -84,4 +84,3 @@ pub(crate) fn resolve_dot_segments(path: &str) -> String {
 }
 
 // --- Remaining Phase 2 functions ---
-

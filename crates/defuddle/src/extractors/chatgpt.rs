@@ -67,10 +67,8 @@ impl Extractor for ChatGPTExtractor {
                 msg_els
                     .iter()
                     .flat_map(|&el| {
-                        let content_els = doc.query_selector_all_in_subtree(
-                            el,
-                            ".markdown, .whitespace-pre-wrap",
-                        );
+                        let content_els = doc
+                            .query_selector_all_in_subtree(el, ".markdown, .whitespace-pre-wrap");
                         if content_els.is_empty() {
                             vec![doc.inner_html(el)]
                         } else {
@@ -91,9 +89,8 @@ impl Extractor for ChatGPTExtractor {
             // Clean up empty paragraphs
             use std::sync::LazyLock;
 
-            static EMPTY_P: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
-                regex_lite::Regex::new(r"<p[^>]*>\s*</p>").unwrap()
-            });
+            static EMPTY_P: LazyLock<regex_lite::Regex> =
+                LazyLock::new(|| regex_lite::Regex::new(r"<p[^>]*>\s*</p>").unwrap());
             message_content = EMPTY_P.replace_all(&message_content, "").to_string();
 
             let trimmed = message_content.trim().to_string();

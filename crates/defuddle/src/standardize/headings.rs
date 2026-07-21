@@ -29,7 +29,6 @@ pub(crate) fn standardize_headings(doc: &mut Document, content_id: NodeId, metad
     }
 }
 
-
 pub(crate) fn remove_trailing_headings(doc: &mut Document, content_id: NodeId) {
     let children = doc.children(content_id).to_vec();
     for &child in children.iter().rev() {
@@ -56,7 +55,6 @@ pub(crate) fn remove_trailing_headings(doc: &mut Document, content_id: NodeId) {
         }
     }
 }
-
 
 pub(crate) fn simplify_heading_children(doc: &mut Document, content_id: NodeId) {
     for level in 1..=6 {
@@ -94,17 +92,18 @@ pub(crate) fn simplify_heading_children(doc: &mut Document, content_id: NodeId) 
                         || class.contains("heading-anchor")
                         || class.contains("headerlink")
                     {
-                    let text = doc.text_content(child).trim().to_string();
-                    if is_edit_link || text.is_empty() || matches!(text.as_str(), "#" | "¶" | "§")
-                    {
-                        doc.remove(child);
-                    } else {
-                        doc.unwrap(child);
-                    }
+                        let text = doc.text_content(child).trim().to_string();
+                        if is_edit_link
+                            || text.is_empty()
+                            || matches!(text.as_str(), "#" | "¶" | "§")
+                        {
+                            doc.remove(child);
+                        } else {
+                            doc.unwrap(child);
+                        }
                     }
                 }
             }
         }
     }
 }
-

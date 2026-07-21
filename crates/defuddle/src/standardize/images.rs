@@ -1,34 +1,20 @@
 use crate::dom::{Document, NodeId};
 use rustc_hash::FxHashSet;
-use std::sync::OnceLock;
-
-static NOSCRIPT_IMG_SRC_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static IMG_ALT_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-
 pub(crate) fn recover_noscript_images(doc: &mut Document, content_id: NodeId) {
     let noscripts = doc.query_selector_all_in_subtree(content_id, "noscript");
     for ns_id in noscripts {
         let imgs = doc.query_selector_all_in_subtree(ns_id, "img");
         if imgs.is_empty() {
             let raw = crate::utils::decode_html_entities(&doc.inner_html(ns_id));
-            let Some(caps) = NOSCRIPT_IMG_SRC_RE
-                .get_or_init(|| {
-                    regex_lite::Regex::new(r#"<img[^>]*\bsrc="([^"]+)"[^>]*>"#).unwrap()
-                })
-                .captures(&raw)
-            else {
+            let parsed = Document::parse(&raw);
+            let Some(img_id) = parsed.query_selector_all("img").first().copied() else {
                 continue;
             };
-            let src = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let src = parsed.get_attr(img_id, "src").unwrap_or("");
             if src.is_empty() || src.starts_with("data:") {
                 continue;
             }
-            let alt = IMG_ALT_RE
-                .get_or_init(|| regex_lite::Regex::new(r#"\balt="([^"]*)""#).unwrap())
-                .captures(&raw)
-                .and_then(|m| m.get(1))
-                .map(|m| m.as_str())
-                .unwrap_or("");
+            let alt = parsed.get_attr(img_id, "alt").unwrap_or("");
             let has_caption = doc.closest(ns_id, "figure").is_some_and(|figure| {
                 !doc.query_selector_all_in_subtree(figure, "figcaption")
                     .is_empty()
@@ -85,7 +71,12 @@ pub(crate) fn recover_noscript_images(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-pub(crate) fn replace_if_placeholder(doc: &mut Document, img_id: NodeId, new_src: &str, new_alt: &str) {
+pub(crate) fn replace_if_placeholder(
+    doc: &mut Document,
+    img_id: NodeId,
+    new_src: &str,
+    new_alt: &str,
+) {
     let src = doc.get_attr(img_id, "src").unwrap_or("");
     let is_placeholder = src.is_empty() || src.starts_with("data:image/");
     if !is_placeholder {
@@ -97,7 +88,6 @@ pub(crate) fn replace_if_placeholder(doc: &mut Document, img_id: NodeId, new_src
     }
     doc.remove_attr(img_id, "data-nimg");
 }
-
 
 pub(crate) fn recover_lazy_images(doc: &mut Document, content_id: NodeId) {
     let lazy_attrs = ["data-image-loader", "data-src", "data-original-src"];
@@ -139,7 +129,6 @@ pub(crate) fn recover_lazy_images(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-
 pub(crate) fn normalize_srcset_attributes(doc: &mut Document, content_id: NodeId) {
     let elements = doc.query_selector_all_in_subtree(content_id, "source,img");
     for id in elements {
@@ -174,7 +163,6 @@ pub(crate) fn get_best_src_url(srcset: &str) -> Option<String> {
     }
     best.map(|(_, url)| url)
 }
-
 
 pub(crate) fn remove_base64_placeholder_images(doc: &mut Document, content_id: NodeId) {
     let lazy_attrs = ["data-src", "data-image-loader", "data-original-src"];
@@ -217,7 +205,6 @@ pub(crate) fn remove_base64_placeholder_images(doc: &mut Document, content_id: N
     }
 }
 
-
 pub(crate) fn remove_empty_video_elements(doc: &mut Document, content_id: NodeId) {
     for id in doc.query_selector_all_in_subtree(content_id, "video") {
         let has_src = doc.get_attr(id, "src").is_some_and(|s| !s.is_empty());
@@ -227,7 +214,6 @@ pub(crate) fn remove_empty_video_elements(doc: &mut Document, content_id: NodeId
         }
     }
 }
-
 
 pub(crate) fn dedup_images(doc: &mut Document, content_id: NodeId) {
     for parent_id in doc.query_selector_all_in_subtree(content_id, "figure,div,p") {
@@ -326,11 +312,11 @@ fn looks_like_latex(alt: &str) -> bool {
 }
 
 pub(crate) fn remove_small_images(doc: &mut Document, content_id: NodeId) {
-    let elements: Vec<NodeId> =
-        doc.query_selector_all_in_subtree(content_id, "img, svg")
-            .into_iter()
-            .filter(|&id| !doc.is_removed(id))
-            .collect();
+    let elements: Vec<NodeId> = doc
+        .query_selector_all_in_subtree(content_id, "img, svg")
+        .into_iter()
+        .filter(|&id| !doc.is_removed(id))
+        .collect();
 
     for id in elements {
         if doc.is_removed(id) {
@@ -343,11 +329,11 @@ pub(crate) fn remove_small_images(doc: &mut Document, content_id: NodeId) {
 
         if is_img {
             let src = doc.get_attr(id, "src").unwrap_or("");
-            let has_alt_src = doc.get_attr(id, "srcset").unwrap_or("").is_empty() == false
-                || doc.get_attr(id, "data-src").unwrap_or("").is_empty() == false
-                || doc.get_attr(id, "data-srcset").unwrap_or("").is_empty() == false
-                || doc.get_attr(id, "data-lazy-src").unwrap_or("").is_empty() == false
-                || doc.get_attr(id, "data-original").unwrap_or("").is_empty() == false;
+            let has_alt_src = !doc.get_attr(id, "srcset").unwrap_or("").is_empty()
+                || !doc.get_attr(id, "data-src").unwrap_or("").is_empty()
+                || !doc.get_attr(id, "data-srcset").unwrap_or("").is_empty()
+                || !doc.get_attr(id, "data-lazy-src").unwrap_or("").is_empty()
+                || !doc.get_attr(id, "data-original").unwrap_or("").is_empty();
 
             if src.is_empty() && !has_alt_src {
                 doc.remove(id);
@@ -382,35 +368,51 @@ pub(crate) fn remove_small_images(doc: &mut Document, content_id: NodeId) {
         let mut style_h = 0.0;
         for part in style.split(';') {
             let trimmed = part.trim();
-            if let Some(val) = trimmed.strip_prefix("width:").or_else(|| trimmed.strip_prefix("width :")) {
-                style_w = val.trim().trim_end_matches("px").trim().parse().unwrap_or(0.0);
+            if let Some(val) = trimmed
+                .strip_prefix("width:")
+                .or_else(|| trimmed.strip_prefix("width :"))
+            {
+                style_w = val
+                    .trim()
+                    .trim_end_matches("px")
+                    .trim()
+                    .parse()
+                    .unwrap_or(0.0);
             }
-            if let Some(val) = trimmed.strip_prefix("height:").or_else(|| trimmed.strip_prefix("height :")) {
-                style_h = val.trim().trim_end_matches("px").trim().parse().unwrap_or(0.0);
+            if let Some(val) = trimmed
+                .strip_prefix("height:")
+                .or_else(|| trimmed.strip_prefix("height :"))
+            {
+                style_h = val
+                    .trim()
+                    .trim_end_matches("px")
+                    .trim()
+                    .parse()
+                    .unwrap_or(0.0);
             }
         }
 
         let mut viewbox_w = 0.0;
         let mut viewbox_h = 0.0;
-        if is_svg {
-            if let Some(vb) = doc.get_attr(id, "viewBox") {
+        if is_svg
+            && let Some(vb) = doc.get_attr(id, "viewBox") {
                 let parts: Vec<&str> = vb.split(|c: char| c.is_whitespace() || c == ',').collect();
                 if parts.len() == 4 {
                     viewbox_w = parts[2].parse().unwrap_or(0.0);
                     viewbox_h = parts[3].parse().unwrap_or(0.0);
                 }
             }
-        }
 
         let mut url_w = 0.0;
-        if is_img && attr_w == 0.0 && attr_h == 0.0 && style_w == 0.0 && style_h == 0.0 {
-            if let Some(srcset) = doc.get_attr(id, "srcset") {
+        if is_img && attr_w == 0.0 && attr_h == 0.0 && style_w == 0.0 && style_h == 0.0
+            && let Some(srcset) = doc.get_attr(id, "srcset") {
                 for part in srcset.split(',') {
                     let trimmed = part.trim();
                     if trimmed.ends_with("1x") {
-                        let url_part = trimmed.rsplitn(2, ' ').nth(1).unwrap_or("");
-                        for seg in url_part.split(|c: char| c == '?' || c == '&' || c == '/') {
-                            if let Some(w) = seg.strip_prefix("w=")
+                        let url_part = trimmed.rsplit_once(' ').map(|x| x.0).unwrap_or("");
+                        for seg in url_part.split(['?', '&', '/']) {
+                            if let Some(w) = seg
+                                .strip_prefix("w=")
                                 .or_else(|| seg.strip_prefix("width="))
                                 .or_else(|| seg.strip_prefix("w:"))
                                 .or_else(|| seg.strip_prefix("width:"))
@@ -428,7 +430,6 @@ pub(crate) fn remove_small_images(doc: &mut Document, content_id: NodeId) {
                     }
                 }
             }
-        }
 
         let widths: Vec<f64> = [attr_w, style_w, viewbox_w, url_w]
             .into_iter()
@@ -469,4 +470,3 @@ pub(crate) fn remove_small_images(doc: &mut Document, content_id: NodeId) {
         doc.remove(id);
     }
 }
-
