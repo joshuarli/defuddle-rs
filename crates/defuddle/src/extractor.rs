@@ -953,12 +953,15 @@ pub mod github {
                         }
                     }
                 }
-                body = regex_lite::Regex::new(
-                    r#"<div[^>]*class="[^"]*Box-header[^"]*"[^>]*>[\s\S]*?</div>"#,
-                )
-                .unwrap()
-                .replace_all(&body, "")
-                .to_string();
+                use std::sync::LazyLock;
+
+                static BOX_HEADER: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+                    regex_lite::Regex::new(
+                        r#"<div[^>]*class="[^"]*Box-header[^"]*"[^>]*>[\s\S]*?</div>"#,
+                    )
+                    .unwrap()
+                });
+                body = BOX_HEADER.replace_all(&body, "").to_string();
                 let fallback_code = "const sheets = Array.from(doc.styleSheets ?? [])";
                 if let Some(start) = body.find("<div class=\"highlight")
                     && let Some(end_offset) = body[start..].find("</div></div>")
@@ -1231,10 +1234,12 @@ pub mod chatgpt {
                     process_citations(&message_content, &mut footnotes, &mut footnote_counter);
 
                 // Clean up empty paragraphs
-                message_content = regex_lite::Regex::new(r"<p[^>]*>\s*</p>")
-                    .unwrap()
-                    .replace_all(&message_content, "")
-                    .to_string();
+                use std::sync::LazyLock;
+
+                static EMPTY_P: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+                    regex_lite::Regex::new(r"<p[^>]*>\s*</p>").unwrap()
+                });
+                message_content = EMPTY_P.replace_all(&message_content, "").to_string();
 
                 let trimmed = message_content.trim().to_string();
                 if !trimmed.is_empty() {
@@ -1262,11 +1267,15 @@ pub mod chatgpt {
         footnotes: &mut Vec<(String, String)>,
         counter: &mut usize,
     ) -> String {
-        let re = regex_lite::Regex::new(
-            r#"<span[^>]*data-testid="webpage-citation-pill"[^>]*>[\s\S]*?<a\b[^>]*href="([^"]*)"[^>]*>[\s\S]*?</a>[\s\S]*?</span>"#,
-        )
-        .unwrap();
-        re.replace_all(html, |caps: &regex_lite::Captures| {
+        use std::sync::LazyLock;
+
+        static CITATION: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+            regex_lite::Regex::new(
+                r#"<span[^>]*data-testid="webpage-citation-pill"[^>]*>[\s\S]*?<a\b[^>]*href="([^"]*)"[^>]*>[\s\S]*?</a>[\s\S]*?</span>"#,
+            )
+            .unwrap()
+        });
+        CITATION.replace_all(html, |caps: &regex_lite::Captures| {
             let url = caps
                 .get(1)
                 .map(|m| m.as_str().replace("&amp;", "&"))
