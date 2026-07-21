@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use defuddle::{DefuddleOptions, DefuddleResult, parse_html};
+use defuddle::{DefuddleOptions, DefuddleResult, extractor, parse_html};
 use miniserde::json::Value;
 use walkdir::WalkDir;
 
@@ -261,6 +261,75 @@ fn fixtures_dir() -> PathBuf {
 
 fn expected_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(EXPECTED_DIR)
+}
+
+#[test]
+fn local_fixtures_extractors() {
+    let registry = extractor::build_registry();
+    let extractors: Vec<&str> = registry.names();
+
+    let fixtures_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures");
+    let entries = fs::read_dir(&fixtures_dir).expect("tests/fixtures/ exists");
+    let mut count = 0;
+
+    for entry in entries {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("html") {
+            continue;
+        }
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap();
+        let Some(stem) = file_name.strip_suffix(".raw.html") else {
+            continue;
+        };
+
+        let html = fs::read_to_string(&path).expect("raw html readable");
+
+        for ext_name in &extractors {
+            let expected_html = fixtures_dir.join(format!("{stem}.{ext_name}.html"));
+            let expected_md = fixtures_dir.join(format!("{stem}.{ext_name}.md"));
+
+            if expected_html.exists() {
+                let result = parse_html(
+                    &html,
+                    DefuddleOptions {
+                        extractor: Some(ext_name.to_string()),
+                        ..<DefuddleOptions as Default>::default()
+                    },
+                )
+                .unwrap_or_else(|_| panic!("{ext_name} html parse for {stem}"));
+                let expected = fs::read_to_string(&expected_html).expect("expected html readable");
+                assert_eq!(
+                    result.content.trim(),
+                    expected.trim(),
+                    "{ext_name} html mismatch for {stem}"
+                );
+                count += 1;
+            }
+
+            if expected_md.exists() {
+                let result = parse_html(
+                    &html,
+                    DefuddleOptions {
+                        extractor: Some(ext_name.to_string()),
+                        separate_markdown: true,
+                        ..<DefuddleOptions as Default>::default()
+                    },
+                )
+                .unwrap_or_else(|_| panic!("{ext_name} md parse for {stem}"));
+                let expected = fs::read_to_string(&expected_md).expect("expected md readable");
+                assert_eq!(
+                    result.content_markdown.as_deref().unwrap_or("").trim(),
+                    expected.trim(),
+                    "{ext_name} markdown mismatch for {stem}"
+                );
+                count += 1;
+            }
+        }
+    }
+
+    assert!(count > 0, "no extractor fixtures found in tests/fixtures/");
 }
 
 fn fixture_url(html: &str, path: &Path) -> String {

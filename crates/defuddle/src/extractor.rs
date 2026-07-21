@@ -1530,11 +1530,15 @@ pub mod substack {
                 variables.insert("published".into(), meta_published);
             }
             ExtractorResult {
-                content_html,
+                content_html: wrap_html(&content_html),
                 content_selector: None,
                 variables,
             }
         }
+    }
+
+    fn wrap_html(inner: &str) -> String {
+        format!("<html><head></head><body>{inner}</body></html>")
     }
 
     fn cleanup_body_html(html: &str) -> String {
