@@ -23,7 +23,12 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
     if remove_exact {
         // Remove dangerous elements and clutter
         for selector in EXACT_SELECTORS {
-            if selector.contains(":not(") || selector.contains(":has(") {
+            // Multiple :not() and :has() compound selectors are not fully
+            // supported yet. Skip the few that need compound negation.
+            if selector.contains(":not(") && selector.matches(":not(").count() > 1 {
+                continue;
+            }
+            if selector.contains(":has(") {
                 continue;
             }
             doc.query_selector_all_into(selector, &mut matches);
@@ -41,7 +46,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
             }
         }
 
-        // Handle :not() selectors manually
+        // Manual handling for multi-:not()/:has() compound selectors
         // Remove all scripts EXCEPT those with type starting with "math/"
         doc.query_selector_all_into("script", &mut matches);
         for &id in &matches {
@@ -50,22 +55,20 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
                 doc.remove(id);
             }
         }
-
-        // Remove iframes without src, video/audio without src
+        // Remove iframes without src or with empty src
         doc.query_selector_all_into("iframe", &mut matches);
         for &id in &matches {
             if doc.get_attr(id, "src").map_or(true, |s| s.is_empty()) {
                 doc.remove(id);
             }
         }
-
+        // Remove video/audio without src and without <source> children
         doc.query_selector_all_into("video", &mut matches);
         for &id in &matches {
             if doc.get_attr(id, "src").is_none() && !doc.has_selector_in_subtree(id, "source") {
                 doc.remove(id);
             }
         }
-
         doc.query_selector_all_into("audio", &mut matches);
         for &id in &matches {
             if doc.get_attr(id, "src").is_none() && !doc.has_selector_in_subtree(id, "source") {

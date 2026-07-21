@@ -15,7 +15,7 @@ fn parse_selector(selector: &str) -> ParsedSelector {
         .filter(|part| !part.is_empty())
         .map(|part| {
             part.split_whitespace()
-                .filter_map(SimpleSelector::parse)
+                .filter_map(crate::selector::parse_one)
                 .collect()
         })
         .filter(|parts: &Vec<SimpleSelector>| !parts.is_empty())
@@ -451,7 +451,7 @@ impl Document {
     }
 
     pub fn closest(&self, node: NodeId, selector: &str) -> Option<NodeId> {
-        let selector = SimpleSelector::parse(selector)?;
+        let selector = crate::selector::parse_one(selector)?;
         let mut current = Some(node);
         while let Some(id) = current {
             if self.matches_simple(id, &selector) {
@@ -866,7 +866,23 @@ impl Document {
         {
             return false;
         }
+        if let Some(ref has) = selector.extra
+            && !self.has_descendant_matching(node, has)
+        {
+            return false;
+        }
         true
+    }
+
+    fn has_descendant_matching(&self, node: NodeId, selector: &SimpleSelector) -> bool {
+        for &child in &self.node(node).children {
+            if self.matches_simple(child, selector)
+                || self.has_descendant_matching(child, selector)
+            {
+                return true;
+            }
+        }
+        false
     }
 
     pub(crate) fn text_content_into(&self, node: NodeId, out: &mut String) {
@@ -924,353 +940,46 @@ impl Document {
 }
 
 #[derive(Debug)]
-struct SimpleSelector {
-    tag: Option<String>,
-    id: Option<String>,
-    classes: Vec<String>,
-    attr_presence: Option<String>,
-    attr_equals: Option<(String, String, bool)>,
-    attr_contains: Option<(String, String, bool)>,
-    attr_starts: Option<(String, String, bool)>,
-    attr_ends: Option<(String, String, bool)>,
-    attr_word: Option<(String, String, bool)>,
-    negation: Option<Box<SimpleSelector>>,
+pub(crate) struct SimpleSelector {
+    pub(crate) tag: Option<String>,
+    pub(crate) id: Option<String>,
+    pub(crate) classes: Vec<String>,
+    pub(crate) attr_presence: Option<String>,
+    pub(crate) attr_equals: Option<(String, String, bool)>,
+    pub(crate) attr_contains: Option<(String, String, bool)>,
+    pub(crate) attr_starts: Option<(String, String, bool)>,
+    pub(crate) attr_ends: Option<(String, String, bool)>,
+    pub(crate) attr_word: Option<(String, String, bool)>,
+    pub(crate) negation: Option<Box<SimpleSelector>>,
+    /// For `:has(sel)` — inner selector to check in descendants.
+    pub(crate) extra: Option<Box<SimpleSelector>>,
 }
 
-impl SimpleSelector {
-    fn parse(input: &str) -> Option<Self> {
-        if input.is_empty() || input.contains([',']) {
-            return None;
-        }
-
-        if input == "*" {
-            return Some(Self {
-                tag: None,
-                id: None,
-                classes: Vec::new(),
-                attr_presence: None,
-                attr_equals: None,
-                attr_contains: None,
-                attr_starts: None,
-                attr_ends: None,
-                attr_word: None,
-                negation: None,
-            });
-        }
-
-        if has_bare_combinator(input) {
-            return None;
-        }
-
-        if input.contains(":not(")
-            && let Some(inner_start) = input.find(":not(")
-        {
-            let inner_start = inner_start + 5; // past ":not("
-            if let Some(paren_end) = input[inner_start..].find(')') {
-                let inner = &input[inner_start..inner_start + paren_end];
-                let rest = format!(
-                    "{}{}",
-                    &input[..inner_start - 5],
-                    &input[inner_start + paren_end + 1..]
-                );
-                if let Some(mut base) = Self::parse(&rest)
-                    && let Some(neg) = Self::parse(inner)
-                {
-                    base.negation = Some(Box::new(neg));
-                    return Some(base);
-                }
-                return None;
-            }
-        }
-
-        if input.contains(":has(") {
-            return None;
-        }
-
-        let mut tag = None;
-        let mut id = None;
-        let mut classes = Vec::new();
-        let mut attr_presence = None;
-        let mut attr_equals = None;
-        let mut attr_contains = None;
-        let mut attr_starts = None;
-        let mut attr_ends = None;
-        let mut attr_word = None;
-        let mut buf = String::new();
-        let mut mode = SelectorMode::Tag;
-        let mut in_attr = false;
-        let mut attr_name = String::new();
-        let mut attr_value = String::new();
-        let mut attr_op = AttrOp::None;
-        let mut attr_case_insensitive = false;
-        let mut after_attr_value = false;
-
-        let flush = |mode: SelectorMode,
-                     buf: &mut String,
-                     tag: &mut Option<String>,
-                     id: &mut Option<String>,
-                     classes: &mut Vec<String>| {
-            if buf.is_empty() {
-                return;
-            }
-            match mode {
-                SelectorMode::Tag => {
-                    if buf != "*" {
-                        *tag = Some(std::mem::take(buf));
-                    } else {
-                        buf.clear();
-                    }
-                }
-                SelectorMode::Id => *id = Some(std::mem::take(buf)),
-                SelectorMode::Class => classes.push(std::mem::take(buf)),
-            }
-        };
-
-        let mut chars = input.chars().peekable();
-        while let Some(ch) = chars.next() {
-            if after_attr_value {
-                if ch == ' ' {
-                    continue;
-                }
-                if ch == 'i' || ch == 'I' {
-                    attr_case_insensitive = true;
-                    continue;
-                }
-                after_attr_value = false;
-            }
-            if in_attr {
-                match ch {
-                    ']' => {
-                        in_attr = false;
-                        let name = std::mem::take(&mut attr_name);
-                        match attr_op {
-                            AttrOp::None => attr_presence = Some(name),
-                            AttrOp::Equals => {
-                                attr_equals = Some((
-                                    name,
-                                    std::mem::take(&mut attr_value),
-                                    attr_case_insensitive,
-                                ));
-                            }
-                            AttrOp::Contains => {
-                                attr_contains = Some((
-                                    name,
-                                    std::mem::take(&mut attr_value),
-                                    attr_case_insensitive,
-                                ));
-                            }
-                            AttrOp::Starts => {
-                                attr_starts = Some((
-                                    name,
-                                    std::mem::take(&mut attr_value),
-                                    attr_case_insensitive,
-                                ));
-                            }
-                            AttrOp::Ends => {
-                                attr_ends = Some((
-                                    name,
-                                    std::mem::take(&mut attr_value),
-                                    attr_case_insensitive,
-                                ));
-                            }
-                            AttrOp::Word => {
-                                attr_word = Some((
-                                    name,
-                                    std::mem::take(&mut attr_value),
-                                    attr_case_insensitive,
-                                ));
-                            }
-                        }
-                        attr_op = AttrOp::None;
-                        attr_case_insensitive = false;
-                    }
-                    '|' => buf.push(ch),
-                    '*' if attr_name.is_empty() => {
-                        let buf = std::mem::take(&mut buf);
-                        attr_name = buf;
-                    }
-                    _ if !attr_name.is_empty() || !buf.is_empty() => match ch {
-                        '=' => {
-                            if attr_name.is_empty() {
-                                attr_name = std::mem::take(&mut buf);
-                            }
-                            attr_op = AttrOp::Equals;
-                        }
-                        '*' => {
-                            if chars.peek() == Some(&'=') {
-                                chars.next();
-                                if attr_name.is_empty() {
-                                    attr_name = std::mem::take(&mut buf);
-                                }
-                                attr_op = AttrOp::Contains;
-                            } else {
-                                buf.push(ch);
-                            }
-                        }
-                        '^' => {
-                            if chars.peek() == Some(&'=') {
-                                chars.next();
-                                if attr_name.is_empty() {
-                                    attr_name = std::mem::take(&mut buf);
-                                }
-                                attr_op = AttrOp::Starts;
-                            } else {
-                                buf.push(ch);
-                            }
-                        }
-                        '$' => {
-                            if chars.peek() == Some(&'=') {
-                                chars.next();
-                                if attr_name.is_empty() {
-                                    attr_name = std::mem::take(&mut buf);
-                                }
-                                attr_op = AttrOp::Ends;
-                            } else {
-                                buf.push(ch);
-                            }
-                        }
-                        '~' => {
-                            if chars.peek() == Some(&'=') {
-                                chars.next();
-                                if attr_name.is_empty() {
-                                    attr_name = std::mem::take(&mut buf);
-                                }
-                                attr_op = AttrOp::Word;
-                            } else {
-                                buf.push(ch);
-                            }
-                        }
-                        '"' | '\'' => {
-                            if attr_name.is_empty() {
-                                attr_name = std::mem::take(&mut buf);
-                            }
-                            let mut val_buf = String::new();
-                            while let Some(&next) = chars.peek() {
-                                chars.next();
-                                if next == ch {
-                                    break;
-                                }
-                                val_buf.push(next);
-                            }
-                            attr_value = val_buf;
-                            after_attr_value = true;
-                        }
-                        ' ' => {
-                            if !attr_value.is_empty() {
-                                after_attr_value = true;
-                            }
-                        }
-                        _ => buf.push(ch),
-                    },
-                    _ if attr_name.is_empty() => buf.push(ch),
-                    _ => buf.push(ch),
-                }
-            } else {
-                match ch {
-                    '#' => {
-                        flush(mode, &mut buf, &mut tag, &mut id, &mut classes);
-                        mode = SelectorMode::Id;
-                    }
-                    '.' => {
-                        flush(mode, &mut buf, &mut tag, &mut id, &mut classes);
-                        mode = SelectorMode::Class;
-                    }
-                    '[' => {
-                        flush(mode, &mut buf, &mut tag, &mut id, &mut classes);
-                        in_attr = true;
-                        attr_name.clear();
-                        buf.clear();
-                    }
-                    '*' if matches!(mode, SelectorMode::Tag) && buf.is_empty() => {}
-                    _ => buf.push(ch),
-                }
-            }
-        }
-
-        if !in_attr {
-            flush(mode, &mut buf, &mut tag, &mut id, &mut classes);
-        }
-
-        if tag.is_none()
-            && id.is_none()
-            && classes.is_empty()
-            && attr_presence.is_none()
-            && attr_equals.is_none()
-            && attr_contains.is_none()
-            && attr_starts.is_none()
-            && attr_ends.is_none()
-            && attr_word.is_none()
-        {
-            return None;
-        }
-
-        Some(Self {
-            tag,
-            id,
-            classes,
-            attr_presence,
-            attr_equals,
-            attr_contains,
-            attr_starts,
-            attr_ends,
-            attr_word,
+impl Default for SimpleSelector {
+    fn default() -> Self {
+        Self {
+            tag: None,
+            id: None,
+            classes: Vec::new(),
+            attr_presence: None,
+            attr_equals: None,
+            attr_contains: None,
+            attr_starts: None,
+            attr_ends: None,
+            attr_word: None,
             negation: None,
-        })
+            extra: None,
+        }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum SelectorMode {
-    Tag,
-    Id,
-    Class,
-}
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum AttrOp {
-    None,
-    Equals,
-    Contains,
-    Starts,
-    Ends,
-    Word,
-}
 
 fn eq_ignore_case(a: &str, b: &str) -> bool {
     a.len() == b.len()
         && a.chars()
             .zip(b.chars())
             .all(|(ac, bc)| ac.eq_ignore_ascii_case(&bc))
-}
-
-fn has_bare_combinator(input: &str) -> bool {
-    let mut in_bracket = false;
-    let mut in_quote = None;
-    for ch in input.chars() {
-        match ch {
-            '[' if in_quote.is_none() => {
-                in_bracket = true;
-            }
-            ']' if in_quote.is_none() => {
-                in_bracket = false;
-            }
-            '"' | '\'' => {
-                if !in_bracket {
-                    return true;
-                }
-                match in_quote {
-                    None => in_quote = Some(ch),
-                    Some(q) if q == ch => in_quote = None,
-                    _ => {}
-                }
-            }
-            '>' | '+' | '~' if in_quote.is_none() && !in_bracket => {
-                return true;
-            }
-            _ => {}
-        }
-    }
-    false
 }
 
 fn attr_match<F: FnMut(&str) -> bool>(

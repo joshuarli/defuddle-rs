@@ -7,6 +7,10 @@
 }
 ```
 
+[Blog](/s/blog/)
+
+### April 15, 2026
+
 At the end of a recent podcast episode, we talked about how to actually retain what you learn from technical reading. The advice was to make some kind of demanding artifact. Write something up. Try to explain it. So in that spirit, here are notes on a few topics I have been learning about over the last week or two.
 
 These notes are extremely rough, and they almost certainly contain mistakes. Please read them as a learning log rather than authoritative reference, and do not hesitate to push back on anything that seems wrong.

@@ -57,6 +57,7 @@ mod metadata;
 mod overrides;
 mod pipeline;
 pub mod sanitize;
+mod selector;
 mod schema;
 mod scoring;
 mod standardize;
