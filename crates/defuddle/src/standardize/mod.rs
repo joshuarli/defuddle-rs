@@ -1,7 +1,6 @@
 use crate::constants::ALLOWED_ATTRIBUTES;
 use crate::dom::{Document, NodeId};
 use crate::footnotes::standardize_footnotes;
-use crate::math::standardize_math;
 use rustc_hash::FxHashSet;
 
 mod code_blocks;
@@ -70,7 +69,6 @@ pub fn standardize_content(
     flatten_wrapper_elements(doc, content_id);
     remove_permalink_anchors(doc, content_id);
     standardize_footnotes(doc, content_id);
-    standardize_math(doc, content_id);
     recover_noscript_images(doc, content_id);
     recover_lazy_images(doc, content_id);
     strip_unwanted_attributes(doc, content_id);

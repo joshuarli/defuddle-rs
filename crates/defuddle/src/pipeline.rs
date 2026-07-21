@@ -47,13 +47,10 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
         }
 
         // Manual handling for multi-:not()/:has() compound selectors
-        // Remove all scripts EXCEPT those with type starting with "math/"
+        // Remove all scripts.
         doc.query_selector_all_into("script", &mut matches);
         for &id in &matches {
-            let type_attr = doc.get_attr(id, "type").unwrap_or("");
-            if !type_attr.starts_with("math/") {
-                doc.remove(id);
-            }
+            doc.remove(id);
         }
         // Remove iframes without src or with empty src
         doc.query_selector_all_into("iframe", &mut matches);
@@ -232,10 +229,6 @@ pub fn remove_hidden_elements(doc: &mut Document) {
     let mut to_remove = Vec::new();
 
     for id in all_elements {
-        if doc.tag_name_is(id, "math") {
-            continue;
-        }
-
         let style = doc.get_attr(id, "style").unwrap_or("");
         if doc.get_attr(id, "hidden").is_some() {
             to_remove.push(id);
@@ -395,9 +388,11 @@ pub fn extract_content(
         }
         // Try to find a more specific element
         if let Some(specific) = scoring::find_main_content(doc, ENTRY_POINT_ELEMENTS)
-            && !doc.tag_name_is(specific, "body") && specific != main {
-                return Some(specific);
-            }
+            && !doc.tag_name_is(specific, "body")
+            && specific != main
+        {
+            return Some(specific);
+        }
     }
 
     Some(main)
@@ -871,34 +866,35 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
             wrapper = parent;
         }
         if let Some(_parent) = doc.parent(wrapper)
-            && let Some(next) = doc.next_element_sibling(wrapper) {
-                let class = doc.get_attr(next, "class").unwrap_or("").to_lowercase();
-                let text = doc.text_content(next).to_lowercase();
-                if class.contains("author")
-                    || class.contains("byline")
-                    || class.contains("meta")
-                    || class.contains("post-date")
-                    || (text.split_whitespace().count() < 30
-                        && (text.starts_with("published ")
-                            || text.starts_with("updated ")
-                            || text.contains("march")
-                            || text.contains("january")
-                            || text.contains("february")
-                            || text.contains("april")))
-                {
-                    let has_profile_link =
-                        doc.query_selector_all_in_subtree(next, "a")
-                            .iter()
-                            .any(|id| {
-                                doc.get_attr(*id, "href")
-                                    .is_some_and(|href| href.contains("/@"))
-                            });
-                    let has_image = !doc.query_selector_all_in_subtree(next, "img").is_empty();
-                    if !(has_profile_link && has_image) {
-                        doc.remove(next);
-                    }
+            && let Some(next) = doc.next_element_sibling(wrapper)
+        {
+            let class = doc.get_attr(next, "class").unwrap_or("").to_lowercase();
+            let text = doc.text_content(next).to_lowercase();
+            if class.contains("author")
+                || class.contains("byline")
+                || class.contains("meta")
+                || class.contains("post-date")
+                || (text.split_whitespace().count() < 30
+                    && (text.starts_with("published ")
+                        || text.starts_with("updated ")
+                        || text.contains("march")
+                        || text.contains("january")
+                        || text.contains("february")
+                        || text.contains("april")))
+            {
+                let has_profile_link =
+                    doc.query_selector_all_in_subtree(next, "a")
+                        .iter()
+                        .any(|id| {
+                            doc.get_attr(*id, "href")
+                                .is_some_and(|href| href.contains("/@"))
+                        });
+                let has_image = !doc.query_selector_all_in_subtree(next, "img").is_empty();
+                if !(has_profile_link && has_image) {
+                    doc.remove(next);
                 }
             }
+        }
     }
 }
 
@@ -1081,12 +1077,13 @@ fn remove_related_posts_sections(doc: &mut Document, content_id: NodeId) {
                 let pos = siblings.iter().position(|&s| s == h_id);
                 if let Some(p) = pos
                     && let Some(&sib) = siblings[p + 1..].first()
-                    && doc.tag_name_is_any(sib, &["ul", "ol", "div"]) {
-                        let sib_text = doc.text_content(sib).trim().to_string();
-                        if sib_text.split_whitespace().count() < 80 {
-                            to_remove.push(sib);
-                        }
+                    && doc.tag_name_is_any(sib, &["ul", "ol", "div"])
+                {
+                    let sib_text = doc.text_content(sib).trim().to_string();
+                    if sib_text.split_whitespace().count() < 80 {
+                        to_remove.push(sib);
                     }
+                }
             }
         }
     }

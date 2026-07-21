@@ -54,8 +54,8 @@ fn fixture_harness_discovers_vendored_snapshot() {
     let expected_md = files_with_extension(expected_dir(), "md");
     let expected_html = files_with_extension(expected_dir(), "html");
 
-    assert_eq!(fixtures.len(), 202);
-    assert_eq!(expected_md.len(), 202);
+    assert_eq!(fixtures.len(), 188);
+    assert_eq!(expected_md.len(), 188);
     assert_eq!(expected_html.len(), 3);
 }
 
@@ -160,7 +160,6 @@ fn fixture_runner_reports_placeholder_mismatches_deterministically() {
         }
 
         if fixture_debug_mode()
-            || name.contains("bbcode")
             || name.contains("chatgpt")
             || name.contains("hackernews")
             || name.contains("reddit")
@@ -336,8 +335,7 @@ fn local_fixtures_extractors() {
 
     // Allow zero fixtures — local extractor fixtures are added incrementally
     // and may not be present at all times.
-    if count == 0 {
-    }
+    if count == 0 {}
 }
 
 fn fixture_url(html: &str, path: &Path) -> String {

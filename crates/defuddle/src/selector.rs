@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_not() {
-        let s = &parse("script:not([type^=\"math/\"])")[0][0];
+        let s = &parse("script:not([type=\"application/ld+json\"])")[0][0];
         assert_eq!(s.tag.as_deref(), Some("script"));
         assert!(s.negation.is_some());
     }

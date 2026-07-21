@@ -45,13 +45,13 @@
 //! - Access shadow DOM from extension isolated worlds
 //! - Support async/streaming extraction (future work)
 mod constants;
+mod embeds;
 
 mod dom;
 
 pub mod extractors;
 mod footnotes;
 pub mod markdown;
-mod math;
 mod metadata;
 mod overrides;
 mod pipeline;

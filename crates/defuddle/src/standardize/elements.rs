@@ -644,17 +644,7 @@ pub(crate) fn remove_permalink_anchors(doc: &mut Document, content_id: NodeId) {
 }
 
 pub(crate) fn convert_embedded_elements(doc: &mut Document, content_id: NodeId) {
-    // Handle lite-youtube → iframe with src
-    let yt = doc.query_selector_all_in_subtree(content_id, "lite-youtube");
-    for id in yt {
-        if let Some(videoid) = doc.get_attr(id, "videoid") {
-            let src = format!("https://www.youtube.com/embed/{}", videoid);
-            doc.set_tag_name(id, "iframe");
-            doc.set_attr(id, "src", &src);
-            doc.set_attr(id, "frameborder", "0");
-            doc.set_attr(id, "allowfullscreen", "");
-        }
-    }
+    crate::embeds::youtube::standardize_lite_youtube(doc, content_id);
     // Add controls attribute to videos without them
     let videos = doc.query_selector_all_in_subtree(content_id, "video");
     for id in videos {

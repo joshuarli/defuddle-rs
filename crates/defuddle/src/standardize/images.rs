@@ -289,28 +289,6 @@ pub(crate) fn is_generic_alt(alt: &str) -> bool {
 
 const MIN_DIMENSION: f64 = 33.0;
 
-fn looks_like_latex(alt: &str) -> bool {
-    let a = alt.trim();
-    if a.is_empty() {
-        return false;
-    }
-    // LaTeX often starts/ends with $, $$, \(, \), \[, \], or contains backslash-commands
-    a.starts_with('$')
-        || a.ends_with('$')
-        || a.starts_with("\\(")
-        || a.ends_with("\\)")
-        || a.starts_with("\\[")
-        || a.ends_with("\\]")
-        || a.contains("\\frac")
-        || a.contains("\\sum")
-        || a.contains("\\int")
-        || a.contains("\\sqrt")
-        || a.contains("\\alpha")
-        || a.contains("\\beta")
-        || a.contains("\\pi")
-        || a.contains("\\infty")
-}
-
 pub(crate) fn remove_small_images(doc: &mut Document, content_id: NodeId) {
     let elements: Vec<NodeId> = doc
         .query_selector_all_in_subtree(content_id, "img, svg")
@@ -394,42 +372,46 @@ pub(crate) fn remove_small_images(doc: &mut Document, content_id: NodeId) {
 
         let mut viewbox_w = 0.0;
         let mut viewbox_h = 0.0;
-        if is_svg
-            && let Some(vb) = doc.get_attr(id, "viewBox") {
-                let parts: Vec<&str> = vb.split(|c: char| c.is_whitespace() || c == ',').collect();
-                if parts.len() == 4 {
-                    viewbox_w = parts[2].parse().unwrap_or(0.0);
-                    viewbox_h = parts[3].parse().unwrap_or(0.0);
-                }
+        if is_svg && let Some(vb) = doc.get_attr(id, "viewBox") {
+            let parts: Vec<&str> = vb.split(|c: char| c.is_whitespace() || c == ',').collect();
+            if parts.len() == 4 {
+                viewbox_w = parts[2].parse().unwrap_or(0.0);
+                viewbox_h = parts[3].parse().unwrap_or(0.0);
             }
+        }
 
         let mut url_w = 0.0;
-        if is_img && attr_w == 0.0 && attr_h == 0.0 && style_w == 0.0 && style_h == 0.0
-            && let Some(srcset) = doc.get_attr(id, "srcset") {
-                for part in srcset.split(',') {
-                    let trimmed = part.trim();
-                    if trimmed.ends_with("1x") {
-                        let url_part = trimmed.rsplit_once(' ').map(|x| x.0).unwrap_or("");
-                        for seg in url_part.split(['?', '&', '/']) {
-                            if let Some(w) = seg
-                                .strip_prefix("w=")
-                                .or_else(|| seg.strip_prefix("width="))
-                                .or_else(|| seg.strip_prefix("w:"))
-                                .or_else(|| seg.strip_prefix("width:"))
-                                .or_else(|| seg.strip_prefix("w_"))
-                            {
-                                url_w = w.trim().parse().unwrap_or(0.0);
-                                if url_w > 0.0 {
-                                    break;
-                                }
+        if is_img
+            && attr_w == 0.0
+            && attr_h == 0.0
+            && style_w == 0.0
+            && style_h == 0.0
+            && let Some(srcset) = doc.get_attr(id, "srcset")
+        {
+            for part in srcset.split(',') {
+                let trimmed = part.trim();
+                if trimmed.ends_with("1x") {
+                    let url_part = trimmed.rsplit_once(' ').map(|x| x.0).unwrap_or("");
+                    for seg in url_part.split(['?', '&', '/']) {
+                        if let Some(w) = seg
+                            .strip_prefix("w=")
+                            .or_else(|| seg.strip_prefix("width="))
+                            .or_else(|| seg.strip_prefix("w:"))
+                            .or_else(|| seg.strip_prefix("width:"))
+                            .or_else(|| seg.strip_prefix("w_"))
+                        {
+                            url_w = w.trim().parse().unwrap_or(0.0);
+                            if url_w > 0.0 {
+                                break;
                             }
                         }
-                        if url_w > 0.0 {
-                            break;
-                        }
+                    }
+                    if url_w > 0.0 {
+                        break;
                     }
                 }
             }
+        }
 
         let widths: Vec<f64> = [attr_w, style_w, viewbox_w, url_w]
             .into_iter()
@@ -449,22 +431,6 @@ pub(crate) fn remove_small_images(doc: &mut Document, content_id: NodeId) {
 
         if effective_w >= MIN_DIMENSION && effective_h >= MIN_DIMENSION {
             continue;
-        }
-
-        if is_img {
-            let alt = doc.get_attr(id, "alt").unwrap_or("");
-            let class = doc.get_attr(id, "class").unwrap_or("");
-            if looks_like_latex(alt) {
-                continue;
-            }
-            if class.contains("latex")
-                || class.contains("tex")
-                || doc.get_attr(id, "data-latex").is_some()
-                || doc.get_attr(id, "data-math").is_some()
-                || doc.get_attr(id, "data-tex").is_some()
-            {
-                continue;
-            }
         }
 
         doc.remove(id);

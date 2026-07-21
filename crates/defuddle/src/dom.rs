@@ -1041,8 +1041,7 @@ impl Document {
     }
 }
 
-#[derive(Debug)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(crate) struct SimpleSelector {
     pub(crate) tag: Option<String>,
     pub(crate) id: Option<String>,
@@ -1057,7 +1056,6 @@ pub(crate) struct SimpleSelector {
     /// For `:has(sel)` — inner selector to check in descendants.
     pub(crate) extra: Option<Box<SimpleSelector>>,
 }
-
 
 fn eq_ignore_case(a: &str, b: &str) -> bool {
     a.len() == b.len()

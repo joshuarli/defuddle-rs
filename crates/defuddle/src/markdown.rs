@@ -34,7 +34,6 @@ static CHECKED_CHECKBOX_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static UNCHECKED_CHECKBOX_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static MARK_TAG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static DEL_TAG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static MATH_LATEX_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static PROTOCOL_RELATIVE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static ORIGIN_URL_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 
@@ -135,7 +134,7 @@ fn build_converter() -> HtmlToMarkdown {
         },
     );
 
-    // --- embedToMarkdown: iframe YouTube/Twitter → links ---
+    // Convert supported embeds while preserving unknown iframes.
     builder = builder.add_handler(
         vec!["iframe"],
         |_h: &dyn Handlers, el: Element| -> Option<HandlerResult> {
@@ -145,24 +144,9 @@ fn build_converter() -> HtmlToMarkdown {
                 .find(|a| a.name.local.as_ref() == "src")
                 .map(|a| a.value.as_ref())
                 .unwrap_or("");
-            if src.contains("youtube.com/embed/") || src.contains("youtube-nocookie.com/embed/") {
-                let video_id = src
-                    .split("/embed/")
-                    .nth(1)
-                    .and_then(|s| s.split(['?', '&', '"']).next())
-                    .unwrap_or("");
+            if let Some(content) = crate::embeds::iframe_to_markdown(src) {
                 Some(HandlerResult {
-                    content: format!("[](https://www.youtube.com/watch?v={video_id})"),
-                    markdown_translated: true,
-                })
-            } else if src.contains("platform.twitter.com/embed") {
-                let tweet_id = src
-                    .split("id=")
-                    .nth(1)
-                    .and_then(|s| s.split(['&', '"']).next())
-                    .unwrap_or("");
-                Some(HandlerResult {
-                    content: format!("[](https://x.com/i/status/{tweet_id})"),
+                    content,
                     markdown_translated: true,
                 })
             } else {
@@ -585,9 +569,6 @@ fn preprocess_html_for_markdown(html: &str) -> String {
     // Handle inline formatting: <mark> → ==text==, <del>/<s>/<strike> → ~~text~~
     let html = convert_inline_formatting(&html);
 
-    // Extract MathML data-latex attributes for LaTeX rendering
-    let html = extract_math_latex(&html);
-
     preprocess_html_dom(&html)
 }
 
@@ -619,34 +600,7 @@ fn preprocess_html_dom(html: &str) -> String {
         let Some(src) = doc.get_attr(id, "src").map(str::to_owned) else {
             continue;
         };
-        let lower = src.to_ascii_lowercase();
-        let image_url = if let Some(video_id) = lower
-            .strip_prefix("https://www.youtube.com/embed/")
-            .or_else(|| lower.strip_prefix("http://www.youtube.com/embed/"))
-            .or_else(|| lower.strip_prefix("https://youtube-nocookie.com/embed/"))
-            .or_else(|| lower.strip_prefix("https://www.youtube-nocookie.com/embed/"))
-        {
-            Some(format!(
-                "https://www.youtube.com/watch?v={}",
-                video_id.split('?').next().unwrap_or(video_id)
-            ))
-        } else if lower.starts_with("https://platform.twitter.com/embed/") {
-            src.split("id=")
-                .nth(1)
-                .and_then(|value| value.split('&').next())
-                .map(|id| format!("https://x.com/i/status/{id}"))
-        } else if let Some(rest) = lower.strip_prefix("https://x.com/") {
-            let mut parts = rest.split('/');
-            match (parts.next(), parts.next(), parts.next()) {
-                (Some(user), Some("status"), Some(status)) => {
-                    Some(format!("https://x.com/{user}/status/{status}"))
-                }
-                _ => None,
-            }
-        } else {
-            None
-        };
-        if let Some(url) = image_url {
+        if let Some(url) = crate::embeds::iframe_target_url(&src) {
             doc.replace_with_html(
                 id,
                 &format!(r#"<img src="{}" alt="">"#, crate::utils::escape_html(&url)),
@@ -1454,22 +1408,6 @@ fn convert_inline_formatting(html: &str) -> String {
         DEL_TAG_RE.get_or_init(|| regex_lite::Regex::new(r"</?(?:del|s|strike)\b[^>]*>").unwrap());
     let html = re_mark.replace_all(html, "==$1==").to_string();
     re_del.replace_all(&html, "~~").to_string()
-}
-
-/// Extract data-latex attribute from <math> elements and render as LaTeX block.
-fn extract_math_latex(html: &str) -> String {
-    let re = MATH_LATEX_RE.get_or_init(|| {
-        regex_lite::Regex::new(r#"<math[^>]*data-latex="([^"]*)"[^>]*>.*?</math>"#).unwrap()
-    });
-    re.replace_all(html, |caps: &regex_lite::Captures| {
-        let latex = caps.get(1).unwrap().as_str();
-        if latex.contains("\\begin{") {
-            format!("\n$\n{}\n$\n", latex)
-        } else {
-            format!("${}$", latex)
-        }
-    })
-    .to_string()
 }
 
 /// Convert the content of a DOM element to Markdown.
