@@ -282,10 +282,10 @@ Phases 1-3 are done.
 
 ### Phase 6: Split Monolithic Modules (low risk, structural only)
 
-- [ ] **6.1** Split `extractor.rs` into `src/extractors/`:
+- [x] **6.1** Split `extractor.rs` into `src/extractors/`:
   - `mod.rs` — trait, Registry, comment builder
   - `hackernews.rs`, `reddit.rs`, `github.rs`, `chatgpt.rs`, `substack.rs`, `mastodon.rs`, `twitter.rs`
-- [ ] **6.2** Split `standardize.rs` into `src/standardize/`:
+- [x] **6.2** Split `standardize.rs` into `src/standardize/`:
   - `mod.rs` — `standardize_content` orchestrator
   - `headings.rs`, `tables.rs`, `code_blocks.rs`, `images.rs`, `elements.rs`, `whitespace.rs`, `urls.rs`
 

@@ -22,6 +22,6 @@ impl Registry {
 
 pub fn build_registry() -> Registry {
     let mut r = Registry::new();
-    crate::extractor::substack::register_prune(&mut r);
+    crate::extractors::substack::register_prune(&mut r);
     r
 }

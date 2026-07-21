@@ -49,7 +49,7 @@ mod constants;
 mod dom;
 
 mod prune;
-pub mod extractor;
+pub mod extractors;
 mod footnotes;
 pub mod markdown;
 mod math;
@@ -190,13 +190,13 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
     let do_standardize = options.standardize.unwrap_or(true);
     let content_selector = options.content_selector.as_deref();
 
-    let ext_registry = extractor::build_registry();
+    let ext_registry = extractors::build_registry();
     let found_extractor = if let Some(name) = options.extractor.as_deref() {
         ext_registry.find_named(name, url, &doc)
     } else {
         ext_registry.find(url, &doc)
     };
-    let (extractor_result, extractor_type): (Option<extractor::ExtractorResult>, Option<String>) =
+    let (extractor_result, extractor_type): (Option<extractors::ExtractorResult>, Option<String>) =
         if let Some((name, ext)) = found_extractor {
             let result = ext.extract(&doc);
             (Some(result), Some(name))

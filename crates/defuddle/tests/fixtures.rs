@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use defuddle::{DefuddleOptions, DefuddleResult, extractor, parse_html};
+use defuddle::{DefuddleOptions, DefuddleResult, extractors, parse_html};
 use miniserde::json::Value;
 use walkdir::WalkDir;
 
@@ -265,7 +265,7 @@ fn expected_dir() -> PathBuf {
 
 #[test]
 fn local_fixtures_extractors() {
-    let registry = extractor::build_registry();
+    let registry = extractors::build_registry();
     let extractors: Vec<&str> = registry.names();
 
     let fixtures_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
