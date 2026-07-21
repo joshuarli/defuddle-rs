@@ -7,6 +7,42 @@ use htmd::{
 use std::sync::OnceLock;
 
 static INLINE_SPACING_REGEXES: OnceLock<Vec<regex_lite::Regex>> = OnceLock::new();
+static WBR_TAG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static QUOTED_FENCED_CODE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static MARKDOWN_HEADING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static EMPTY_LINK_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static FOOTNOTE_ESCAPE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static IMAGE_ESCAPE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static URL_ESCAPE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static EMAIL_ESCAPE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static BACKREF_CLEANUP_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static DETACHED_ITALIC_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static CODE_LINKED_WORD_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static QUOTED_FENCED_LANG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static HN_LISTING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static BACKTICK_SPACE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static BOLD_NUM_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static BACKTICK_WORD_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static TABLE_CODE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static DASH_SEPARATOR_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static CHECKLIST_JOIN_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static TAG_LIKE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static MULTI_NL_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static LINK_DEST_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static FOOTNOTE_REF_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static CHECKED_CHECKBOX_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static UNCHECKED_CHECKBOX_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static IMG_SRCSET_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static MARK_TAG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static DEL_TAG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static CODE_LANG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static YOUTUBE_EMBED_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static TWITTER_EMBED_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static X_EMBED_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static MATH_LATEX_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static TABLE_TAG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static PROTOCOL_RELATIVE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static ORIGIN_URL_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 
 fn inline_spacing_regexes() -> &'static [regex_lite::Regex] {
     INLINE_SPACING_REGEXES.get_or_init(|| {
@@ -540,8 +576,7 @@ fn preprocess_html_for_markdown(html: &str) -> String {
         .replace("<br />", "\n");
 
     // Strip <wbr> tags
-    let re_wbr = regex_lite::Regex::new(r"<wbr\s*/?>").unwrap();
-    let html = re_wbr.replace_all(&html, "").to_string();
+    let html = WBR_TAG_RE.get_or_init(|| regex_lite::Regex::new(r"<wbr\s*/?>").unwrap()).replace_all(&html, "").to_string();
 
     // Handle callout blocks: convert to blockquote format
     // The html-to-markdown-rs handler for div[data-callout] handles this
@@ -578,20 +613,17 @@ fn preprocess_html_for_markdown(html: &str) -> String {
 /// Ported from TypeScript createMarkdownContent post-processing.
 fn postprocess_markdown(md: &str) -> String {
     let md = escape_tag_like_text(md).replace("\\\\<", "\\<");
-    let fenced_language_re =
-        regex_lite::Regex::new(r"(?m)^((?:>\s*)?```)[ \t]+([A-Za-z])").unwrap();
-    let md = fenced_language_re.replace_all(&md, "$1$2").to_string();
+    let md = QUOTED_FENCED_CODE_RE.get_or_init(|| regex_lite::Regex::new(r"(?m)^((?:>\s*)?```)[ \t]+([A-Za-z])").unwrap()).replace_all(&md, "$1$2").to_string();
 
     // Remove the page title h1 from the beginning if present.
     // Note: h1 was promoted to h2 by standardize_headings, so only
     // original h2 headers survive; we match ^# (h1) only like upstream.
-    let title_re = regex_lite::Regex::new(r"^# [^\n]+\n+").unwrap();
-    let md = title_re.replace(&md, "").to_string();
+    let md = MARKDOWN_HEADING_RE.get_or_init(|| regex_lite::Regex::new(r"^# [^\n]+\n+").unwrap()).replace(&md, "").to_string();
 
     // Remove any empty links [](url) that remain, along with surrounding newlines
     // But don't affect image links like ![](image.jpg)
     // Strategy: find all [](url) that are NOT preceded by !
-    let empty_link_re = regex_lite::Regex::new(r"\[\]\([^)]+\)").unwrap();
+    let empty_link_re = EMPTY_LINK_RE.get_or_init(|| regex_lite::Regex::new(r"\[\]\([^)]+\)").unwrap());
     let mut result = String::new();
     let mut prev_end = 0;
     for mat in empty_link_re.find_iter(&md) {
@@ -618,11 +650,11 @@ fn postprocess_markdown(md: &str) -> String {
     let md = fix_inline_spacing_outside_code(&md);
 
     // htmd escapes the bracket syntax produced for extractor footnote references.
-    let footnote_escape_re = regex_lite::Regex::new(r#"\\(\[\^\d+)\\\]"#).unwrap();
+    let footnote_escape_re = FOOTNOTE_ESCAPE_RE.get_or_init(|| regex_lite::Regex::new(r#"\\(\[\^\d+)\\\]"#).unwrap());
     let md = footnote_escape_re.replace_all(&md, "$1]").to_string();
-    let image_escape_re = regex_lite::Regex::new(r"!\\\[\\\]\(([^)]+)\)").unwrap();
+    let image_escape_re = IMAGE_ESCAPE_RE.get_or_init(|| regex_lite::Regex::new(r"!\\\[\\\]\(([^)]+)\)").unwrap());
     let md = image_escape_re.replace_all(&md, "![]($1)").to_string();
-    let url_escape_re = regex_lite::Regex::new(r"\(([^)\n]+)\)").unwrap();
+    let url_escape_re = URL_ESCAPE_RE.get_or_init(|| regex_lite::Regex::new(r"\(([^)\n]+)\)").unwrap());
     let md = url_escape_re
         .replace_all(&md, |caps: &regex_lite::Captures| {
             format!(
@@ -637,13 +669,12 @@ fn postprocess_markdown(md: &str) -> String {
     let md = md
         .replace("\\<iframe", "<iframe")
         .replace("\\</iframe>", "</iframe>");
-    let email_escape_re = regex_lite::Regex::new(
+    let email_escape_re = EMAIL_ESCAPE_RE.get_or_init(|| regex_lite::Regex::new(
         r#"\\<([A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})>"#,
-    )
-    .unwrap();
+    ).unwrap());
     let md = email_escape_re.replace_all(&md, "<$1>").to_string();
     let md = md.replace(". .", "..");
-    let backref_re = regex_lite::Regex::new(r"\s*\[↩\]\(#fnref:[^)]+\)").unwrap();
+    let backref_re = BACKREF_CLEANUP_RE.get_or_init(|| regex_lite::Regex::new(r"\s*\[↩\]\(#fnref:[^)]+\)").unwrap());
     let md = backref_re.replace_all(&md, "").to_string();
 
     // Add a space between exclamation marks and image syntax ![
@@ -700,22 +731,19 @@ fn postprocess_markdown(md: &str) -> String {
     // which would otherwise trim the space line.
     let result = result.replace("\n\n\u{00B7}\n\n", "\n\n \n\n");
     let result = normalize_markdown_layout(&result);
-    let result = regex_lite::Regex::new(r"\*([^*\n]+) \*")
-        .unwrap()
+    let result = DETACHED_ITALIC_RE.get_or_init(|| regex_lite::Regex::new(r"\*([^*\n]+) \*").unwrap())
         .replace_all(&result, "*$1*")
         .to_string();
-    let result = regex_lite::Regex::new(r"(`[^`\n]+`)([A-Za-z0-9])")
-        .unwrap()
+    let result = CODE_LINKED_WORD_RE.get_or_init(|| regex_lite::Regex::new(r"(`[^`\n]+`)([A-Za-z0-9])").unwrap())
         .replace_all(&result, "$1 $2")
         .to_string();
     let result = result.trim_end().to_string();
-    let quoted_fenced_language = regex_lite::Regex::new(r"(?m)^> ``` +([A-Za-z])").unwrap();
-    let result = quoted_fenced_language
+    let result = QUOTED_FENCED_LANG_RE.get_or_init(|| regex_lite::Regex::new(r"(?m)^> ``` +([A-Za-z])").unwrap())
         .replace_all(&result, "> ```$1")
         .to_string();
-    let hn_item_re =
-        regex_lite::Regex::new(r"(?m)^(\d+\. .+)\n\n((?:\d+) points · by .+)$").unwrap();
-    let result = hn_item_re.replace_all(&result, "$1  \n\t$2").to_string();
+    let result = HN_LISTING_RE.get_or_init(|| regex_lite::Regex::new(r"(?m)^(\d+\. .+)\n\n((?:\d+) points · by .+)$").unwrap())
+        .replace_all(&result, "$1  \n\t$2")
+        .to_string();
     let lines: Vec<&str> = result.lines().collect();
     let mut normalized = Vec::new();
     for (index, line) in lines.iter().enumerate() {
@@ -738,16 +766,13 @@ fn postprocess_markdown(md: &str) -> String {
         );
     }
     let result = normalized.join("\n");
-    let result = regex_lite::Regex::new(r"` +([^`\n]+)`")
-        .unwrap()
+    let result = BACKTICK_SPACE_RE.get_or_init(|| regex_lite::Regex::new(r"` +([^`\n]+)`").unwrap())
         .replace_all(&result, "`$1`")
         .to_string();
-    let result = regex_lite::Regex::new(r"(?m)(\d)\*\*\s*([A-Za-z_])")
-        .unwrap()
+    let result = BOLD_NUM_RE.get_or_init(|| regex_lite::Regex::new(r"(?m)(\d)\*\*\s*([A-Za-z_])").unwrap())
         .replace_all(&result, "$1 ** $2")
         .to_string();
-    let result = regex_lite::Regex::new(r"`([^`\n]+)`([A-Za-z])")
-        .unwrap()
+    let result = BACKTICK_WORD_RE.get_or_init(|| regex_lite::Regex::new(r"`([^`\n]+)`([A-Za-z])").unwrap())
         .replace_all(&result, "`$1` $2")
         .to_string();
     let result = result
@@ -774,7 +799,7 @@ fn postprocess_markdown(md: &str) -> String {
         .join("\n")
         .trim_start()
         .to_string();
-    let table_code_re = regex_lite::Regex::new(r"\| ```([^`\n]+)``` \|").unwrap();
+    let table_code_re = TABLE_CODE_RE.get_or_init(|| regex_lite::Regex::new(r"\| ```([^`\n]+)``` \|").unwrap());
     let result = table_code_re
         .replace_all(&result, |caps: &regex_lite::Captures| {
             let value = caps[1]
@@ -784,8 +809,7 @@ fn postprocess_markdown(md: &str) -> String {
             format!("| ``` {value} ``` |")
         })
         .to_string();
-    let result = regex_lite::Regex::new(r"(?m)^--$")
-        .unwrap()
+    let result = DASH_SEPARATOR_RE.get_or_init(|| regex_lite::Regex::new(r"(?m)^--$").unwrap())
         .replace_all(&result, r"\--")
         .to_string();
     let result = normalize_strong_spacing_outside_code(&result);
@@ -931,7 +955,7 @@ fn normalize_markdown_layout(md: &str) -> String {
     }
 
     let result = out.trim_end_matches('\n').to_string();
-    let checklist_re = regex_lite::Regex::new(r"(?m)^(✅ .+)\n\n(✅ )").unwrap();
+    let checklist_re = CHECKLIST_JOIN_RE.get_or_init(|| regex_lite::Regex::new(r"(?m)^(✅ .+)\n\n(✅ )").unwrap());
     checklist_re.replace_all(&result, "$1  \n$2").to_string()
 }
 
@@ -939,7 +963,7 @@ fn normalize_markdown_layout(md: &str) -> String {
 /// so CommonMark renderers don't parse them as raw HTML and swallow
 /// following content. Ported from upstream markdown.ts turndownService.escape.
 fn escape_tag_like_text(md: &str) -> String {
-    let tag_like_re = regex_lite::Regex::new(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^>]*)?/?>").unwrap();
+    let tag_like_re = TAG_LIKE_RE.get_or_init(|| regex_lite::Regex::new(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^>]*)?/?>").unwrap());
     let mut result = String::new();
     let mut in_fenced = false;
     for line in md.lines() {
@@ -997,7 +1021,7 @@ fn collapse_blank_lines_outside_code(md: &str) -> String {
     let mut out = String::new();
     let mut segment = String::new();
     let mut in_fenced_code = false;
-    let multi_nl_re = regex_lite::Regex::new(r"\n{3,}").unwrap();
+    let multi_nl_re = MULTI_NL_RE.get_or_init(|| regex_lite::Regex::new(r"\n{3,}").unwrap());
 
     for line in md.lines() {
         if line.trim_start().starts_with("```") {
@@ -1245,7 +1269,7 @@ fn normalize_footnote_spacing_outside_code(md: &str) -> String {
 
 /// Format markdown link destinations: wrap URLs with spaces in <>, escape parens.
 fn format_link_destinations(md: &str) -> String {
-    let link_re = regex_lite::Regex::new(r"\]\(([^)]+)\)").unwrap();
+    let link_re = LINK_DEST_RE.get_or_init(|| regex_lite::Regex::new(r"\]\(([^)]+)\)").unwrap());
     link_re
         .replace_all(md, |caps: &regex_lite::Captures| {
             let url = caps.get(1).unwrap().as_str();
@@ -1273,19 +1297,16 @@ fn escape_link_parens(url: &str) -> String {
 }
 /// Convert footnote references and lists.
 fn convert_footnotes_to_markdown(html: &str) -> String {
-    let re = regex_lite::Regex::new(
+    let re = FOOTNOTE_REF_RE.get_or_init(|| regex_lite::Regex::new(
         r##"<sup[^>]*class="[^"]*footnote-ref[^"]*"[^>]*>\s*<a[^>]*href="#fn:?(\d+)"[^>]*>.*?</a>\s*</sup>"##
-    ).unwrap();
+    ).unwrap());
     re.replace_all(html, "[^$1]").to_string()
 }
 
 /// Convert task list checkboxes to markdown format.
 fn convert_task_lists(html: &str) -> String {
-    let re_checked =
-        regex_lite::Regex::new(r#"<li[^>]*>\s*<input[^>]*type="checkbox"[^>]*checked[^>]*>\s*"#)
-            .unwrap();
-    let re_unchecked =
-        regex_lite::Regex::new(r#"<li[^>]*>\s*<input[^>]*type="checkbox"[^>]*>\s*"#).unwrap();
+    let re_checked = CHECKED_CHECKBOX_RE.get_or_init(|| regex_lite::Regex::new(r#"<li[^>]*>\s*<input[^>]*type="checkbox"[^>]*checked[^>]*>\s*"#).unwrap());
+    let re_unchecked = UNCHECKED_CHECKBOX_RE.get_or_init(|| regex_lite::Regex::new(r#"<li[^>]*>\s*<input[^>]*type="checkbox"[^>]*>\s*"#).unwrap());
     let html = re_checked.replace_all(html, "<li>[x] ").to_string();
     re_unchecked.replace_all(&html, "<li>[ ] ").to_string()
 }
@@ -1336,7 +1357,7 @@ pub fn get_best_image_src(srcset: &str) -> Option<String> {
 
 /// Resolve the best image source for <img> elements with srcset.
 pub fn resolve_best_image_sources(html: &str) -> String {
-    let re_img = regex_lite::Regex::new(r#"<img([^>]*)srcset="([^"]*)"([^>]*)>"#).unwrap();
+    let re_img = IMG_SRCSET_RE.get_or_init(|| regex_lite::Regex::new(r#"<img([^>]*)srcset="([^"]*)"([^>]*)>"#).unwrap());
     re_img
         .replace_all(html, |caps: &regex_lite::Captures| {
             let before = caps.get(1).map_or("", |m| m.as_str());
@@ -1363,17 +1384,17 @@ pub fn resolve_best_image_sources(html: &str) -> String {
 
 /// Convert inline formatting: <mark> → ==text==, <del>/<s>/<strike> → ~~text~~
 fn convert_inline_formatting(html: &str) -> String {
-    let re_mark = regex_lite::Regex::new(r"<mark[^>]*>(.*?)</mark>").unwrap();
-    let re_del = regex_lite::Regex::new(r"</?(?:del|s|strike)\b[^>]*>").unwrap();
+    let re_mark = MARK_TAG_RE.get_or_init(|| regex_lite::Regex::new(r"<mark[^>]*>(.*?)</mark>").unwrap());
+    let re_del = DEL_TAG_RE.get_or_init(|| regex_lite::Regex::new(r"</?(?:del|s|strike)\b[^>]*>").unwrap());
     let html = re_mark.replace_all(html, "==$1==").to_string();
     re_del.replace_all(&html, "~~").to_string()
 }
 
 /// Detect code block language from data-lang or class language-* attributes.
 fn convert_code_block_language(html: &str) -> String {
-    let re = regex_lite::Regex::new(
+    let re = CODE_LANG_RE.get_or_init(|| regex_lite::Regex::new(
         r#"<pre[^>]*>(?:\s*<code[^>]*(?:data-lang="([^"]*)"[^>]*|class="[^"]*language-([^" ]*)[^"]*"[^>]*)[^>]*>)"#
-    ).unwrap();
+    ).unwrap());
     re.replace_all(html, |caps: &regex_lite::Captures| {
         let data_lang = caps.get(1).map_or("", |m| m.as_str());
         let class_lang = caps.get(2).map_or("", |m| m.as_str());
@@ -1388,18 +1409,15 @@ fn convert_code_block_language(html: &str) -> String {
 }
 
 fn convert_embeds_to_links(html: &str) -> String {
-    let re_yt = regex_lite::Regex::new(
+    let re_yt = YOUTUBE_EMBED_RE.get_or_init(|| regex_lite::Regex::new(
         r#"<iframe[^>]*src="https?://(?:www\.)?(?:youtube\.com|youtube-nocookie\.com)/embed/([^"?]+)[^"]*"[^>]*></iframe>"#,
-    )
-    .unwrap();
-    let re_tw = regex_lite::Regex::new(
+    ).unwrap());
+    let re_tw = TWITTER_EMBED_RE.get_or_init(|| regex_lite::Regex::new(
         r#"<iframe[^>]*src="(https?://platform\.twitter\.com/embed/[^"]*)"[^>]*></iframe>"#,
-    )
-    .unwrap();
-    let re_x = regex_lite::Regex::new(
+    ).unwrap());
+    let re_x = X_EMBED_RE.get_or_init(|| regex_lite::Regex::new(
         r#"<iframe[^>]*src="https?://x\.com/([^/]+)/status/([0-9]+)[^"]*"[^>]*></iframe>"#,
-    )
-    .unwrap();
+    ).unwrap());
     let html = re_yt
         .replace_all(html, "![](https://www.youtube.com/watch?v=$1)")
         .to_string();
@@ -1420,7 +1438,7 @@ fn convert_embeds_to_links(html: &str) -> String {
 
 /// Extract data-latex attribute from <math> elements and render as LaTeX block.
 fn extract_math_latex(html: &str) -> String {
-    let re = regex_lite::Regex::new(r#"<math[^>]*data-latex="([^"]*)"[^>]*>.*?</math>"#).unwrap();
+    let re = MATH_LATEX_RE.get_or_init(|| regex_lite::Regex::new(r#"<math[^>]*data-latex="([^"]*)"[^>]*>.*?</math>"#).unwrap());
     re.replace_all(html, |caps: &regex_lite::Captures| {
         let latex = caps.get(1).unwrap().as_str();
         if latex.contains("\\begin{") {
@@ -1434,7 +1452,7 @@ fn extract_math_latex(html: &str) -> String {
 
 /// Strip non-essential attributes from table HTML.
 fn strip_table_attrs(html: &str) -> String {
-    let re = regex_lite::Regex::new(r#"<table[^>]*>"#).unwrap();
+    let re = TABLE_TAG_RE.get_or_init(|| regex_lite::Regex::new(r#"<table[^>]*>"#).unwrap());
     re.replace_all(html, "<table>").to_string()
 }
 
@@ -1446,11 +1464,11 @@ pub fn content_to_markdown(doc: &Document, content_id: NodeId) -> String {
 
 pub fn normalize_origin_links(md: &str) -> String {
     let md = md.replace("](//CLAUDE.md)", "](https://claude.md/)");
-    let protocol_relative = regex_lite::Regex::new(r"\(//([^/\s)]+)\)").unwrap();
+    let protocol_relative = PROTOCOL_RELATIVE_RE.get_or_init(|| regex_lite::Regex::new(r"\(//([^/\s)]+)\)").unwrap());
     let md = protocol_relative
         .replace_all(&md, "(https://$1/)")
         .to_string();
-    let origin_re = regex_lite::Regex::new(r"\((https?://[^/\s)]+)\)").unwrap();
+    let origin_re = ORIGIN_URL_RE.get_or_init(|| regex_lite::Regex::new(r"\((https?://[^/\s)]+)\)").unwrap());
     origin_re.replace_all(&md, "($1/)").to_string()
 }
 

@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use miniserde::json::Value;
 
 use crate::dom::{Document, NodeId};
@@ -6,6 +8,12 @@ use crate::utils::count_words;
 use rustc_hash::FxHashSet;
 
 type MetaTags = [(Option<String>, Option<String>, Option<String>)];
+
+static SEPARATOR_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static DASH_SEPARATOR_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static DAY_MONTH_YEAR_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static MONTH_DAY_YEAR_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static AUTHOR_URL_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 
 #[derive(Default)]
 pub struct Metadata {
@@ -391,7 +399,7 @@ fn try_separator_split(
     _separators: &str,
     _suffix_only: bool,
 ) -> (String, Option<String>) {
-    let sep_re = regex_lite::Regex::new(r"\s+[-–—|/·]\s+").unwrap();
+    let sep_re = SEPARATOR_RE.get_or_init(|| regex_lite::Regex::new(r"\s+[-–—|/·]\s+").unwrap());
 
     let positions: Vec<(usize, usize)> = sep_re
         .find_iter(title)
@@ -423,7 +431,7 @@ fn try_separator_split(
     }
 
     // Dash-only suffix check with stricter guards
-    let dash_re = regex_lite::Regex::new(r"\s+[-–—]\s+").unwrap();
+    let dash_re = DASH_SEPARATOR_RE.get_or_init(|| regex_lite::Regex::new(r"\s+[-–—]\s+").unwrap());
     if let Some(m) = dash_re.find_iter(title).last() {
         let suffix_title = title[..m.start()].trim();
         let suffix_site = title[m.end()..].trim();
@@ -734,9 +742,11 @@ const MONTH_MAP: &[(&str, &str)] = &[
 
 pub(crate) fn parse_date_text(text: &str) -> Option<String> {
     // "26 February 2025" or "Wednesday, 26 February 2025"
-    let re1 = regex_lite::Regex::new(
-        r"(?i)\b(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b"
-    ).ok()?;
+    let re1 = DAY_MONTH_YEAR_RE.get_or_init(|| {
+        regex_lite::Regex::new(
+            r"(?i)\b(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b"
+        ).unwrap()
+    });
     if let Some(caps) = re1.captures(text) {
         let day = format!("{:02}", caps[1].parse::<u32>().unwrap_or(0));
         let month = get_month_number(&caps[2]);
@@ -744,9 +754,11 @@ pub(crate) fn parse_date_text(text: &str) -> Option<String> {
     }
 
     // "February 26, 2025"
-    let re2 = regex_lite::Regex::new(
-        r"(?i)\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})\b"
-    ).ok()?;
+    let re2 = MONTH_DAY_YEAR_RE.get_or_init(|| {
+        regex_lite::Regex::new(
+            r"(?i)\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})\b"
+        ).unwrap()
+    });
     if let Some(caps) = re2.captures(text) {
         let month = get_month_number(&caps[1]);
         let day = format!("{:02}", caps[2].parse::<u32>().unwrap_or(0));
@@ -1039,7 +1051,7 @@ fn clean_author_string(s: &str) -> String {
     let s = s.trim();
 
     // Remove URLs (including surrounding parentheses) — ported from upstream
-    let url_re = regex_lite::Regex::new(r"\(?\s*https?://\S+\s*\)?").unwrap();
+    let url_re = AUTHOR_URL_RE.get_or_init(|| regex_lite::Regex::new(r"\(?\s*https?://\S+\s*\)?").unwrap());
     let s = url_re.replace_all(s, "").to_string();
 
     if s.starts_with("https://") || s.starts_with("http://") {

@@ -6,6 +6,18 @@ use crate::dom::{Document, NodeId};
 use crate::footnotes::standardize_footnotes;
 use crate::math::standardize_math;
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::sync::OnceLock;
+
+static NOSCRIPT_IMG_SRC_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static IMG_ALT_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static CODE_MIRROR_FONT_MEDIUM_LANG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static CODE_MIRROR_HEADER_LANG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static CODE_MIRROR_SPAN_LANG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static CODE_GAP_COLLAPSE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static STRIP_HTML_TAGS_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static LINE_NUMBER_SPAN_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static USER_SELECT_SPAN_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static EMPTY_SPAN_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 
 // --- Public entry point ---
 
@@ -383,8 +395,10 @@ fn recover_noscript_images(doc: &mut Document, content_id: NodeId) {
         let imgs = doc.query_selector_all_in_subtree(ns_id, "img");
         if imgs.is_empty() {
             let raw = crate::utils::decode_html_entities(&doc.inner_html(ns_id));
-            let Some(caps) = regex_lite::Regex::new(r#"<img[^>]*\bsrc="([^"]+)"[^>]*>"#)
-                .unwrap()
+            let Some(caps) = NOSCRIPT_IMG_SRC_RE
+                .get_or_init(|| {
+                    regex_lite::Regex::new(r#"<img[^>]*\bsrc="([^"]+)"[^>]*>"#).unwrap()
+                })
                 .captures(&raw)
             else {
                 continue;
@@ -393,8 +407,8 @@ fn recover_noscript_images(doc: &mut Document, content_id: NodeId) {
             if src.is_empty() || src.starts_with("data:") {
                 continue;
             }
-            let alt = regex_lite::Regex::new(r#"\balt="([^"]*)""#)
-                .unwrap()
+            let alt = IMG_ALT_RE
+                .get_or_init(|| regex_lite::Regex::new(r#"\balt="([^"]*)""#).unwrap())
                 .captures(&raw)
                 .and_then(|m| m.get(1))
                 .map(|m| m.as_str())
@@ -1577,10 +1591,12 @@ fn normalize_codemirror_blocks(doc: &mut Document, content_id: NodeId) {
         }
         // Try to find language from text nodes near the top (e.g., "Python" in a div header)
         if language.is_empty() {
-            let re = regex_lite::Regex::new(
-                r#"<div[^>]*class="[^"]*font-medium[^"]*"[^>]*>(?:<[^>]+>)*([A-Za-z][A-Za-z0-9+#.-]*)"#,
-            )
-            .unwrap();
+            let re = CODE_MIRROR_FONT_MEDIUM_LANG_RE.get_or_init(|| {
+                regex_lite::Regex::new(
+                    r#"<div[^>]*class="[^"]*font-medium[^"]*"[^>]*>(?:<[^>]+>)*([A-Za-z][A-Za-z0-9+#.-]*)"#,
+                )
+                .unwrap()
+            });
             if let Some(caps) = re.captures(&html) {
                 language = caps
                     .get(1)
@@ -1589,10 +1605,12 @@ fn normalize_codemirror_blocks(doc: &mut Document, content_id: NodeId) {
             }
         }
         if language.is_empty() {
-            let re = regex_lite::Regex::new(
-                r#"<div[^>]*class="[^"]*header[^"]*"[^>]*>\s*(\w+)\s*</div>"#,
-            )
-            .unwrap();
+            let re = CODE_MIRROR_HEADER_LANG_RE.get_or_init(|| {
+                regex_lite::Regex::new(
+                    r#"<div[^>]*class="[^"]*header[^"]*"[^>]*>\s*(\w+)\s*</div>"#,
+                )
+                .unwrap()
+            });
             if let Some(caps) = re.captures(&html) {
                 language = caps
                     .get(1)
@@ -1602,7 +1620,8 @@ fn normalize_codemirror_blocks(doc: &mut Document, content_id: NodeId) {
         }
         // Also try to find language from a dedicated language-label element
         if language.is_empty() {
-            let re2 = regex_lite::Regex::new(r#"<span[^>]*>\s*(\w+)\s*</span>"#).unwrap();
+            let re2 = CODE_MIRROR_SPAN_LANG_RE
+                .get_or_init(|| regex_lite::Regex::new(r#"<span[^>]*>\s*(\w+)\s*</span>"#).unwrap());
             if let Some(caps) = re2.captures(&html) {
                 let candidate = caps
                     .get(1)
@@ -1636,7 +1655,8 @@ fn normalize_codemirror_blocks(doc: &mut Document, content_id: NodeId) {
             doc.text_content(pre_id)
         };
         text = text.trim().to_string();
-        let collapse_code_gaps = regex_lite::Regex::new(r"\n{3,}").unwrap();
+        let collapse_code_gaps = CODE_GAP_COLLAPSE_RE
+            .get_or_init(|| regex_lite::Regex::new(r"\n{3,}").unwrap());
         text = collapse_code_gaps.replace_all(&text, "\n\n").to_string();
 
         if language == "def"
@@ -1754,7 +1774,8 @@ fn standardize_code_blocks(doc: &mut Document, content_id: NodeId) {
                 .replace("<br>", "\n")
                 .replace("<br/>", "\n")
                 .replace("<br />", "\n");
-            let re = regex_lite::Regex::new(r"<[^>]*>").unwrap();
+            let re = STRIP_HTML_TAGS_RE
+                .get_or_init(|| regex_lite::Regex::new(r"<[^>]*>").unwrap());
             let text = re.replace_all(&text, "").to_string();
             let text = text
                 .replace("&lt;", "<")
@@ -2067,17 +2088,22 @@ fn extract_code_lang(class: &str) -> String {
 }
 
 fn clean_code_html_for_text(html: &str) -> String {
-    let line_number_re = regex_lite::Regex::new(
-        r#"<span[^>]*class="[^"]*(?:lineno|line-number|line-number-[^"]*)[^"]*"[^>]*>.*?</span>"#,
-    )
-    .unwrap();
+    let line_number_re = LINE_NUMBER_SPAN_RE.get_or_init(|| {
+        regex_lite::Regex::new(
+            r#"<span[^>]*class="[^"]*(?:lineno|line-number|line-number-[^"]*)[^"]*"[^>]*>.*?</span>"#,
+        )
+        .unwrap()
+    });
     let html = line_number_re.replace_all(html, "").to_string();
-    let user_select_re = regex_lite::Regex::new(
-        r#"<span[^>]*style="[^"]*user-select\s*:\s*none[^"]*"[^>]*>.*?</span>"#,
-    )
-    .unwrap();
+    let user_select_re = USER_SELECT_SPAN_RE.get_or_init(|| {
+        regex_lite::Regex::new(
+            r#"<span[^>]*style="[^"]*user-select\s*:\s*none[^"]*"[^>]*>.*?</span>"#,
+        )
+        .unwrap()
+    });
     let html = user_select_re.replace_all(&html, "").to_string();
-    let empty_span_re = regex_lite::Regex::new(r#"<span[^>]*></span>"#).unwrap();
+    let empty_span_re = EMPTY_SPAN_RE
+        .get_or_init(|| regex_lite::Regex::new(r#"<span[^>]*></span>"#).unwrap());
     empty_span_re.replace_all(&html, "").to_string()
 }
 
@@ -2087,7 +2113,8 @@ fn code_text_from_html(html: &str) -> String {
         .replace("<br>", "\n")
         .replace("<br/>", "\n")
         .replace("<br />", "\n");
-    let re = regex_lite::Regex::new(r"<[^>]*>").unwrap();
+    let re = STRIP_HTML_TAGS_RE
+        .get_or_init(|| regex_lite::Regex::new(r"<[^>]*>").unwrap());
     re.replace_all(&text, "")
         .replace("&lt;", "<")
         .replace("&gt;", ">")

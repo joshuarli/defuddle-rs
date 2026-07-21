@@ -8,6 +8,15 @@ use std::sync::OnceLock;
 static RELATED_HEADING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static CTA_HEADING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static APPENDIX_HEADING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static SHARE_AUTHOR_LABEL_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static ISO_DATE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static NAMED_DATE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static MIN_READ_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static COMPACT_DATE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static DATE_CHECK_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static NEWSLETTER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static SOCIAL_COUNTER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static LIKES_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 
 pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial: bool) {
     let mut matches = Vec::new();
@@ -590,8 +599,8 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
 
     // Remove author/share labels: elements whose text is just "Share", "Author",
     // "Follow", "Written by" — common sidebar widget labels
-    let share_author_re =
-        regex_lite::Regex::new(r"(?i)^(share|follow|authors?|written\s+by)$").unwrap();
+    let share_author_re = SHARE_AUTHOR_LABEL_RE
+        .get_or_init(|| regex_lite::Regex::new(r"(?i)^(share|follow|authors?|written\s+by)$").unwrap());
     doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
         if !doc.is_element(id) {
@@ -680,16 +689,22 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
     }
 
     // Remove ISO date lines (YYYY-MM-DD), "N min read", and date formats like "May 22, 2026"
-    let date_re = regex_lite::Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
-    let named_date_re = regex_lite::Regex::new(
-        r"^(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}(?:,\s*\d{4})?|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*(?:,\s*\d{4})?)$",
-    )
-    .unwrap();
-    let min_read_re = regex_lite::Regex::new(r"^\d+\s*min\s*read$").unwrap();
-    let compact_read_meta_re = regex_lite::Regex::new(
-        r"(?i)(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}",
-    )
-    .unwrap();
+    let date_re = ISO_DATE_RE
+        .get_or_init(|| regex_lite::Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap());
+    let named_date_re = NAMED_DATE_RE.get_or_init(|| {
+        regex_lite::Regex::new(
+            r"^(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}(?:,\s*\d{4})?|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*(?:,\s*\d{4})?)$",
+        )
+        .unwrap()
+    });
+    let min_read_re = MIN_READ_RE
+        .get_or_init(|| regex_lite::Regex::new(r"^\d+\s*min\s*read$").unwrap());
+    let compact_read_meta_re = COMPACT_DATE_RE.get_or_init(|| {
+        regex_lite::Regex::new(
+            r"(?i)(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}",
+        )
+        .unwrap()
+    });
     doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
         if !doc.is_element(id) {
@@ -838,9 +853,11 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
                             }
                         }
                         // Also check for date patterns in text content
-                        let date_check_re = regex_lite::Regex::new(
-                            r"(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s*\d{4})"
-                        ).unwrap();
+                        let date_check_re = DATE_CHECK_RE.get_or_init(|| {
+                            regex_lite::Regex::new(
+                                r"(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s*\d{4})"
+                            ).unwrap()
+                        });
                         if date_check_re.is_match(&text) {
                             let word_count = text.split_whitespace().count();
                             if word_count < 20
@@ -1195,9 +1212,11 @@ fn remove_table_of_contents(doc: &mut Document, content_id: NodeId) {
 
 /// Remove newsletter/subscribe call-to-action blocks.
 fn remove_newsletter_blocks(doc: &mut Document, content_id: NodeId) {
-    let newsletter_re = regex_lite::Regex::new(
-        r"(?i)\bsubscribe\b[\s\S]{0,40}\bnewsletter\b|\bnewsletter\b[\s\S]{0,40}\bsubscribe\b|\bsign[- ]up\b[\s\S]{0,80}\b(?:newsletter|email alert)|\b(?:don['\u2019]?t (?:want to )?miss|never miss)\b"
-    ).unwrap();
+    let newsletter_re = NEWSLETTER_RE.get_or_init(|| {
+        regex_lite::Regex::new(
+            r"(?i)\bsubscribe\b[\s\S]{0,40}\bnewsletter\b|\bnewsletter\b[\s\S]{0,40}\bsubscribe\b|\bsign[- ]up\b[\s\S]{0,80}\b(?:newsletter|email alert)|\b(?:don['\u2019]?t (?:want to )?miss|never miss)\b"
+        ).unwrap()
+    });
     let els = doc.query_selector_all_in_subtree(content_id, "div,p,section,aside,span");
     let mut text = String::new();
     for id in els {
@@ -1219,10 +1238,12 @@ fn remove_newsletter_blocks(doc: &mut Document, content_id: NodeId) {
 
 /// Remove social engagement counters like "13 Likes", "5 Comments", "2 Shares".
 fn remove_social_counters(doc: &mut Document, content_id: NodeId) {
-    let social_re = regex_lite::Regex::new(
-        r"(?i)^\d+\s+(?:Likes?|Comments?|Shares?|Retweets?|Reposts?|Restacks?|Views?)$",
-    )
-    .unwrap();
+    let social_re = SOCIAL_COUNTER_RE.get_or_init(|| {
+        regex_lite::Regex::new(
+            r"(?i)^\d+\s+(?:Likes?|Comments?|Shares?|Retweets?|Reposts?|Restacks?|Views?)$",
+        )
+        .unwrap()
+    });
     let els = doc.query_selector_all_in_subtree(content_id, "div,p,span,a,button");
     let mut text = String::new();
     for id in els {
@@ -1247,7 +1268,8 @@ fn remove_social_counters(doc: &mut Document, content_id: NodeId) {
 
 /// Remove social counter links: anchors wrapping "Likes" / "Comments" text.
 fn remove_social_counter_links(doc: &mut Document, content_id: NodeId) {
-    let likes_re = regex_lite::Regex::new(r"(?i)^\d+\s+(?:Likes?|Comments?)$").unwrap();
+    let likes_re =
+        LIKES_RE.get_or_init(|| regex_lite::Regex::new(r"(?i)^\d+\s+(?:Likes?|Comments?)$").unwrap());
     let anchors = doc.query_selector_all_in_subtree(content_id, "a");
     let mut text = String::new();
     for a_id in anchors {
