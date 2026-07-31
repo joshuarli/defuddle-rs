@@ -251,6 +251,8 @@ pub fn parse_html(
             &meta_tags,
             &schema_org_data,
             separate_markdown,
+            context.page_url,
+            debug,
         );
         if defuddle_options.profile {
             parsed_page.parse_time = context.diagnostics.total_nanos() as u64 / 1_000_000;
@@ -287,13 +289,26 @@ pub fn parse_html(
 }
 
 fn site_result(
-    extraction: extractors::SiteExtraction,
+    mut extraction: extractors::SiteExtraction,
     extractor_type: &str,
     metadata: &Metadata,
     meta_tags: &[MetaTag],
     schema_org_data: &[Value],
     separate_markdown: bool,
+    page_url: &str,
+    debug: bool,
 ) -> DefuddleResult {
+    sanitize::strip_unsafe_elements(&mut extraction.extracted_content.document);
+    standardize::resolve_urls(
+        &mut extraction.extracted_content.document,
+        extraction.extracted_content.root,
+        page_url,
+    );
+    standardize::standardize_extractor_output(
+        &mut extraction.extracted_content.document,
+        extraction.extracted_content.root,
+        debug,
+    );
     let mut variables = extraction.variables;
     let content_html = extraction.extracted_content.html();
     let content_markdown = separate_markdown

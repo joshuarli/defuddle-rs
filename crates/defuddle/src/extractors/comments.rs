@@ -1,3 +1,33 @@
+const SITE_TOKENS: &[&str] = &[
+    "bluesky",
+    "discourse",
+    "github",
+    "gmail",
+    "hackernews",
+    "linkedin",
+    "lwn",
+    "mastodon",
+    "reddit",
+    "threads",
+    "twitter",
+];
+
+pub(crate) fn is_extractor_class(token: &str) -> bool {
+    SITE_TOKENS.contains(&token)
+        || token == "quoted-post"
+        || token == "x-article"
+        || token == "message"
+        || token.starts_with("message-")
+        || token == "comment"
+        || token.starts_with("comment-")
+        || token == "post"
+        || token.starts_with("post-")
+        || token == "comments"
+        || token.starts_with("comments-")
+        || token == "posts"
+        || token.starts_with("posts-")
+}
+
 pub struct CommentData {
     pub author: String,
     pub date: String,

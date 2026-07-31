@@ -689,7 +689,10 @@ fn hackernews_adapter_handles_posts_without_comments() {
         <table class="fatitem"><tr class="athing" id="42">
           <td class="titleline"><a href="https://example.com/story">A post</a></td>
           <a class="hnuser">alice</a><span class="age" title="2025-01-15T12:00:00 1736942400">today</span>
-          <div class="toptext"><p>Post body.</p></div>
+          <div class="toptext"><p class="page-body" style="color:red" onclick="bad()">
+            Post body. <a href="javascript:alert(1)">Unsafe link</a>
+            <script>alert('bad')</script>
+          </p></div>
         </tr></table>
         </body></html>
     "#;
@@ -707,6 +710,11 @@ fn hackernews_adapter_handles_posts_without_comments() {
     assert_eq!(result.title, "A post");
     assert_eq!(result.author, "alice");
     assert!(!result.content.contains("Comments"));
+    assert!(!result.content.contains("page-body"));
+    assert!(!result.content.contains("style="));
+    assert!(!result.content.contains("onclick"));
+    assert!(!result.content.contains("javascript:"));
+    assert!(!result.content.contains("<script"));
     assert!(
         result
             .content_markdown

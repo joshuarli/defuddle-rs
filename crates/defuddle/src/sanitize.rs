@@ -1,18 +1,25 @@
-/// Check if a URL uses a dangerous protocol (javascript:, data:text/html).
+/// Check if a URL uses a dangerous protocol.
 /// Strips whitespace and control characters before checking.
 pub fn is_dangerous_url(url: &str) -> bool {
+    is_dangerous_url_with_inline_image(url, true)
+}
+
+fn is_dangerous_url_with_inline_image(url: &str, allow_inline_image: bool) -> bool {
     let normalized: String = url
         .chars()
         .filter(|c| !c.is_whitespace() && !c.is_control())
         .collect();
     let lower = normalized.to_lowercase();
-    lower.starts_with("javascript:") || lower.starts_with("data:text/html")
+    if lower.starts_with("javascript:") || lower.starts_with("blob:") {
+        return true;
+    }
+    lower.starts_with("data:") && !(allow_inline_image && lower.starts_with("data:image/"))
 }
 
 /// Remove dangerous elements and attributes from the document.
 pub fn strip_unsafe_elements(doc: &mut crate::dom::Document) {
     let dangerous_selectors = [
-        "script", "style", "noscript", "object", "embed", "applet", "base",
+        "script", "style", "noscript", "object", "embed", "applet", "base", "frame", "frameset",
     ];
 
     for selector in &dangerous_selectors {
@@ -32,7 +39,10 @@ pub fn strip_unsafe_elements(doc: &mut crate::dom::Document) {
         let attrs_to_check = ["href", "src", "action", "formaction", "xlink:href"];
         for attr_name in &attrs_to_check {
             if let Some(value) = doc.get_attr(id, attr_name)
-                && is_dangerous_url(value)
+                && is_dangerous_url_with_inline_image(
+                    value,
+                    !(*attr_name == "src" && doc.tag_name_is(id, "iframe")),
+                )
             {
                 doc.remove_attr(id, attr_name);
             }
@@ -123,7 +133,9 @@ mod tests {
     fn test_is_dangerous_url() {
         assert!(is_dangerous_url("javascript:alert(1)"));
         assert!(is_dangerous_url("  Javascript:void(0)"));
+        assert!(is_dangerous_url("blob:https://example.com/id"));
         assert!(is_dangerous_url("data:text/html,<script>alert(1)</script>"));
+        assert!(!is_dangerous_url("data:image/png;base64,AAAA"));
         assert!(!is_dangerous_url("https://example.com"));
         assert!(!is_dangerous_url("/relative/path"));
         assert!(!is_dangerous_url("mailto:test@example.com"));
@@ -143,6 +155,8 @@ mod tests {
                 <embed src="test.swf">
                 <applet code="Test.class"></applet>
                 <base href="https://evil.com">
+                <frame src="https://evil.com/frame">
+                <frameset><frame src="https://evil.com/nested"></frameset>
                 <p>Safe content</p>
             </body>
             </html>
@@ -159,6 +173,8 @@ mod tests {
         assert!(!html.contains("<embed"), "embed should be removed");
         assert!(!html.contains("<applet"), "applet should be removed");
         assert!(!html.contains("<base"), "base should be removed");
+        assert!(!html.contains("<frame"), "frame should be removed");
+        assert!(!html.contains("<frameset"), "frameset should be removed");
         assert!(html.contains("Safe content"), "safe content should remain");
     }
 
@@ -172,6 +188,9 @@ mod tests {
                 <a href="javascript:alert(1)">Click me</a>
                 <a href="https://safe.com">Safe link</a>
                 <img src="data:text/html,<script>alert(1)</script>">
+                <img src="data:image/png;base64,AAAA">
+                <iframe src="data:image/png;base64,AAAA"></iframe>
+                <iframe src="blob:https://example.com/id"></iframe>
                 <iframe srcdoc="<script>alert(1)</script>"></iframe>
                 <div onclick="doBad()">Click</div>
             </body>
@@ -190,6 +209,12 @@ mod tests {
             !html.contains("data:text/html"),
             "data:text/html URLs should be removed"
         );
+        assert_eq!(
+            html.matches("data:image/png;base64,AAAA").count(),
+            1,
+            "inline images should remain on image elements but not iframe src"
+        );
+        assert!(!html.contains("blob:"), "blob URLs should be removed");
         assert!(!html.contains("srcdoc"), "srcdoc should be removed");
         assert!(!html.contains("onclick"), "onclick should be removed");
         assert!(html.contains("https://safe.com"), "safe URLs should remain");

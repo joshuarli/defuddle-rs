@@ -754,6 +754,7 @@ pub const ALLOWED_ATTRIBUTES: &[&str] = &[
     "lang",
     "role",
     "rowspan",
+    "sandbox",
     "src",
     "srclang",
     "srcset",

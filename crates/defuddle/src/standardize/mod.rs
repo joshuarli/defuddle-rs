@@ -100,6 +100,18 @@ pub fn standardize_content(
     }
 }
 
+/// Apply the attribute and spacer cleanup that is safe for HTML already built
+/// by a site extractor. Extractors may preserve selected classes for consumers,
+/// but page-authored styling and identity attributes have no meaning after the
+/// source page's CSS is gone.
+pub(crate) fn standardize_extractor_output(doc: &mut Document, content_id: NodeId, debug: bool) {
+    strip_extractor_attributes(doc, content_id, debug);
+    if !debug {
+        remove_empty_elements(doc, content_id);
+    }
+    strip_extra_br_elements(doc, content_id);
+}
+
 fn strip_unwanted_attributes(doc: &mut Document, content_id: NodeId) {
     let allowed: FxHashSet<&str> = ALLOWED_ATTRIBUTES.iter().copied().collect();
     let all_els = doc.query_selector_all_in_subtree(content_id, "*");
@@ -108,6 +120,57 @@ fn strip_unwanted_attributes(doc: &mut Document, content_id: NodeId) {
         for name in names {
             let lower = name.to_lowercase();
             if !allowed.contains(lower.as_str()) && lower != "class" && lower != "id" {
+                doc.remove_attr(id, &name);
+            }
+        }
+    }
+}
+
+fn strip_extractor_attributes(doc: &mut Document, content_id: NodeId, debug: bool) {
+    let allowed: FxHashSet<&str> = ALLOWED_ATTRIBUTES.iter().copied().collect();
+    let mut elements = doc.query_selector_all_in_subtree(content_id, "*");
+    if doc.is_element(content_id) {
+        elements.insert(0, content_id);
+    }
+
+    for id in elements {
+        for name in doc.attr_names(id) {
+            let lower = name.to_lowercase();
+            let value = doc.get_attr(id, &name).unwrap_or_default();
+
+            if lower == "id"
+                && (value.starts_with("fnref:") || value.starts_with("fn:") || value == "footnotes")
+            {
+                continue;
+            }
+            if lower == "data-defuddle" {
+                continue;
+            }
+            if lower == "class" {
+                if debug {
+                    continue;
+                }
+                let kept = value
+                    .split_whitespace()
+                    .filter(|token| {
+                        crate::extractors::comments::is_extractor_class(token)
+                            || (doc.tag_name_is(id, "code") && token.starts_with("language-"))
+                            || *token == "footnote-backref"
+                            || token.starts_with("callout")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if kept.is_empty() {
+                    doc.remove_attr(id, &name);
+                } else if kept != value {
+                    doc.set_attr(id, &name, &kept);
+                }
+                continue;
+            }
+            if debug && (lower.starts_with("data-") || lower == "class" || lower == "id") {
+                continue;
+            }
+            if !allowed.contains(lower.as_str()) {
                 doc.remove_attr(id, &name);
             }
         }
@@ -136,5 +199,42 @@ fn unwrap_special_links(doc: &mut Document, content_id: NodeId) {
         {
             doc.unwrap(id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::standardize_extractor_output;
+    use crate::dom::Document;
+
+    #[test]
+    fn extractor_output_keeps_generated_markup_and_allowed_attributes() {
+        let mut doc = Document::parse(
+            r#"<article data-defuddle class="reddit post page-layout" id="source">
+                <div class="comment page-comment" style="color:red" data-page-state="open">
+                    <a href="/thread" class="page-link" id="source-link">Comment</a>
+                </div>
+                <div class="empty" data-page-state="empty"></div>
+            </article>"#,
+        );
+        let root = doc
+            .query_selector_all("article")
+            .first()
+            .copied()
+            .expect("article root");
+
+        standardize_extractor_output(&mut doc, root, false);
+
+        let html = doc.outer_html(root);
+        assert!(html.contains("data-defuddle"));
+        assert!(html.contains("class=\"reddit post\""));
+        assert!(html.contains("class=\"comment\""));
+        assert!(html.contains("href=\"/thread\""));
+        assert!(!html.contains("page-layout"));
+        assert!(!html.contains("page-comment"));
+        assert!(!html.contains("style="));
+        assert!(!html.contains("data-page-state"));
+        assert!(!html.contains("id=\"source"));
+        assert!(!html.contains("empty"));
     }
 }
