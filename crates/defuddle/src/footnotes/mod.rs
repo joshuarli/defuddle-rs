@@ -51,7 +51,9 @@ const INLINE_REF_SELECTORS: &[&str] = &[
 
 pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
     let mut definitions: FxHashMap<usize, String> = FxHashMap::default();
-    let anchor_keys = collect_anchor_definitions(doc, content_id, &mut definitions);
+    let mut anchor_keys = collect_anchor_definitions(doc, content_id, &mut definitions);
+    anchor_keys.extend(collect_labeled_section_keys(doc));
+    anchor_keys.extend(collect_br_separated_defs(doc, content_id, &mut definitions));
 
     for anchor_id in doc.query_selector_all_in_subtree(content_id, "a") {
         let Some(href) = doc.get_attr(anchor_id, "href") else {
@@ -178,7 +180,7 @@ pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
     collect_easy_footnotes(doc, content_id, &mut definitions);
     collect_google_docs_defs(doc, content_id, &mut definitions);
     collect_hr_separated_defs(doc, content_id, &mut definitions);
-    collect_heading_separated_defs(doc, content_id, &mut definitions);
+    collect_heading_separated_defs(doc, content_id, &mut definitions, &anchor_keys);
     collect_p_class_defs(doc, content_id, &mut definitions);
 
     if definitions.is_empty() {
@@ -683,6 +685,171 @@ fn collect_anchor_definitions(
     keys
 }
 
+fn collect_labeled_section_keys(doc: &Document) -> Vec<(String, usize)> {
+    let re =
+        FOOTNOTE_SECTION_REGEX.get_or_init(|| regex_lite::Regex::new(FOOTNOTE_SECTION_RE).unwrap());
+    let mut keys = Vec::new();
+    for container in doc.query_selector_all("div,section,aside") {
+        let class = doc.get_attr(container, "class").unwrap_or("");
+        let id = doc.get_attr(container, "id").unwrap_or("");
+        if !class.to_ascii_lowercase().contains("footnote")
+            && !id.to_ascii_lowercase().contains("footnote")
+        {
+            continue;
+        }
+        let Some(heading) = doc
+            .query_selector_all_in_subtree(container, "h1,h2,h3,h4,h5,h6")
+            .first()
+            .copied()
+        else {
+            continue;
+        };
+        if !re.is_match(doc.text_content(heading).trim()) {
+            continue;
+        }
+        let Some(list) = doc
+            .query_selector_all_in_subtree(container, "ol")
+            .first()
+            .copied()
+        else {
+            continue;
+        };
+        let items = doc
+            .children(list)
+            .iter()
+            .copied()
+            .filter(|&id| doc.tag_name_is(id, "li"))
+            .collect::<Vec<_>>();
+        for (index, item) in items.into_iter().enumerate() {
+            if let Some(item_id) = doc.get_attr(item, "id") {
+                keys.push((item_id.to_ascii_lowercase(), index + 1));
+            }
+        }
+    }
+    keys
+}
+
+fn collect_br_separated_defs(
+    doc: &mut Document,
+    content_id: NodeId,
+    defs: &mut FxHashMap<usize, String>,
+) -> Vec<(String, usize)> {
+    let marker_re = FOOTNOTE_MARKER_RE
+        .get_or_init(|| regex_lite::Regex::new(r"^\[?\(?\d{1,4}\)?\]?$").unwrap());
+    let mut linked_fragments = rustc_hash::FxHashSet::default();
+    for anchor in doc.query_selector_all_in_subtree(content_id, "a") {
+        let Some(href) = doc.get_attr(anchor, "href") else {
+            continue;
+        };
+        let fragment = href.rsplit('#').next().unwrap_or("").to_ascii_lowercase();
+        if !fragment.is_empty() && marker_re.is_match(doc.text_content(anchor).trim()) {
+            linked_fragments.insert(fragment);
+        }
+    }
+    if linked_fragments.len() < 2 {
+        return Vec::new();
+    }
+
+    for block in doc.query_selector_all_in_subtree(content_id, "p,div") {
+        if doc.is_removed(block) || !doc.has_selector_in_subtree(block, "br") {
+            continue;
+        }
+        let mut segments: Vec<Vec<NodeId>> = Vec::new();
+        let mut current = Vec::new();
+        for child in doc.children(block).iter().copied() {
+            if doc.tag_name_is(child, "br") {
+                if !current.is_empty() {
+                    segments.push(std::mem::take(&mut current));
+                }
+            } else {
+                current.push(child);
+            }
+        }
+        if !current.is_empty() {
+            segments.push(current);
+        }
+
+        let mut definitions = Vec::new();
+        for segment in segments {
+            let Some(anchor) = leading_named_anchor(doc, &segment) else {
+                continue;
+            };
+            let key = doc
+                .get_attr(anchor, "name")
+                .or_else(|| doc.get_attr(anchor, "id"))
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if key.is_empty() || !linked_fragments.contains(&key) {
+                continue;
+            }
+
+            let backrefs = doc
+                .query_selector_all_in_subtree(block, "a")
+                .into_iter()
+                .filter(|&id| segment.contains(&id) && is_backref_anchor(doc, id))
+                .collect::<Vec<_>>();
+            for descendant in backrefs {
+                doc.remove(descendant);
+            }
+            let html = segment
+                .iter()
+                .filter(|&&id| id != anchor && !doc.is_removed(id))
+                .map(|&id| doc.outer_html(id))
+                .collect::<String>()
+                .trim()
+                .to_string();
+            definitions.push((key, html));
+        }
+
+        if definitions.len() < 2 {
+            continue;
+        }
+
+        let previous = doc.prev_element_sibling(block);
+        let mut keys = Vec::new();
+        for (key, html) in definitions {
+            let mut number = 1;
+            while defs.contains_key(&number) {
+                number += 1;
+            }
+            defs.insert(number, html);
+            keys.push((key, number));
+        }
+        if previous.is_some_and(|id| doc.tag_name_is(id, "hr")) {
+            doc.remove(previous.expect("previous sibling exists"));
+        }
+        doc.remove(block);
+        return keys;
+    }
+    Vec::new()
+}
+
+fn leading_named_anchor(doc: &Document, segment: &[NodeId]) -> Option<NodeId> {
+    for &node in segment {
+        if doc.is_text(node) {
+            if !doc.text_content(node).trim().is_empty() {
+                return None;
+            }
+            continue;
+        }
+        if !doc.tag_name_is(node, "a") {
+            return None;
+        }
+        return (doc.get_attr(node, "name").is_some() || doc.get_attr(node, "id").is_some())
+            .then_some(node);
+    }
+    None
+}
+
+fn is_backref_anchor(doc: &Document, id: NodeId) -> bool {
+    let href = doc.get_attr(id, "href").unwrap_or("");
+    let text = doc
+        .text_content(id)
+        .trim()
+        .replace(['\u{FE0E}', '\u{FE0F}'], "");
+    href == "#" && (text.is_empty() || text.contains(['↩', '↑', '^']))
+}
+
 /// HR-separated sup definitions: <p><sup>N</sup> text</p> after <hr>.
 fn collect_hr_separated_defs(
     doc: &mut Document,
@@ -747,9 +914,58 @@ fn collect_heading_separated_defs(
     doc: &mut Document,
     content_id: NodeId,
     defs: &mut FxHashMap<usize, String>,
+    anchor_keys: &[(String, usize)],
 ) {
     let re =
         FOOTNOTE_SECTION_REGEX.get_or_init(|| regex_lite::Regex::new(FOOTNOTE_SECTION_RE).unwrap());
+
+    let labeled_containers = doc
+        .query_selector_all("div,section,aside")
+        .into_iter()
+        .filter(|&container| {
+            let class = doc.get_attr(container, "class").unwrap_or("");
+            let id = doc.get_attr(container, "id").unwrap_or("");
+            (class.to_ascii_lowercase().contains("footnote")
+                || id.to_ascii_lowercase().contains("footnote"))
+                && doc
+                    .query_selector_all_in_subtree(container, "h1,h2,h3,h4,h5,h6")
+                    .first()
+                    .is_some_and(|&heading| re.is_match(doc.text_content(heading).trim()))
+        })
+        .collect::<Vec<_>>();
+    for container in labeled_containers {
+        let Some(list) = doc
+            .query_selector_all_in_subtree(container, "ol")
+            .first()
+            .copied()
+        else {
+            continue;
+        };
+        let items = doc
+            .children(list)
+            .iter()
+            .copied()
+            .filter(|&id| doc.tag_name_is(id, "li"))
+            .collect::<Vec<_>>();
+        if items.is_empty() {
+            continue;
+        }
+        for (index, item) in items.into_iter().enumerate() {
+            let key = doc.get_attr(item, "id").map(str::to_ascii_lowercase);
+            let number = key
+                .as_deref()
+                .and_then(|key| {
+                    anchor_keys
+                        .iter()
+                        .find(|(anchor, _)| anchor == key)
+                        .map(|(_, number)| *number)
+                })
+                .unwrap_or(index + 1);
+            defs.entry(number).or_insert_with(|| doc.inner_html(item));
+        }
+        doc.remove(container);
+    }
+
     let headings = doc.query_selector_all_in_subtree(content_id, "h2,h3,h4,h5,h6");
     let children = doc.children(content_id).to_vec();
 
@@ -848,5 +1064,73 @@ fn collect_p_class_defs(
         }
         defs.insert(num, doc.inner_html(p_id));
         doc.remove(p_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::standardize_footnotes;
+    use crate::dom::Document;
+
+    #[test]
+    fn standardizes_br_separated_named_anchor_definitions() {
+        let mut doc = Document::parse(
+            r##"<article>
+                <p>First claim<a href="#one"><sup>1</sup></a>.</p>
+                <p>Second claim<a href="#two"><sup>2</sup></a>.</p>
+                <p>Third claim<a href="#three"><sup>3</sup></a>.</p>
+                <hr>
+                <p id="footnote">
+                    <a name="one"><sup>1</sup></a> First definition. <a href="#">↩</a>
+                    <br><br>
+                    <a name="two"><sup>2</sup></a> Second definition with a <a href="https://example.com">link</a>. <a href="#">↩</a>
+                    <br><br>
+                    <a name="three"><sup>3</sup></a> Third definition. <a href="#">↩</a>
+                </p>
+            </article>"##,
+        );
+        let root = doc
+            .query_selector_all("article")
+            .first()
+            .copied()
+            .expect("article root");
+
+        standardize_footnotes(&mut doc, root);
+
+        let html = doc.outer_html(root);
+        assert!(html.contains("href=\"#fn:1\""));
+        assert!(html.contains("First definition."));
+        assert!(html.contains("Second definition with a"));
+        assert!(html.contains("https://example.com"));
+        assert_eq!(html.matches("↩").count(), 3);
+        assert!(!html.contains("href=\"#\""));
+        assert!(!html.contains("name=\"one\""));
+        assert!(!html.contains("<hr"));
+    }
+
+    #[test]
+    fn labeled_ordered_list_ids_map_to_inline_references() {
+        let mut doc = Document::parse(
+            r##"<article>
+                <p>Earlier essay<a href="#footnote-2">2</a> and another claim<a href="#footnote-1">1</a>.</p>
+            </article>
+            <div class="PostDetail__footnotes">
+                <h4>Footnotes</h4>
+                <ol>
+                    <li id="footnote-1">First definition.</li>
+                    <li id="footnote-2">Second definition.</li>
+                </ol>
+            </div>"##,
+        );
+        let root = doc.root();
+
+        standardize_footnotes(&mut doc, root);
+
+        let html = doc.outer_html(root);
+        assert!(html.contains("href=\"#fn:2\">2</a>"));
+        assert!(html.contains("href=\"#fn:1\">1</a>"));
+        assert!(html.contains("<li id=\"fn:1\">First definition."));
+        assert!(html.contains("<li id=\"fn:2\">Second definition."));
+        assert!(!html.contains("PostDetail__footnotes"));
     }
 }
