@@ -19,6 +19,6 @@ Some text between images to provide content for the scoring algorithm to identif
 
 More article text here with enough words for the content detection scoring algorithm to work properly with this test.
 
-![An inline photo](https://www.example.com/uploads/inline-photo.jpg)
+![](https://www.example.com/uploads/inline-photo.jpg)
 
 Final paragraph of the article with some concluding remarks about the gallery images shown above.

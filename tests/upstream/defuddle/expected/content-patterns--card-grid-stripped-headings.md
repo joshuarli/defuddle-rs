@@ -19,19 +19,19 @@ Waste management systems have seen the most dramatic improvements. Early mission
 
 "We have come a long way from the early days," said lead engineer Dr. Park. "The crew comfort improvements on upcoming missions represent decades of iterative design work."
 
-[![A thruster firing in a test chamber](https://example.com/thruster.jpg)](/article/new-thruster-design/)
+[![](https://example.com/thruster.jpg)](/article/new-thruster-design/)
 
 Researchers achieved a 40 percent improvement in thrust-to-power ratio using a novel electrode geometry
 
 Alex Johnson
 
-[![A robotic arm collecting samples](https://example.com/mars-sample.jpg)](/article/mars-sample-return/)
+[![](https://example.com/mars-sample.jpg)](/article/mars-sample-return/)
 
 After years of delays, the joint mission to retrieve cached Martian samples has received final approval and funding
 
 Maria Lopez
 
-[![An orbital habitat module](https://example.com/station.jpg)](/article/space-station-upgrade/)
+[![](https://example.com/station.jpg)](/article/space-station-upgrade/)
 
 The inflatable habitat module exceeded pressure and micrometeorite resistance requirements during ground testing
 

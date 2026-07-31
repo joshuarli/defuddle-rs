@@ -20,10 +20,11 @@ mod markdown_conversion {
     }
 
     #[test]
-    fn does_not_affect_normal_image_syntax() {
-        let html = r#"<p>Hello world</p><img src="https://example.com/img.png" alt="photo">"#;
+    fn omits_image_alt_text_but_preserves_link_wrapping() {
+        let html = r#"<p>Hello world</p><a href="https://example.com/image"><img src="https://example.com/img.png" alt="photo"></a>"#;
         let md = html_to_markdown(html);
-        assert!(md.contains("![photo](https://example.com/img.png)"));
+        assert!(md.contains("[![](https://example.com/img.png)](https://example.com/image)"));
+        assert!(!md.contains("photo"));
     }
 
     #[test]

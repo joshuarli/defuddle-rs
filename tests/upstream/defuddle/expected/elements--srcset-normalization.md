@@ -11,7 +11,7 @@
 
 This article tests normalization of React SSR camelCase srcSet attributes to standard lowercase srcset.
 
-![Hero image with React SSR attributes.](https://www.example.com/images/hero.webp)
+![](https://www.example.com/images/hero.webp)
 
 Hero image with React SSR attributes. Photo credit.
 

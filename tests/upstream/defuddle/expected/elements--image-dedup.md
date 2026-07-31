@@ -11,7 +11,7 @@
 
 This article tests deduplication of lazy-loaded image duplicates while preserving legitimate repeated images.
 
-![A landscape photo.](https://www.example.com/images/photo-large.webp)
+![](https://www.example.com/images/photo-large.webp)
 
 A landscape photo. Photo credit.
 
@@ -23,8 +23,8 @@ A portrait photo. Photographer name.
 
 More article text here with enough words for the content detection scoring algorithm to work properly.
 
-Here is a formula: ![E equals mc squared](https://www.example.com/latex/formula.png) in context.
+Here is a formula: ![](https://www.example.com/latex/formula.png) in context.
 
-The same formula ![E equals mc squared](https://www.example.com/latex/formula.png) appears again here.
+The same formula ![](https://www.example.com/latex/formula.png) appears again here.
 
 Final paragraph of the article with some concluding text for the content parser.

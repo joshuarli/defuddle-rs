@@ -13,7 +13,7 @@ First paragraph with some content about the topic.
 
 Second paragraph continuing the discussion.
 
-![A diagram](https://example.com/diagram.png)
+![](https://example.com/diagram.png)
 
 Third paragraph after the image.
 

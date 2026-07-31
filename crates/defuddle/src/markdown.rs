@@ -579,6 +579,11 @@ fn preprocess_html_dom(html: &str) -> String {
     }
 
     for id in doc.query_selector_all("img") {
+        // Markdown output intentionally omits image alt text. Captions and
+        // surrounding text remain in the document, while alt text often
+        // duplicates or exposes noisy accessibility labels from the page.
+        doc.set_attr(id, "alt", "");
+
         let Some(srcset) = doc.get_attr(id, "srcset").map(str::to_owned) else {
             continue;
         };

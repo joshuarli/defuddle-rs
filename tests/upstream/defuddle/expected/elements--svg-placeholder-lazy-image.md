@@ -9,7 +9,7 @@
 
 Creating notes is essentially putting thoughts into words, but since everyone thinks differently, note-taking apps must be flexible. Test App is one of the most adaptable options we've tested.
 
-![Test App startup page](https://i.example.com/imagery/reviews/abc123-15.fit_lim.size_1600x.png)
+![](https://i.example.com/imagery/reviews/abc123-15.fit_lim.size_1600x.png)
 
 Test App startup page (Credit: ExampleMag)
 
@@ -17,7 +17,7 @@ Test App startup page (Credit: ExampleMag)
 
 You don't need an account or a credit card to start using Test App. Just download the application. Next, you create a new workspace.
 
-![File browser in Test App](https://i.example.com/imagery/reviews/abc123-17.png)
+![](https://i.example.com/imagery/reviews/abc123-17.png)
 
 File browser in Test App (Credit: ExampleMag)
 
@@ -25,7 +25,7 @@ File browser in Test App (Credit: ExampleMag)
 
 Test App offers several ways to organize your notes. A panel on the left shows your files and folders.
 
-![Graph view in Test App](https://i.example.com/imagery/reviews/abc123-18.png)
+![](https://i.example.com/imagery/reviews/abc123-18.png)
 
 Graph view in Test App (Credit: ExampleMag)
 
@@ -33,7 +33,7 @@ Graph view in Test App (Credit: ExampleMag)
 
 One of Test App's greatest strengths is its plug-in ecosystem. Thousands of plug-ins are available.
 
-![A plugin in Test App](https://i.example.com/imagery/reviews/abc123-20.png)
+![](https://i.example.com/imagery/reviews/abc123-20.png)
 
 A plugin in Test App (Credit: ExampleMag)
 
