@@ -1,10 +1,9 @@
-# Defuddle Rust
+This repository is a slimmed-down rust port of `../defuddle`, a TypeScript library that extracts readable article content from static HTML. The core crate accepts an HTML string and returns cleaned HTML, optional Markdown, and metadata. It does not use a browser, JavaScript runtime, network access, or asynchronous fetching.
 
-This repository is a Rust port of [Defuddle](https://github.com/kepano/defuddle), a TypeScript library that extracts readable article content from static HTML. The core crate accepts an HTML string and returns cleaned HTML, optional Markdown, and metadata. It does not use a browser, JavaScript runtime, network access, or asynchronous fetching.
+The port tracks the upstream snapshot documented in `tests/upstream/SNAPSHOT.md`.
+Upstream fixtures and expected output are vendored under `tests/upstream/`.
 
-The port tracks the upstream snapshot documented in `tests/upstream/SNAPSHOT.md`. Upstream fixtures and expected output are vendored under `tests/upstream/`.
-
-## Repository layout
+## Map
 
 ```
 defuddle-rs/
@@ -149,11 +148,3 @@ To add a standardization rule:
 
 Do not reintroduce site-specific branches into the generic pipeline, renderer-specific code-block cleanup, BBCode, or math/LaTeX handling without an explicit design decision.
 
-## Repository conventions
-
-- Prefer simple, readable Rust and keep the dependency tree small.
-- Do not add banner/separator comments.
-- Do not remove useful comments during refactors; update them when behavior changes.
-- Use `apply_patch` for source edits.
-- Do not run pre-commit hooks.
-- Do not commit or push unless explicitly requested. Never push to a remote.
