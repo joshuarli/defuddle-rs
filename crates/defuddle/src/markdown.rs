@@ -28,6 +28,7 @@ static DASH_SEPARATOR_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static CHECKLIST_JOIN_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static TAG_LIKE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static MULTI_NL_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static BLANK_QUOTE_LINE_RUN_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static LINK_DEST_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static FOOTNOTE_REF_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static CHECKED_CHECKBOX_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
@@ -717,6 +718,11 @@ fn postprocess_markdown(md: &str) -> String {
 
     let md = collapse_blank_lines_outside_code(&md);
 
+    // A paragraph whose only content is a <br> can leave several blank
+    // blockquote lines behind. Keep the first marker so quote depth and the
+    // renderer's trailing-space hard-break convention remain unchanged.
+    let md = collapse_blank_quote_line_runs(&md);
+
     // Clean up: single trailing newline, remove leading whitespace outside fenced code.
     let mut result = String::new();
     let mut prev_blank = false;
@@ -1093,6 +1099,13 @@ fn collapse_blank_lines_outside_code(md: &str) -> String {
 
     out.push_str(&multi_nl_re.replace_all(&segment, "\n\n"));
     out.trim_end_matches('\n').to_string()
+}
+
+fn collapse_blank_quote_line_runs(md: &str) -> String {
+    let regex = BLANK_QUOTE_LINE_RUN_RE.get_or_init(|| {
+        regex_lite::Regex::new(r"(?m)^([ \t]*>[ \t>]*)(?:\n[ \t]*>[ \t>]*)+$").unwrap()
+    });
+    regex.replace_all(md, "$1").to_string()
 }
 
 fn fix_inline_spacing_line(line: &str) -> String {
@@ -1473,6 +1486,15 @@ mod tests {
         assert_eq!(
             normalize_table_separator_line("| --- |  | --- |"),
             "| --- | --- | --- |"
+        );
+    }
+
+    #[test]
+    fn collapses_runs_of_blank_blockquote_lines() {
+        let markdown = "Before\n\n> \n>  \n> >\n\nAfter";
+        assert_eq!(
+            collapse_blank_quote_line_runs(markdown),
+            "Before\n\n> \n\nAfter"
         );
     }
 
