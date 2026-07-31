@@ -1,6 +1,6 @@
 use crate::dom::Document;
 use crate::extractors::{HtmlExtraction, SiteAdapter, SiteExtraction, comments};
-use crate::pipeline::PipelineContext;
+use crate::pipeline::ExtractionContext;
 use rustc_hash::FxHashMap;
 
 pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
@@ -10,16 +10,19 @@ pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
 struct MastodonAdapter;
 
 impl SiteAdapter for MastodonAdapter {
-    fn matches(&self, context: &PipelineContext<'_>) -> bool {
+    fn matches(&self, context: &ExtractionContext<'_>) -> bool {
         !context
             .doc
             .query_selector_all(".detailed-status__wrapper, .status__wrapper")
             .is_empty()
     }
 
-    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction {
-        let result = MastodonExtractor.extract(&context.doc);
-        crate::extractors::site_extraction_from_html(result.content_html, result.variables)
+    fn extract(&self, context: &mut ExtractionContext<'_>) -> SiteExtraction {
+        let mastodon_extraction = MastodonExtractor.extract(&context.doc);
+        crate::extractors::site_extraction_from_html(
+            mastodon_extraction.content_html,
+            mastodon_extraction.variables,
+        )
     }
 }
 
@@ -143,7 +146,7 @@ impl MastodonExtractor {
                     .iter()
                     .find(|&&t| doc.contains(wrapper, t))
                     .and_then(|&t| doc.get_attr(t, "datetime"))
-                    .map(crate::utils::extract_date)
+                    .map(crate::content_utils::extract_date)
                     .unwrap_or_default();
 
                 let permalink = doc
@@ -198,7 +201,7 @@ impl MastodonExtractor {
             .query_selector_all("meta[property=\"og:published_time\"]")
             .first()
             .and_then(|id| doc.get_attr(*id, "content"))
-            .map(crate::utils::extract_date)
+            .map(crate::content_utils::extract_date)
             .unwrap_or_default();
 
         let fallback_site = site_name.clone();

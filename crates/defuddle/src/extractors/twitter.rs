@@ -1,7 +1,7 @@
+use crate::content_utils::escape_html;
 use crate::dom::Document;
 use crate::extractors::{HtmlExtraction, SiteAdapter, SiteExtraction, comments};
-use crate::pipeline::PipelineContext;
-use crate::utils::escape_html;
+use crate::pipeline::ExtractionContext;
 use rustc_hash::FxHashMap;
 
 pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
@@ -11,15 +11,18 @@ pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
 struct TwitterAdapter;
 
 impl SiteAdapter for TwitterAdapter {
-    fn matches(&self, context: &PipelineContext<'_>) -> bool {
-        create(&context.doc, context.url).is_some()
+    fn matches(&self, context: &ExtractionContext<'_>) -> bool {
+        create(&context.doc, context.page_url).is_some()
     }
 
-    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction {
-        let result = create(&context.doc, context.url)
+    fn extract(&self, context: &mut ExtractionContext<'_>) -> SiteExtraction {
+        let twitter_extractor = create(&context.doc, context.page_url)
             .expect("Twitter adapter matched its document")
             .extract(&context.doc);
-        crate::extractors::site_extraction_from_html(result.content_html, result.variables)
+        crate::extractors::site_extraction_from_html(
+            twitter_extractor.content_html,
+            twitter_extractor.variables,
+        )
     }
 }
 
@@ -298,7 +301,7 @@ fn extract_conversation(doc: &Document) -> HtmlExtraction {
         let date = time_id
             .as_ref()
             .and_then(|&tid| doc.get_attr(tid, "datetime"))
-            .map(crate::utils::extract_date)
+            .map(crate::content_utils::extract_date)
             .unwrap_or_default();
 
         let permalink = time_id

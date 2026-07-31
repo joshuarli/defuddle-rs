@@ -110,7 +110,7 @@ fn build_converter() -> HtmlToMarkdown {
         })
         .skip_tags(vec!["script", "style", "noscript"]);
 
-    // --- highlight: <mark> → ==text== ---
+    // Convert <mark> to ==text==.
     builder = builder.add_handler(
         vec!["mark"],
         |_h: &dyn Handlers, el: Element| -> Option<HandlerResult> {
@@ -122,7 +122,7 @@ fn build_converter() -> HtmlToMarkdown {
         },
     );
 
-    // --- strikethrough: <del>/<s>/<strike> → ~~text~~ ---
+    // Convert <del>, <s>, and <strike> to ~~text~~.
     builder = builder.add_handler(
         vec!["del", "s", "strike"],
         |_h: &dyn Handlers, el: Element| -> Option<HandlerResult> {
@@ -157,7 +157,7 @@ fn build_converter() -> HtmlToMarkdown {
                         format!(
                             " {}=\"{}\"",
                             a.name.local,
-                            crate::utils::escape_html(a.value.as_ref())
+                            crate::content_utils::escape_html(a.value.as_ref())
                         )
                     })
                     .collect::<String>();
@@ -169,7 +169,7 @@ fn build_converter() -> HtmlToMarkdown {
         },
     );
 
-    // --- citations: <sup id="fnref:N"> → [^N] ---
+    // Convert footnote citations to Markdown references.
     builder = builder.add_handler(
         vec!["sup"],
         |_h: &dyn Handlers, el: Element| -> Option<HandlerResult> {
@@ -282,7 +282,7 @@ fn build_converter() -> HtmlToMarkdown {
         }
     }
 
-    // --- footnotes: <div id="footnotes"> <ol> <li id="fn:N"> → [^N]: text ---
+    // Convert the canonical footnote section to Markdown definitions.
     builder = builder.add_handler(
         vec!["div"],
         move |_h: &dyn Handlers, el: Element| -> Option<HandlerResult> {
@@ -405,7 +405,7 @@ fn build_converter() -> HtmlToMarkdown {
         },
     );
 
-    // --- callout: div[data-callout] → blockquote (ported from upstream callout rule) ---
+    // Convert canonical callouts to blockquotes, following the upstream rule.
     builder = builder.add_handler(
         vec!["div"],
         move |_h: &dyn Handlers, el: Element| -> Option<HandlerResult> {
@@ -603,7 +603,10 @@ fn preprocess_html_dom(html: &str) -> String {
         if let Some(url) = crate::embeds::iframe_target_url(&src) {
             doc.replace_with_html(
                 id,
-                &format!(r#"<img src="{}" alt="">"#, crate::utils::escape_html(&url)),
+                &format!(
+                    r#"<img src="{}" alt="">"#,
+                    crate::content_utils::escape_html(&url)
+                ),
             );
         }
     }

@@ -1,5 +1,5 @@
+use crate::content_utils::{contains_ascii_case_insensitive, count_words};
 use crate::dom::{Document, NodeId};
-use crate::utils::{contains_ascii_case_insensitive, count_words};
 
 const NAVIGATION_INDICATORS: &[&str] = &[
     "advertisement",

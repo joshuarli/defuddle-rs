@@ -1,8 +1,7 @@
 use crate::dom::{Document, NodeId};
 
-// ---------------------------------------------------------------------------
-// PageOverrides — per-article pipeline tuning
-// ---------------------------------------------------------------------------
+// Page-specific pipeline tuning is kept in one module so exceptions remain
+// discoverable instead of being scattered through the extraction stages.
 
 /// Standardize-phase exceptions driven by a page override.
 #[derive(Default)]
@@ -47,9 +46,7 @@ pub struct PageOverrides {
     pub dom_hook: Option<fn(&mut Document, NodeId)>,
 }
 
-// ---------------------------------------------------------------------------
-// Lookup
-// ---------------------------------------------------------------------------
+// Lookup page-specific overrides by extracted title.
 
 /// Return the page-specific overrides for the given metadata title, if any.
 pub fn lookup_page_overrides(title: &str) -> Option<PageOverrides> {
@@ -89,9 +86,7 @@ pub fn lookup_page_overrides(title: &str) -> Option<PageOverrides> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Fixture-specific hooks (moved from lib.rs / standardize.rs)
-// ---------------------------------------------------------------------------
+// Fixture-specific hooks moved from the generic pipeline and standardization.
 
 fn figma_header(doc: &mut Document, content_id: NodeId) {
     // Resolve srcset → src on every image.

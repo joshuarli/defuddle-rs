@@ -37,7 +37,7 @@ The core source is organized around the extraction pipeline rather than one larg
 | `sanitize.rs` | Unsafe element, attribute, and URL removal |
 | `markdown.rs` | HTML-to-Markdown conversion and final Markdown normalization |
 | `overrides.rs` | Deliberate page-specific exceptions to the standard pipeline |
-| `constants.rs`, `selector.rs`, `utils.rs` | Shared selectors, matching primitives, text/entity utilities |
+| `extraction_selectors.rs`, `css_selector.rs`, `content_utils.rs` | Shared extraction selectors, CSS selector parsing, and content/text utilities |
 
 ## Data flow
 
@@ -47,7 +47,7 @@ The core source is organized around the extraction pipeline rather than one larg
 2. Run document-wide prune hooks.
 3. Extract schema data, meta tags, and metadata from the original document.
 4. Apply requested iframe removal and check the site-adapter list.
-5. If an adapter matches, it returns a `ContentResult` containing its output DOM and variables. Site adapters bypass the generic content pipeline.
+5. If an adapter matches, it returns a `SiteExtraction` containing `ExtractedContent` and adapter variables. Site adapters bypass the generic content pipeline.
 6. Otherwise, run the standard pipeline:
    - select the main content element, or use the body/content selector;
    - remove selectors, hidden elements, low-scoring blocks, and boilerplate;
@@ -56,6 +56,10 @@ The core source is organized around the extraction pipeline rather than one larg
    - sanitize unsafe elements, attributes, and URLs;
    - serialize HTML and optionally convert the selected content to Markdown.
 7. If the result is unusually short, retry the generic pipeline with progressively less aggressive pruning. Each retry reparses the original HTML.
+
+The public entry point is `crates/defuddle/src/lib.rs::parse_html()`. Its parsed-page contract is `DefuddleResult`, its options are `DefuddleOptions`, and metadata entries use `MetaTag`. The generic pipeline boundary is `crates/defuddle/src/pipeline.rs::ExtractionContext`; site adapters return `extractors::SiteExtraction` with `pipeline::ExtractedContent`. Shared selectors live in `crates/defuddle/src/extraction_selectors.rs`, while HTML and text helpers live in `crates/defuddle/src/content_utils.rs`.
+
+The browser boundary is `crates/defuddle-wasm/src/lib.rs::parse_page()`, which serializes `WasmParseResult`. The command-line boundary is `crates/defuddle-cli/src/main.rs::CliInput`, loaded by `read_cli_input()`. Fixture behavior is covered by `crates/defuddle/tests/fixture_harness.rs`, `integration_tests.rs`, and `metadata_tests.rs`; CLI behavior is covered by `crates/defuddle-cli/tests/cli_tests.rs`.
 
 The standardization sequence lives in `standardize/mod.rs`. Its submodules have narrow responsibilities:
 
@@ -77,7 +81,7 @@ The standardization sequence lives in `standardize/mod.rs`. Its submodules have 
 
 Important operations include parsing, subtree queries, `closest`, containment, text extraction, attribute mutation, remove/unwrap, HTML replacement/insertion, serialization, and cloning.
 
-The selector parser supports tags, IDs, classes, attribute presence/equality/contains/prefix/suffix/token matching, `:not()`, and the case-insensitive attribute flag. It does not support combinators such as `>`, `+`, or `~`, nor `:has()`. Attribute-negation inside `:not()` has known limitations; targeted workarounds remain in `pipeline.rs` for media and script selectors.
+The CSS selector parser in `crates/defuddle/src/css_selector.rs` supports tags, IDs, classes, attribute presence/equality/contains/prefix/suffix/token matching, `:not()`, and the case-insensitive attribute flag. It does not support combinators such as `>`, `+`, or `~`, nor `:has()`. Attribute-negation inside `:not()` has known limitations; targeted workarounds remain in `pipeline.rs` for media and script selectors.
 
 ## Site extractors
 

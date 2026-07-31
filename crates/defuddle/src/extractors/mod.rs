@@ -1,7 +1,7 @@
 use rustc_hash::FxHashMap;
 
 use crate::dom::Document;
-use crate::pipeline::{ContentResult, PipelineContext};
+use crate::pipeline::{ExtractedContent, ExtractionContext};
 
 pub mod chatgpt;
 pub mod comments;
@@ -19,14 +19,14 @@ pub(crate) struct HtmlExtraction {
 }
 
 pub(crate) struct SiteExtraction {
-    pub content: ContentResult,
+    pub extracted_content: ExtractedContent,
     pub variables: FxHashMap<String, String>,
 }
 
 pub(crate) trait SiteAdapter {
-    fn matches(&self, context: &PipelineContext<'_>) -> bool;
-    fn prepare(&self, _context: &mut PipelineContext<'_>) {}
-    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction;
+    fn matches(&self, context: &ExtractionContext<'_>) -> bool;
+    fn prepare(&self, _context: &mut ExtractionContext<'_>) {}
+    fn extract(&self, context: &mut ExtractionContext<'_>) -> SiteExtraction;
 }
 
 pub(crate) fn site_extraction_from_html(
@@ -36,13 +36,13 @@ pub(crate) fn site_extraction_from_html(
     let document = Document::parse(&content_html);
     let root = document.root();
     SiteExtraction {
-        content: ContentResult { document, root },
+        extracted_content: ExtractedContent { document, root },
         variables,
     }
 }
 
 pub(crate) fn find_site_adapter(
-    context: &PipelineContext<'_>,
+    context: &ExtractionContext<'_>,
     requested_name: Option<&str>,
 ) -> Option<(&'static str, Box<dyn SiteAdapter>)> {
     let candidates: &[(&str, fn() -> Box<dyn SiteAdapter>)] = &[
@@ -59,13 +59,15 @@ pub(crate) fn find_site_adapter(
             return None;
         }
         let domain_matches = match *name {
-            "hackernews" => context.url.contains("news.ycombinator.com"),
-            "substack" => context.url.contains("substack.com"),
-            "reddit" => context.url.contains("reddit.com"),
-            "github" => context.url.contains("github.com"),
-            "chatgpt" => context.url.contains("chatgpt.com"),
-            "mastodon" => context.url.contains("mastodon."),
-            "twitter" => context.url.contains("x.com") || context.url.contains("twitter.com"),
+            "hackernews" => context.page_url.contains("news.ycombinator.com"),
+            "substack" => context.page_url.contains("substack.com"),
+            "reddit" => context.page_url.contains("reddit.com"),
+            "github" => context.page_url.contains("github.com"),
+            "chatgpt" => context.page_url.contains("chatgpt.com"),
+            "mastodon" => context.page_url.contains("mastodon."),
+            "twitter" => {
+                context.page_url.contains("x.com") || context.page_url.contains("twitter.com")
+            }
             _ => false,
         };
         if requested_name.is_none() && !domain_matches {

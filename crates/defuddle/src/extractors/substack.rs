@@ -1,7 +1,7 @@
 use crate::dom::{Document, NodeId};
 use crate::extractors::dom_builder::Builder;
 use crate::extractors::{SiteAdapter, SiteExtraction};
-use crate::pipeline::PipelineContext;
+use crate::pipeline::ExtractionContext;
 use rustc_hash::FxHashMap;
 
 pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
@@ -11,11 +11,11 @@ pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
 struct SubstackAdapter;
 
 impl SiteAdapter for SubstackAdapter {
-    fn matches(&self, context: &PipelineContext<'_>) -> bool {
+    fn matches(&self, context: &ExtractionContext<'_>) -> bool {
         detect_mode(&context.doc).is_some()
     }
 
-    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction {
+    fn extract(&self, context: &mut ExtractionContext<'_>) -> SiteExtraction {
         let mode = detect_mode(&context.doc).unwrap_or(SubstackMode::Body);
         let metadata = metadata(&context.doc);
         let mut builder = Builder::new();
@@ -114,7 +114,7 @@ impl SiteAdapter for SubstackAdapter {
             variables.insert("published".into(), metadata.published);
         }
         SiteExtraction {
-            content: builder.finish(html),
+            extracted_content: builder.finish(html),
             variables,
         }
     }

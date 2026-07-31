@@ -1,6 +1,6 @@
 use crate::dom::Document;
 use crate::extractors::{HtmlExtraction, SiteAdapter, SiteExtraction, comments};
-use crate::pipeline::PipelineContext;
+use crate::pipeline::ExtractionContext;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
@@ -11,16 +11,19 @@ pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
 struct RedditAdapter;
 
 impl SiteAdapter for RedditAdapter {
-    fn matches(&self, context: &PipelineContext<'_>) -> bool {
+    fn matches(&self, context: &ExtractionContext<'_>) -> bool {
         !context.doc.query_selector_all(".thing.link").is_empty()
     }
 
-    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction {
-        let result = RedditExtractor {
-            url: context.url.to_string(),
+    fn extract(&self, context: &mut ExtractionContext<'_>) -> SiteExtraction {
+        let reddit_extraction = RedditExtractor {
+            url: context.page_url.to_string(),
         }
         .extract(&context.doc);
-        crate::extractors::site_extraction_from_html(result.content_html, result.variables)
+        crate::extractors::site_extraction_from_html(
+            reddit_extraction.content_html,
+            reddit_extraction.variables,
+        )
     }
 }
 
@@ -157,7 +160,7 @@ fn collect_comments_recursive(
             .first()
             .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string()))
             .unwrap_or_default();
-        let date = crate::utils::extract_date(&time_el);
+        let date = crate::content_utils::extract_date(&time_el);
         let body_html = doc
             .query_selector_all(".entry .usertext-body .md")
             .iter()

@@ -20,8 +20,8 @@ pub(crate) fn standardize_headings(doc: &mut Document, content_id: NodeId, metad
             for &anchor_id in &permalink_anchors {
                 doc.remove(anchor_id);
             }
-            let heading_text = crate::utils::normalize_text(&doc.text_content(first_h2));
-            let normalized_title = crate::utils::normalize_text(metadata_title);
+            let heading_text = crate::content_utils::normalize_text(&doc.text_content(first_h2));
+            let normalized_title = crate::content_utils::normalize_text(metadata_title);
             if !normalized_title.is_empty() && heading_text == normalized_title {
                 doc.remove(first_h2);
             }

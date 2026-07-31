@@ -1,11 +1,11 @@
-use crate::constants::{ENTRY_POINT_ELEMENTS, EXACT_SELECTORS, PARTIAL_SELECTORS};
+use crate::content_utils::count_words;
 use crate::dom::{Document, NodeId};
+use crate::extraction_selectors::{ENTRY_POINT_ELEMENTS, EXACT_SELECTORS, PARTIAL_SELECTORS};
 use crate::scoring;
-use crate::utils::count_words;
 use rustc_hash::FxHashSet;
 use std::sync::OnceLock;
 
-use crate::{DefuddleOptions, MetaTagItem, Metadata};
+use crate::{DefuddleOptions, MetaTag, Metadata};
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Diagnostics {
@@ -51,23 +51,23 @@ pub(crate) fn timed<T>(operation: impl FnOnce() -> T) -> (T, u128) {
     }
 }
 
-pub(crate) struct PipelineContext<'a> {
-    pub html: &'a str,
+pub(crate) struct ExtractionContext<'a> {
+    pub source_html: &'a str,
     pub doc: Document,
     pub metadata: &'a Metadata,
-    pub meta: &'a [MetaTagItem],
+    pub meta_tags: &'a [MetaTag],
     pub schema_org_data: &'a [miniserde::json::Value],
-    pub url: &'a str,
-    pub options: &'a DefuddleOptions,
+    pub page_url: &'a str,
+    pub defuddle_options: &'a DefuddleOptions,
     pub diagnostics: Diagnostics,
 }
 
-pub(crate) struct ContentResult {
+pub(crate) struct ExtractedContent {
     pub document: Document,
     pub root: NodeId,
 }
 
-impl ContentResult {
+impl ExtractedContent {
     pub(crate) fn html(&self) -> String {
         self.document.outer_html(self.root)
     }
@@ -262,7 +262,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
                     continue;
                 }
                 if attr_values.contains("sidebar-content")
-                    && crate::utils::count_words(&doc.text_content(id)) >= 80
+                    && crate::content_utils::count_words(&doc.text_content(id)) >= 80
                     && doc.has_selector_in_subtree(id, "p")
                 {
                     continue;
@@ -563,7 +563,7 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
                 "pencraft",
             ]
             .iter()
-            .any(|pattern| crate::utils::contains_ascii_case_insensitive(c, pattern));
+            .any(|pattern| crate::content_utils::contains_ascii_case_insensitive(c, pattern));
             if is_boilerplate {
                 text.clear();
                 doc.text_content_into(id, &mut text);
@@ -616,8 +616,8 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         let text = text.trim();
         let word_count = text.split_whitespace().count();
         // Breadcrumb containers — remove if class indicates breadcrumb
-        if crate::utils::contains_ascii_case_insensitive(class, "breadcrumb")
-            || crate::utils::contains_ascii_case_insensitive(class, "nav")
+        if crate::content_utils::contains_ascii_case_insensitive(class, "breadcrumb")
+            || crate::content_utils::contains_ascii_case_insensitive(class, "nav")
         {
             doc.remove(id);
             continue;
@@ -626,7 +626,9 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         if (tag == "ol" || tag == "ul" || tag == "nav") && text.len() < 200 {
             // Check if this looks like a breadcrumb (short items, links, text- classes)
             let link_count = doc.count_selector_in_subtree(id, "a");
-            if link_count >= 1 && crate::utils::contains_ascii_case_insensitive(class, "text-") {
+            if link_count >= 1
+                && crate::content_utils::contains_ascii_case_insensitive(class, "text-")
+            {
                 doc.remove(id);
                 continue;
             }
@@ -634,10 +636,10 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         // Single-word labels that are common breadcrumbs/eyebrows
         if word_count <= 3
             && text.len() < 100
-            && (crate::utils::contains_ascii_case_insensitive(class, "text-")
-                || crate::utils::contains_ascii_case_insensitive(class, "eyebrow")
-                || crate::utils::contains_ascii_case_insensitive(class, "overline")
-                || crate::utils::contains_ascii_case_insensitive(class, "kicker"))
+            && (crate::content_utils::contains_ascii_case_insensitive(class, "text-")
+                || crate::content_utils::contains_ascii_case_insensitive(class, "eyebrow")
+                || crate::content_utils::contains_ascii_case_insensitive(class, "overline")
+                || crate::content_utils::contains_ascii_case_insensitive(class, "kicker"))
         {
             doc.remove(id);
         }
@@ -695,10 +697,10 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         }
         let class = doc.get_attr(id, "class").unwrap_or("");
         // Remove subtitle/lede paragraphs near beginning of content
-        if crate::utils::contains_ascii_case_insensitive(class, "subtitle")
-            || crate::utils::contains_ascii_case_insensitive(class, "lede")
-            || crate::utils::contains_ascii_case_insensitive(class, "deck")
-            || crate::utils::contains_ascii_case_insensitive(class, "article-deck")
+        if crate::content_utils::contains_ascii_case_insensitive(class, "subtitle")
+            || crate::content_utils::contains_ascii_case_insensitive(class, "lede")
+            || crate::content_utils::contains_ascii_case_insensitive(class, "deck")
+            || crate::content_utils::contains_ascii_case_insensitive(class, "article-deck")
         {
             text.clear();
             doc.text_content_into(id, &mut text);
@@ -764,9 +766,10 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         text.clear();
         doc.text_content_into(id, &mut text);
         let text = text.trim();
-        let compact_read_meta = crate::utils::contains_ascii_case_insensitive(text, "min read")
-            && text.split_whitespace().count() <= 12
-            && compact_read_meta_re.is_match(text);
+        let compact_read_meta =
+            crate::content_utils::contains_ascii_case_insensitive(text, "min read")
+                && text.split_whitespace().count() <= 12
+                && compact_read_meta_re.is_match(text);
         if date_re.is_match(text)
             || min_read_re.is_match(text)
             || named_date_re.is_match(text)
@@ -1030,7 +1033,7 @@ pub fn count_html_words(content: &str) -> usize {
     count_words(&text)
 }
 
-// ── Content pattern helper functions ──────────────────────────────────────────
+// Content-pattern helper functions.
 
 fn related_heading_pattern(text: &str) -> bool {
     let re = RELATED_HEADING_RE.get_or_init(|| {

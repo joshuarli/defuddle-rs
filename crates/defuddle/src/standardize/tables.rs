@@ -1,5 +1,5 @@
-use crate::constants::BLOCK_LEVEL_ELEMENTS;
 use crate::dom::{Document, NodeId};
+use crate::extraction_selectors::BLOCK_LEVEL_ELEMENTS;
 
 pub(crate) fn normalize_data_tables(doc: &mut Document, content_id: NodeId) {
     for table_id in doc.query_selector_all_in_subtree(content_id, "table") {

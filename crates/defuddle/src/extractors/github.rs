@@ -1,7 +1,7 @@
+use crate::content_utils::escape_html;
 use crate::dom::Document;
 use crate::extractors::{HtmlExtraction, SiteAdapter, SiteExtraction, comments};
-use crate::pipeline::PipelineContext;
-use crate::utils::escape_html;
+use crate::pipeline::ExtractionContext;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
@@ -12,8 +12,8 @@ pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
 struct GitHubAdapter;
 
 impl SiteAdapter for GitHubAdapter {
-    fn matches(&self, context: &PipelineContext<'_>) -> bool {
-        let is_page = context.url.contains("/pull/") || context.url.contains("/issues/");
+    fn matches(&self, context: &ExtractionContext<'_>) -> bool {
+        let is_page = context.page_url.contains("/pull/") || context.page_url.contains("/issues/");
         let indicators = [
             "meta[name=\"expected-hostname\"][content=\"github.com\"]",
             ".js-header-wrapper",
@@ -25,13 +25,16 @@ impl SiteAdapter for GitHubAdapter {
                 .any(|selector| !context.doc.query_selector_all(selector).is_empty())
     }
 
-    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction {
-        let result = GitHubExtractor {
-            repo_info: extract_repo_info(context.url),
-            is_pr: context.url.contains("/pull/"),
+    fn extract(&self, context: &mut ExtractionContext<'_>) -> SiteExtraction {
+        let github_extraction = GitHubExtractor {
+            repo_info: extract_repo_info(context.page_url),
+            is_pr: context.page_url.contains("/pull/"),
         }
         .extract(&context.doc);
-        crate::extractors::site_extraction_from_html(result.content_html, result.variables)
+        crate::extractors::site_extraction_from_html(
+            github_extraction.content_html,
+            github_extraction.variables,
+        )
     }
 }
 
@@ -203,7 +206,7 @@ impl GitHubExtractor {
                 .and_then(|id| doc.get_attr(id, "href"))
                 .map(|href| href.trim_start_matches('/').to_string())
                 .unwrap_or_else(|| author_val.clone());
-            let author_href = if crate::utils::is_absolute_url(&author_link) {
+            let author_href = if crate::content_utils::is_absolute_url(&author_link) {
                 author_link.clone()
             } else {
                 format!("https://github.com/{author_link}")
@@ -284,7 +287,7 @@ fn extract_github_comments(doc: &Document) -> Vec<comments::CommentData> {
         if author.is_empty() { continue; }
         let datetime = doc.query_selector_all_in_subtree(header_id, "relative-time").first()
             .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string())).unwrap_or_default();
-        let date = crate::utils::extract_date(&datetime);
+        let date = crate::content_utils::extract_date(&datetime);
         let body = doc.query_selector_all_in_subtree(container, ".comment-body.markdown-body").first()
             .map(|id| doc.inner_html(*id)).unwrap_or_default();
         if body.trim().is_empty() { continue; }
@@ -312,7 +315,7 @@ fn extract_github_comments(doc: &Document) -> Vec<comments::CommentData> {
             .first()
             .and_then(|id| doc.get_attr(*id, "datetime").map(|s| s.to_string()))
             .unwrap_or_default();
-        let date = crate::utils::extract_date(&datetime);
+        let date = crate::content_utils::extract_date(&datetime);
         let body = doc
             .query_selector_all_in_subtree(container, ".comment-body.markdown-body")
             .first()

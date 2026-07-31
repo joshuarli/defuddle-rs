@@ -12,18 +12,18 @@
 //! ```rust
 //! use defuddle::{DefuddleOptions, parse_html};
 //!
-//! let html = r#"
+//! let source_html = r#"
 //! <html><head><meta property="og:title" content="Hello World"></head>
 //! <body><article><h1>Hello World</h1><p>This is an article.</p></article></body>
 //! </html>"#;
 //!
-//! let result = parse_html(html, DefuddleOptions {
+//! let parsed_page = parse_html(source_html, DefuddleOptions {
 //!     url: Some("https://example.com/article".into()),
 //!     ..Default::default()
 //! }).unwrap();
 //!
-//! assert_eq!(result.title, "Hello World");
-//! assert_eq!(result.domain, "example.com");
+//! assert_eq!(parsed_page.title, "Hello World");
+//! assert_eq!(parsed_page.domain, "example.com");
 //! ```
 //!
 //! ## Features
@@ -44,11 +44,13 @@
 //! - Evaluate live browser CSS/layout
 //! - Access shadow DOM from extension isolated worlds
 //! - Support async/streaming extraction (future work)
-mod constants;
 mod embeds;
+mod extraction_selectors;
 
 mod dom;
 
+pub mod content_utils;
+mod css_selector;
 pub mod extractors;
 mod footnotes;
 pub mod markdown;
@@ -59,9 +61,7 @@ mod prune;
 pub mod sanitize;
 mod schema;
 mod scoring;
-mod selector;
 mod standardize;
-pub mod utils;
 
 use miniserde::json::{Array, Object, Value};
 use miniserde::{Deserialize, Serialize};
@@ -91,7 +91,7 @@ pub struct DefuddleOptions {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct MetaTagItem {
+pub struct MetaTag {
     pub name: Option<String>,
     pub property: Option<String>,
     pub content: Option<String>,
@@ -121,7 +121,7 @@ pub struct DefuddleResult {
     pub favicon: String,
     pub image: String,
     pub language: String,
-    pub meta_tags: Vec<MetaTagItem>,
+    pub meta_tags: Vec<MetaTag>,
     pub parse_time: u64,
     pub published: String,
     pub author: String,
@@ -161,12 +161,12 @@ impl Default for DefuddleResult {
 /// Replaces the 14-parameter signatures of `parse_internal` / `parse_internal_once`.
 /// Boolean flags control which pipeline stages are active; reference fields hold
 /// the parsed metadata, schema data, and original HTML needed for retry logic.
-struct PipelineConfig<'a> {
-    html: &'a str,
+struct GenericPipelineConfig<'a> {
+    source_html: &'a str,
     metadata: &'a Metadata,
-    meta: &'a [MetaTagItem],
+    meta_tags: &'a [MetaTag],
     schema_org_data: &'a [Value],
-    url: &'a str,
+    page_url: &'a str,
     remove_exact: bool,
     remove_partial: bool,
     remove_hidden: bool,
@@ -184,19 +184,22 @@ pub enum DefuddleError {
     Parse(String),
 }
 
-pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult, DefuddleError> {
+pub fn parse_html(
+    source_html: &str,
+    defuddle_options: DefuddleOptions,
+) -> Result<DefuddleResult, DefuddleError> {
     let mut diagnostics = pipeline::Diagnostics::default();
-    let mut doc = diagnostics.measure("parsing", || Document::parse(html));
+    let mut doc = diagnostics.measure("parsing", || Document::parse(source_html));
     let prune_registry = prune::build_registry();
     diagnostics.measure("prune", || prune_registry.run(&mut doc));
 
-    let url = options.url.as_deref().unwrap_or("");
+    let page_url = defuddle_options.url.as_deref().unwrap_or("");
     let schema_org_data = diagnostics.measure("schema", || schema::extract_schema_org_data(&doc));
     let meta_tags_raw = diagnostics.measure("metadata", || schema::collect_meta_tags(&doc));
 
-    let meta: Vec<MetaTagItem> = meta_tags_raw
+    let meta_tags: Vec<MetaTag> = meta_tags_raw
         .iter()
-        .map(|(name, property, content)| MetaTagItem {
+        .map(|(name, property, content)| MetaTag {
             name: name.clone(),
             property: property.clone(),
             content: content.clone(),
@@ -204,36 +207,36 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
         .collect();
 
     let metadata = diagnostics.measure("metadata", || {
-        metadata::extract_metadata(&doc, &schema_org_data, &meta_tags_raw, url)
+        metadata::extract_metadata(&doc, &schema_org_data, &meta_tags_raw, page_url)
     });
 
-    let debug = options.debug;
-    let separate_markdown = options.separate_markdown;
-    let remove_exact = options.remove_exact_selectors.unwrap_or(true);
-    let remove_partial = options.remove_partial_selectors.unwrap_or(true);
-    let remove_hidden = options.remove_hidden_elements.unwrap_or(true);
-    let remove_iframes = options.remove_iframes;
-    let remove_small_images = options.remove_small_images.unwrap_or(true);
-    let do_standardize = options.standardize.unwrap_or(true);
-    let content_selector = options.content_selector.as_deref();
+    let debug = defuddle_options.debug;
+    let separate_markdown = defuddle_options.separate_markdown;
+    let remove_exact = defuddle_options.remove_exact_selectors.unwrap_or(true);
+    let remove_partial = defuddle_options.remove_partial_selectors.unwrap_or(true);
+    let remove_hidden = defuddle_options.remove_hidden_elements.unwrap_or(true);
+    let remove_iframes = defuddle_options.remove_iframes;
+    let remove_small_images = defuddle_options.remove_small_images.unwrap_or(true);
+    let do_standardize = defuddle_options.standardize.unwrap_or(true);
+    let content_selector = defuddle_options.content_selector.as_deref();
 
     if remove_iframes {
         sanitize::remove_iframes(&mut doc);
     }
 
-    let mut context = pipeline::PipelineContext {
-        html,
+    let mut context = pipeline::ExtractionContext {
+        source_html,
         doc,
         metadata: &metadata,
-        meta: &meta,
+        meta_tags: &meta_tags,
         schema_org_data: &schema_org_data,
-        url,
-        options: &options,
+        page_url,
+        defuddle_options: &defuddle_options,
         diagnostics,
     };
 
     if let Some((name, adapter)) =
-        extractors::find_site_adapter(&context, options.extractor.as_deref())
+        extractors::find_site_adapter(&context, defuddle_options.extractor.as_deref())
     {
         adapter.prepare(&mut context);
         let (extraction, elapsed_nanos) = pipeline::timed(|| adapter.extract(&mut context));
@@ -241,26 +244,26 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
             name: "site extraction",
             elapsed_nanos,
         });
-        let mut result = site_result(
+        let mut parsed_page = site_result(
             extraction,
             name,
             &metadata,
-            &meta,
+            &meta_tags,
             &schema_org_data,
             separate_markdown,
         );
-        if options.profile {
-            result.parse_time = context.diagnostics.total_nanos() as u64 / 1_000_000;
+        if defuddle_options.profile {
+            parsed_page.parse_time = context.diagnostics.total_nanos() as u64 / 1_000_000;
         }
-        return Ok(result);
+        return Ok(parsed_page);
     }
 
-    let config = PipelineConfig {
-        html,
+    let config = GenericPipelineConfig {
+        source_html,
         metadata: &metadata,
-        meta: &meta,
+        meta_tags: &meta_tags,
         schema_org_data: &schema_org_data,
-        url,
+        page_url,
         remove_exact,
         remove_partial,
         remove_hidden,
@@ -271,14 +274,14 @@ pub fn parse_html(html: &str, options: DefuddleOptions) -> Result<DefuddleResult
         content_selector,
         debug,
     };
-    Ok(parse_internal(pipeline::PipelineContext {
-        html,
+    Ok(parse_internal(pipeline::ExtractionContext {
+        source_html,
         doc: context.doc,
         metadata: config.metadata,
-        meta: config.meta,
+        meta_tags: config.meta_tags,
         schema_org_data: config.schema_org_data,
-        url: config.url,
-        options: &options,
+        page_url: config.page_url,
+        defuddle_options: &defuddle_options,
         diagnostics: context.diagnostics,
     }))
 }
@@ -287,12 +290,12 @@ fn site_result(
     extraction: extractors::SiteExtraction,
     extractor_type: &str,
     metadata: &Metadata,
-    meta: &[MetaTagItem],
+    meta_tags: &[MetaTag],
     schema_org_data: &[Value],
     separate_markdown: bool,
 ) -> DefuddleResult {
     let mut variables = extraction.variables;
-    let content_html = extraction.content.html();
+    let content_html = extraction.extracted_content.html();
     let content_markdown = separate_markdown
         .then(|| markdown::normalize_origin_links(&markdown::html_to_markdown(&content_html)));
     let schema_org_data = if schema_org_data.is_empty() {
@@ -314,7 +317,7 @@ fn site_result(
         favicon: metadata.favicon.clone(),
         image: metadata.image.clone(),
         language: metadata.language.clone(),
-        meta_tags: meta.to_vec(),
+        meta_tags: meta_tags.to_vec(),
         published: variables
             .remove("published")
             .unwrap_or_else(|| metadata.published.clone()),
@@ -347,63 +350,72 @@ fn site_result(
 /// original HTML — this is simpler than cloning a mutated `Document` and
 /// re-running only the affected pipeline steps, and re-parsing is cheap enough
 /// for the short HTML documents that reach this path.
-fn parse_internal(mut context: pipeline::PipelineContext<'_>) -> DefuddleResult {
-    let mut config = PipelineConfig {
-        html: context.html,
+fn parse_internal(mut context: pipeline::ExtractionContext<'_>) -> DefuddleResult {
+    let mut config = GenericPipelineConfig {
+        source_html: context.source_html,
         metadata: context.metadata,
-        meta: context.meta,
+        meta_tags: context.meta_tags,
         schema_org_data: context.schema_org_data,
-        url: context.url,
-        remove_exact: context.options.remove_exact_selectors.unwrap_or(true),
-        remove_partial: context.options.remove_partial_selectors.unwrap_or(true),
-        remove_hidden: context.options.remove_hidden_elements.unwrap_or(true),
-        remove_iframes: context.options.remove_iframes,
-        remove_small_images: context.options.remove_small_images.unwrap_or(true),
-        do_standardize: context.options.standardize.unwrap_or(true),
-        separate_markdown: context.options.separate_markdown,
-        content_selector: context.options.content_selector.as_deref(),
-        debug: context.options.debug,
+        page_url: context.page_url,
+        remove_exact: context
+            .defuddle_options
+            .remove_exact_selectors
+            .unwrap_or(true),
+        remove_partial: context
+            .defuddle_options
+            .remove_partial_selectors
+            .unwrap_or(true),
+        remove_hidden: context
+            .defuddle_options
+            .remove_hidden_elements
+            .unwrap_or(true),
+        remove_iframes: context.defuddle_options.remove_iframes,
+        remove_small_images: context.defuddle_options.remove_small_images.unwrap_or(true),
+        do_standardize: context.defuddle_options.standardize.unwrap_or(true),
+        separate_markdown: context.defuddle_options.separate_markdown,
+        content_selector: context.defuddle_options.content_selector.as_deref(),
+        debug: context.defuddle_options.debug,
     };
     let doc = std::mem::replace(&mut context.doc, Document::empty());
-    let mut result = parse_internal_once(doc, &config);
+    let mut parsed_page = parse_internal_once(doc, &config);
 
-    let mut wc = pipeline::count_html_words(&result.content);
+    let mut word_count = pipeline::count_html_words(&parsed_page.content);
 
-    if wc < 200 {
+    if word_count < 200 {
         config.remove_partial = false;
-        let retry1 = parse_internal_once(Document::parse(config.html), &config);
-        let wc1 = pipeline::count_html_words(&retry1.content);
-        if wc1 > wc {
-            result = retry1;
-            wc = wc1;
+        let retry_parsed_page = parse_internal_once(Document::parse(config.source_html), &config);
+        let retry_word_count = pipeline::count_html_words(&retry_parsed_page.content);
+        if retry_word_count > word_count {
+            parsed_page = retry_parsed_page;
+            word_count = retry_word_count;
         }
     }
 
-    if wc < 50 {
+    if word_count < 50 {
         config.remove_hidden = false;
-        let retry2 = parse_internal_once(Document::parse(config.html), &config);
-        let wc2 = pipeline::count_html_words(&retry2.content);
-        if wc2 > wc {
-            result = retry2;
-            wc = wc2;
+        let retry_parsed_page = parse_internal_once(Document::parse(config.source_html), &config);
+        let retry_word_count = pipeline::count_html_words(&retry_parsed_page.content);
+        if retry_word_count > word_count {
+            parsed_page = retry_parsed_page;
+            word_count = retry_word_count;
         }
     }
 
-    if wc < 50 {
-        let retry3 = parse_internal_once(Document::parse(config.html), &config);
-        let wc3 = pipeline::count_html_words(&retry3.content);
-        if wc3 > wc {
-            result = retry3;
+    if word_count < 50 {
+        let retry_parsed_page = parse_internal_once(Document::parse(config.source_html), &config);
+        let retry_word_count = pipeline::count_html_words(&retry_parsed_page.content);
+        if retry_word_count > word_count {
+            parsed_page = retry_parsed_page;
         }
     }
 
-    if context.options.profile {
-        result.parse_time = context.diagnostics.total_nanos() as u64 / 1_000_000;
+    if context.defuddle_options.profile {
+        parsed_page.parse_time = context.diagnostics.total_nanos() as u64 / 1_000_000;
     }
-    result
+    parsed_page
 }
 
-fn parse_internal_once(mut doc: Document, config: &PipelineConfig<'_>) -> DefuddleResult {
+fn parse_internal_once(mut doc: Document, config: &GenericPipelineConfig<'_>) -> DefuddleResult {
     // Find main content first
     let main_content = pipeline::extract_content(&mut doc, config.content_selector, config.debug);
     let body_ids = doc.query_selector_all("body");
@@ -454,7 +466,7 @@ fn parse_internal_once(mut doc: Document, config: &PipelineConfig<'_>) -> Defudd
         }
 
         // Resolve relative URLs before standardization
-        standardize::resolve_urls(&mut doc, content, config.url);
+        standardize::resolve_urls(&mut doc, content, config.page_url);
 
         if config.do_standardize {
             standardize::standardize_content(
@@ -463,7 +475,7 @@ fn parse_internal_once(mut doc: Document, config: &PipelineConfig<'_>) -> Defudd
                 &config.metadata.title,
                 overrides.as_ref(),
             );
-            standardize::resolve_urls(&mut doc, content, config.url);
+            standardize::resolve_urls(&mut doc, content, config.page_url);
         }
 
         if config.remove_iframes {
@@ -471,11 +483,11 @@ fn parse_internal_once(mut doc: Document, config: &PipelineConfig<'_>) -> Defudd
         }
         sanitize::strip_unsafe_elements(&mut doc);
 
-        let mut html = doc.outer_html(content);
+        let mut extracted_html = doc.outer_html(content);
         if let Some(ref ov) = overrides
             && let Some(post) = ov.custom_html_postprocess
         {
-            html = post(&html);
+            extracted_html = post(&extracted_html);
         }
         let md = if config.separate_markdown {
             let markdown_raw = markdown::content_to_markdown(&doc, content);
@@ -490,7 +502,7 @@ fn parse_internal_once(mut doc: Document, config: &PipelineConfig<'_>) -> Defudd
         } else {
             None
         };
-        let word_count = pipeline::count_html_words(&html);
+        let word_count = pipeline::count_html_words(&extracted_html);
 
         let debug_info = if config.debug {
             let content_sel = element_selector(&doc, content);
@@ -528,7 +540,7 @@ fn parse_internal_once(mut doc: Document, config: &PipelineConfig<'_>) -> Defudd
         };
 
         DefuddleResult {
-            content: html,
+            content: extracted_html,
             content_markdown: content_md,
             title: config.metadata.title.clone(),
             description: config.metadata.description.clone(),
@@ -536,7 +548,7 @@ fn parse_internal_once(mut doc: Document, config: &PipelineConfig<'_>) -> Defudd
             favicon: config.metadata.favicon.clone(),
             image: config.metadata.image.clone(),
             language: config.metadata.language.clone(),
-            meta_tags: config.meta.to_vec(),
+            meta_tags: config.meta_tags.to_vec(),
             published: config.metadata.published.clone(),
             author: config.metadata.author.clone(),
             site: config.metadata.site.clone(),
@@ -558,7 +570,7 @@ fn parse_internal_once(mut doc: Document, config: &PipelineConfig<'_>) -> Defudd
             favicon: config.metadata.favicon.clone(),
             image: config.metadata.image.clone(),
             language: config.metadata.language.clone(),
-            meta_tags: config.meta.to_vec(),
+            meta_tags: config.meta_tags.to_vec(),
             published: config.metadata.published.clone(),
             author: config.metadata.author.clone(),
             site: config.metadata.site.clone(),

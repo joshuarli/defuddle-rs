@@ -1,5 +1,5 @@
 use crate::dom::{Document, NodeId};
-use crate::pipeline::ContentResult;
+use crate::pipeline::ExtractedContent;
 
 pub(crate) struct Builder {
     pub(crate) document: Document,
@@ -34,8 +34,8 @@ impl Builder {
         }
     }
 
-    pub(crate) fn finish(self, root: NodeId) -> ContentResult {
-        ContentResult {
+    pub(crate) fn finish(self, root: NodeId) -> ExtractedContent {
+        ExtractedContent {
             document: self.document,
             root,
         }

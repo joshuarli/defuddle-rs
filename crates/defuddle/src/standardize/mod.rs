@@ -1,5 +1,5 @@
-use crate::constants::ALLOWED_ATTRIBUTES;
 use crate::dom::{Document, NodeId};
+use crate::extraction_selectors::ALLOWED_ATTRIBUTES;
 use rustc_hash::FxHashSet;
 
 mod callouts;

@@ -5,7 +5,7 @@ pub(crate) fn recover_noscript_images(doc: &mut Document, content_id: NodeId) {
     for ns_id in noscripts {
         let imgs = doc.query_selector_all_in_subtree(ns_id, "img");
         if imgs.is_empty() {
-            let raw = crate::utils::decode_html_entities(&doc.inner_html(ns_id));
+            let raw = crate::content_utils::decode_html_entities(&doc.inner_html(ns_id));
             let parsed = Document::parse(&raw);
             let Some(img_id) = parsed.query_selector_all("img").first().copied() else {
                 continue;
@@ -20,7 +20,7 @@ pub(crate) fn recover_noscript_images(doc: &mut Document, content_id: NodeId) {
                     .is_empty()
             });
             let caption = if !has_caption && !alt.is_empty() {
-                format!("<p>{}</p>", crate::utils::escape_html(alt))
+                format!("<p>{}</p>", crate::content_utils::escape_html(alt))
             } else {
                 String::new()
             };
@@ -28,8 +28,8 @@ pub(crate) fn recover_noscript_images(doc: &mut Document, content_id: NodeId) {
                 ns_id,
                 &format!(
                     r#"<img src="{}" alt="{}">{}"#,
-                    crate::utils::escape_html(src),
-                    crate::utils::escape_html(alt),
+                    crate::content_utils::escape_html(src),
+                    crate::content_utils::escape_html(alt),
                     caption
                 ),
             );
@@ -63,7 +63,7 @@ pub(crate) fn recover_noscript_images(doc: &mut Document, content_id: NodeId) {
             if !has_caption && !ns_alt.is_empty() {
                 doc.append_html(
                     pid,
-                    &format!("<p>{}</p>", crate::utils::escape_html(&ns_alt)),
+                    &format!("<p>{}</p>", crate::content_utils::escape_html(&ns_alt)),
                 );
             }
         }

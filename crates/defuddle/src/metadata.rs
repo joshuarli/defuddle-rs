@@ -2,9 +2,9 @@ use std::sync::OnceLock;
 
 use miniserde::json::Value;
 
+use crate::content_utils::count_words;
 use crate::dom::{Document, NodeId};
 use crate::schema::{as_str, is_container};
-use crate::utils::count_words;
 use rustc_hash::FxHashSet;
 
 type MetaTags = [(Option<String>, Option<String>, Option<String>)];
@@ -100,7 +100,7 @@ fn extract_domain_and_url(
     };
 
     let domain = if !url.is_empty() {
-        crate::utils::extract_domain(&url)
+        crate::content_utils::extract_domain(&url)
     } else {
         String::new()
     };
@@ -112,7 +112,7 @@ fn extract_domain_and_url(
             && let Some(base_href) = doc.get_attr(*base_id, "href")
         {
             return (
-                crate::utils::extract_domain(base_href),
+                crate::content_utils::extract_domain(base_href),
                 base_href.to_string(),
             );
         }
@@ -697,7 +697,7 @@ impl ParsedUrl {
 }
 
 fn resolve_url(href: &str, base: &str) -> String {
-    if crate::utils::is_absolute_url(href) {
+    if crate::content_utils::is_absolute_url(href) {
         let without_query = href.split(['?', '#']).next().unwrap_or(href);
         if without_query.matches('/').count() == 2 && !href.contains(['?', '#']) {
             return format!("{href}/");
@@ -1057,7 +1057,7 @@ fn clean_author_string(s: &str) -> String {
         AUTHOR_URL_RE.get_or_init(|| regex_lite::Regex::new(r"\(?\s*https?://\S+\s*\)?").unwrap());
     let s = url_re.replace_all(s, "").to_string();
 
-    if crate::utils::is_absolute_url(&s) {
+    if crate::content_utils::is_absolute_url(&s) {
         return s.to_string();
     }
 

@@ -2,7 +2,7 @@ use miniserde::json::{Array, Value};
 
 use crate::dom::Document;
 
-use crate::utils::decode_html_entities;
+use crate::content_utils::decode_html_entities;
 
 pub fn extract_schema_org_data(doc: &Document) -> Vec<Value> {
     let scripts: Vec<_> = doc.query_selector_all("script[type=\"application/ld+json\"]");

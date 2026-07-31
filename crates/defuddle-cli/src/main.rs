@@ -7,9 +7,9 @@ use std::process;
 #[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
-struct Input {
-    html: String,
-    url: Option<String>,
+struct CliInput {
+    source_html: String,
+    page_url: Option<String>,
 }
 
 fn main() {
@@ -28,12 +28,12 @@ fn run() -> Result<(), String> {
     let mut json_output = false;
     let mut frontmatter = false;
     let mut property: Option<String> = None;
-    let mut output: Option<PathBuf> = None;
-    let mut url: Option<String> = None;
-    let mut lang: Option<String> = None;
+    let mut output_path: Option<PathBuf> = None;
+    let mut page_url: Option<String> = None;
+    let mut language: Option<String> = None;
     let mut debug = false;
     let mut extractor: Option<String> = None;
-    let mut source: Option<String> = None;
+    let mut input_source: Option<String> = None;
 
     while let Some(arg) = parser.next().map_err(|e| e.to_string())? {
         match arg {
@@ -56,7 +56,7 @@ fn run() -> Result<(), String> {
                 );
             }
             lexopt::Arg::Short('o') | lexopt::Arg::Long("output") => {
-                output = Some(PathBuf::from(
+                output_path = Some(PathBuf::from(
                     parser
                         .value()
                         .map_err(|e| e.to_string())?
@@ -65,7 +65,7 @@ fn run() -> Result<(), String> {
                 ));
             }
             lexopt::Arg::Long("url") => {
-                url = Some(
+                page_url = Some(
                     parser
                         .value()
                         .map_err(|e| e.to_string())?
@@ -74,7 +74,7 @@ fn run() -> Result<(), String> {
                 );
             }
             lexopt::Arg::Short('l') | lexopt::Arg::Long("lang") => {
-                lang = Some(
+                language = Some(
                     parser
                         .value()
                         .map_err(|e| e.to_string())?
@@ -99,7 +99,7 @@ fn run() -> Result<(), String> {
                 return Ok(());
             }
             lexopt::Arg::Value(val) => {
-                source = Some(
+                input_source = Some(
                     val.into_string()
                         .map_err(|_| "invalid source argument".to_string())?,
                 );
@@ -110,8 +110,8 @@ fn run() -> Result<(), String> {
         }
     }
 
-    if let Some(ref src) = source
-        && defuddle::utils::is_absolute_url(src)
+    if let Some(ref source) = input_source
+        && defuddle::content_utils::is_absolute_url(source)
     {
         return Err(
                 "The defuddle CLI does not fetch URLs. Pass a local HTML file path or pipe HTML via stdin.\n\
@@ -120,28 +120,28 @@ fn run() -> Result<(), String> {
             );
     }
 
-    let input = read_input(&source)?;
-    if url.is_none() {
-        url = input.url;
+    let cli_input = read_cli_input(&input_source)?;
+    if page_url.is_none() {
+        page_url = cli_input.page_url;
     }
 
     let options = defuddle::DefuddleOptions {
-        url,
+        url: page_url,
         debug,
         extractor,
         separate_markdown: markdown,
-        language: lang,
+        language,
         ..Default::default()
     };
 
-    let result =
-        defuddle::parse_html(&input.html, options).map_err(|e| format!("Parse error: {e}"))?;
+    let parsed_page = defuddle::parse_html(&cli_input.source_html, options)
+        .map_err(|e| format!("Parse error: {e}"))?;
     eprintln!(
         "defuddle: detected extractor: {}",
-        result.extractor_type.as_deref().unwrap_or("generic")
+        parsed_page.extractor_type.as_deref().unwrap_or("generic")
     );
 
-    let out: Box<dyn Write> = if let Some(ref path) = output {
+    let out: Box<dyn Write> = if let Some(ref path) = output_path {
         Box::new(fs::File::create(path).map_err(|e| format!("Cannot open output file: {e}"))?)
     } else {
         Box::new(io::stdout())
@@ -149,16 +149,16 @@ fn run() -> Result<(), String> {
 
     if let Some(ref prop) = property {
         let value = match prop.as_str() {
-            "title" => &result.title,
-            "author" => &result.author,
-            "description" => &result.description,
-            "domain" => &result.domain,
-            "favicon" => &result.favicon,
-            "image" => &result.image,
-            "language" => &result.language,
-            "published" => &result.published,
-            "site" => &result.site,
-            "content" => &result.content,
+            "title" => &parsed_page.title,
+            "author" => &parsed_page.author,
+            "description" => &parsed_page.description,
+            "domain" => &parsed_page.domain,
+            "favicon" => &parsed_page.favicon,
+            "image" => &parsed_page.image,
+            "language" => &parsed_page.language,
+            "published" => &parsed_page.published,
+            "site" => &parsed_page.site,
+            "content" => &parsed_page.content,
             other => return Err(format!("unknown property: {other}")),
         };
         let mut out = out;
@@ -168,7 +168,7 @@ fn run() -> Result<(), String> {
 
     if json_output {
         let mut out = out;
-        let json = miniserde::json::to_string(&result);
+        let json = miniserde::json::to_string(&parsed_page);
         writeln!(out, "{json}").map_err(|e| e.to_string())?;
         return Ok(());
     }
@@ -176,19 +176,20 @@ fn run() -> Result<(), String> {
     if frontmatter {
         let mut out = out;
         writeln!(out, "---").map_err(|e| e.to_string())?;
-        writeln!(out, "title: {}", &result.title).map_err(|e| e.to_string())?;
-        writeln!(out, "author: {}", &result.author).map_err(|e| e.to_string())?;
-        if !result.description.is_empty() {
-            writeln!(out, "description: {}", &result.description).map_err(|e| e.to_string())?;
+        writeln!(out, "title: {}", &parsed_page.title).map_err(|e| e.to_string())?;
+        writeln!(out, "author: {}", &parsed_page.author).map_err(|e| e.to_string())?;
+        if !parsed_page.description.is_empty() {
+            writeln!(out, "description: {}", &parsed_page.description)
+                .map_err(|e| e.to_string())?;
         }
-        writeln!(out, "site: {}", &result.site).map_err(|e| e.to_string())?;
-        if !result.published.is_empty() {
-            writeln!(out, "published: {}", &result.published).map_err(|e| e.to_string())?;
+        writeln!(out, "site: {}", &parsed_page.site).map_err(|e| e.to_string())?;
+        if !parsed_page.published.is_empty() {
+            writeln!(out, "published: {}", &parsed_page.published).map_err(|e| e.to_string())?;
         }
-        writeln!(out, "language: {}", &result.language).map_err(|e| e.to_string())?;
-        writeln!(out, "domain: {}", &result.domain).map_err(|e| e.to_string())?;
+        writeln!(out, "language: {}", &parsed_page.language).map_err(|e| e.to_string())?;
+        writeln!(out, "domain: {}", &parsed_page.domain).map_err(|e| e.to_string())?;
         writeln!(out, "---").map_err(|e| e.to_string())?;
-        if markdown && let Some(ref md) = result.content_markdown {
+        if markdown && let Some(ref md) = parsed_page.content_markdown {
             write!(out, "{md}").map_err(|e| e.to_string())?;
         }
         return Ok(());
@@ -196,18 +197,18 @@ fn run() -> Result<(), String> {
 
     let mut out = out;
     if markdown {
-        if let Some(ref md) = result.content_markdown {
+        if let Some(ref md) = parsed_page.content_markdown {
             write!(out, "{md}").map_err(|e| e.to_string())?;
         }
     } else {
-        write!(out, "{}", result.content).map_err(|e| e.to_string())?;
+        write!(out, "{}", parsed_page.content).map_err(|e| e.to_string())?;
     }
 
     Ok(())
 }
 
-fn read_input(source: &Option<String>) -> Result<Input, String> {
-    let bytes = match source {
+fn read_cli_input(input_source: &Option<String>) -> Result<CliInput, String> {
+    let bytes = match input_source {
         Some(path) if path == "-" || path.is_empty() => {
             let mut buf = Vec::new();
             io::stdin()
@@ -228,15 +229,19 @@ fn read_input(source: &Option<String>) -> Result<Input, String> {
         }
     };
 
-    if is_single_file_archive(&bytes) {
-        return read_single_file_archive(&bytes);
+    if is_single_file_cli_archive(&bytes) {
+        return read_single_file_cli_archive(&bytes);
     }
 
-    let html = String::from_utf8(bytes).map_err(|e| format!("Input is not valid UTF-8: {e}"))?;
-    Ok(Input { html, url: None })
+    let source_html =
+        String::from_utf8(bytes).map_err(|e| format!("Input is not valid UTF-8: {e}"))?;
+    Ok(CliInput {
+        source_html,
+        page_url: None,
+    })
 }
 
-fn is_single_file_archive(bytes: &[u8]) -> bool {
+fn is_single_file_cli_archive(bytes: &[u8]) -> bool {
     bytes
         .windows(b"data-sfz".len())
         .any(|window| window == b"data-sfz")
@@ -245,7 +250,7 @@ fn is_single_file_archive(bytes: &[u8]) -> bool {
             .any(|window| window == b"sfz-extra-data")
 }
 
-fn read_single_file_archive(bytes: &[u8]) -> Result<Input, String> {
+fn read_single_file_cli_archive(bytes: &[u8]) -> Result<CliInput, String> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
         .map_err(|e| format!("Cannot read SingleFile ZIP archive: {e}"))?;
 
@@ -282,12 +287,12 @@ fn read_single_file_archive(bytes: &[u8]) -> Result<Input, String> {
     index
         .read_to_end(&mut html_bytes)
         .map_err(|e| format!("Cannot read {index_name} from SingleFile archive: {e}"))?;
-    let html = String::from_utf8(html_bytes)
+    let source_html = String::from_utf8(html_bytes)
         .map_err(|e| format!("SingleFile index is not valid UTF-8: {e}"))?;
 
-    Ok(Input {
-        html,
-        url: archive_url,
+    Ok(CliInput {
+        source_html,
+        page_url: archive_url,
     })
 }
 

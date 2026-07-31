@@ -1,8 +1,8 @@
-use crate::constants::{
+use crate::dom::{Document, NodeId};
+use crate::extraction_selectors::{
     ALLOWED_EMPTY_ELEMENTS, BLOCK_ELEMENTS, BLOCK_LEVEL_ELEMENTS, INLINE_ELEMENTS,
     PRESERVE_ELEMENTS,
 };
-use crate::dom::{Document, NodeId};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Preserve author-declared preformatted code when it is represented as a
@@ -437,7 +437,7 @@ pub(crate) fn remove_empty_text_nodes(doc: &mut Document, node: NodeId) {
         if is_invis {
             doc.remove(tc);
         } else {
-            crate::utils::normalize_whitespace_into(&text, &mut normalized);
+            crate::content_utils::normalize_whitespace_into(&text, &mut normalized);
             if normalized != text {
                 doc.set_text(tc, &normalized);
             }

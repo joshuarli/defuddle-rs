@@ -1,7 +1,7 @@
+use crate::content_utils::escape_html;
 use crate::dom::Document;
 use crate::extractors::{HtmlExtraction, SiteAdapter, SiteExtraction};
-use crate::pipeline::PipelineContext;
-use crate::utils::escape_html;
+use crate::pipeline::ExtractionContext;
 use rustc_hash::FxHashMap;
 
 pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
@@ -11,16 +11,19 @@ pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
 struct ChatGptAdapter;
 
 impl SiteAdapter for ChatGptAdapter {
-    fn matches(&self, context: &PipelineContext<'_>) -> bool {
+    fn matches(&self, context: &ExtractionContext<'_>) -> bool {
         !context
             .doc
             .query_selector_all("[data-testid^=\"conversation-turn-\"]")
             .is_empty()
     }
 
-    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction {
-        let result = ChatGPTExtractor.extract(&context.doc);
-        crate::extractors::site_extraction_from_html(result.content_html, result.variables)
+    fn extract(&self, context: &mut ExtractionContext<'_>) -> SiteExtraction {
+        let chatgpt_extraction = ChatGPTExtractor.extract(&context.doc);
+        crate::extractors::site_extraction_from_html(
+            chatgpt_extraction.content_html,
+            chatgpt_extraction.variables,
+        )
     }
 }
 

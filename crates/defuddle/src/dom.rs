@@ -24,7 +24,7 @@ fn parse_selector(selector: &str) -> ParsedSelector {
         .filter(|part| !part.is_empty())
         .map(|part| {
             part.split_whitespace()
-                .filter_map(crate::selector::parse_one)
+                .filter_map(crate::css_selector::parse_one)
                 .collect()
         })
         .filter(|parts: &Vec<SimpleSelector>| !parts.is_empty())
@@ -551,7 +551,7 @@ impl Document {
     }
 
     pub fn closest(&self, node: NodeId, selector: &str) -> Option<NodeId> {
-        let selector = crate::selector::parse_one(selector)?;
+        let selector = crate::css_selector::parse_one(selector)?;
         let mut current = Some(node);
         while let Some(id) = current {
             if self.matches_simple(id, &selector) {

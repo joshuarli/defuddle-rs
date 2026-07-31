@@ -4,7 +4,7 @@ use rustc_hash::FxHashSet;
 use crate::dom::{Document, NodeId};
 use crate::extractors::dom_builder::Builder;
 use crate::extractors::{SiteAdapter, SiteExtraction};
-use crate::pipeline::PipelineContext;
+use crate::pipeline::ExtractionContext;
 
 pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
     Box::new(HackerNewsAdapter)
@@ -13,13 +13,13 @@ pub(crate) fn adapter() -> Box<dyn SiteAdapter> {
 struct HackerNewsAdapter;
 
 impl SiteAdapter for HackerNewsAdapter {
-    fn matches(&self, context: &PipelineContext<'_>) -> bool {
+    fn matches(&self, context: &ExtractionContext<'_>) -> bool {
         let main_post = !context.doc.query_selector_all(".fatitem").is_empty();
         let listing = !context.doc.query_selector_all("tr.athing").is_empty() && !main_post;
         main_post || listing
     }
 
-    fn extract(&self, context: &mut PipelineContext<'_>) -> SiteExtraction {
+    fn extract(&self, context: &mut ExtractionContext<'_>) -> SiteExtraction {
         let main_post = !context.doc.query_selector_all(".fatitem").is_empty();
         let is_comment_page = main_post && {
             let post = context.doc.query_selector_all(".fatitem")[0];
@@ -120,7 +120,7 @@ fn extract_listing(doc: &Document) -> SiteExtraction {
     let title = page_title(doc);
     let content_root = builder.root;
     SiteExtraction {
-        content: builder.finish(content_root),
+        extracted_content: builder.finish(content_root),
         variables: FxHashMap::from_iter([
             ("title".into(), title),
             ("site".into(), "Hacker News".into()),
@@ -172,7 +172,7 @@ fn extract_post(doc: &Document, is_comment_page: bool) -> SiteExtraction {
     let author = post_author(doc);
     let published = post_date(doc);
     SiteExtraction {
-        content: builder.finish(article),
+        extracted_content: builder.finish(article),
         variables: FxHashMap::from_iter([
             ("title".into(), title.clone()),
             ("author".into(), author.clone()),
@@ -337,7 +337,7 @@ fn next_subtext(doc: &Document, node: NodeId) -> Option<NodeId> {
 }
 
 fn absolute_hn_url(url: &str) -> String {
-    if crate::utils::is_absolute_url(url) {
+    if crate::content_utils::is_absolute_url(url) {
         url.to_string()
     } else {
         format!(
@@ -397,7 +397,7 @@ fn post_date(doc: &Document) -> String {
     doc.query_selector_all(".age")
         .first()
         .and_then(|id| doc.get_attr(*id, "title"))
-        .map(crate::utils::extract_date)
+        .map(crate::content_utils::extract_date)
         .unwrap_or_default()
 }
 
@@ -405,7 +405,7 @@ fn comment_date(doc: &Document, comment: NodeId) -> String {
     doc.query_selector_all_in_subtree(comment, ".age")
         .first()
         .and_then(|id| doc.get_attr(*id, "title"))
-        .map(crate::utils::extract_date)
+        .map(crate::content_utils::extract_date)
         .unwrap_or_default()
 }
 
@@ -423,22 +423,22 @@ mod tests {
         let options = crate::DefuddleOptions::default();
         let metadata = Metadata::default();
         let schema = Vec::new();
-        let meta = Vec::new();
+        let meta_tags = Vec::new();
         Document::reset_test_counters();
-        let mut context = PipelineContext {
-            html: "",
+        let mut context = ExtractionContext {
+            source_html: "",
             doc: source,
             metadata: &metadata,
-            meta: &meta,
+            meta_tags: &meta_tags,
             schema_org_data: &schema,
-            url: "https://news.ycombinator.com/news",
-            options: &options,
+            page_url: "https://news.ycombinator.com/news",
+            defuddle_options: &options,
             diagnostics: Default::default(),
         };
 
         let extraction = adapter().extract(&mut context);
         assert_eq!(Document::test_parse_count(), 0);
-        let _ = extraction.content.html();
+        let _ = extraction.extracted_content.html();
         assert_eq!(Document::test_parse_count(), 0);
         assert_eq!(Document::test_serialize_count(), 1);
     }
