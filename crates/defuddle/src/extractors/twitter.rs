@@ -60,22 +60,16 @@ fn create(doc: &Document, url: &str) -> Option<XExtractor> {
         }
     }
 
-    // Check for tweet articles on x.com/twitter.com pages
+    // Check for tweet articles on x.com/twitter.com pages. Rendered DOM takes
+    // precedence over oEmbed-style fallbacks; even a bare tweet is useful.
     if !doc
         .query_selector_all("article[data-testid=\"tweet\"]")
         .is_empty()
     {
-        let meta_site = doc
-            .query_selector_all("meta[property=\"og:site_name\"]")
-            .first()
-            .and_then(|id| doc.get_attr(*id, "content"))
-            .unwrap_or("");
-        if meta_site.contains("X") || meta_site.contains("Twitter") {
-            return Some(XExtractor {
-                mode: XMode::Conversation,
-                url: url.to_string(),
-            });
-        }
+        return Some(XExtractor {
+            mode: XMode::Conversation,
+            url: url.to_string(),
+        });
     }
 
     None
@@ -234,120 +228,60 @@ fn extract_article(doc: &Document, url: &str) -> HtmlExtraction {
 
 /// Extract a conversation timeline (localized section with tweets).
 fn extract_conversation(doc: &Document) -> HtmlExtraction {
-    let sections = doc
-        .query_selector_all("section")
+    let tweets = conversation_cells(doc)
         .into_iter()
-        .filter(|id| doc.get_attr(*id, "aria-label").is_some())
+        .filter_map(|cell| {
+            doc.query_selector_all_in_subtree(cell, "article[data-testid=\"tweet\"]")
+                .first()
+                .copied()
+        })
         .collect::<Vec<_>>();
-    let mut conversation_section: Option<crate::NodeId> = None;
-
-    for &section_id in &sections {
-        if let Some(label) = doc.get_attr(section_id, "aria-label") {
-            let lower = label.to_lowercase();
-            if (lower.contains("time") || lower.contains("conversation") || lower.contains("对话"))
-                && !doc
-                    .query_selector_all_in_subtree(section_id, "article[data-testid=\"tweet\"]")
-                    .is_empty()
-            {
-                conversation_section = Some(section_id);
-                break;
-            }
-        }
-    }
-
-    let mut tweets = if let Some(sec) = conversation_section {
-        doc.query_selector_all_in_subtree(sec, "article[data-testid=\"tweet\"]")
-    } else {
+    let tweets = if tweets.is_empty() {
         doc.query_selector_all("article[data-testid=\"tweet\"]")
+    } else {
+        tweets
     };
-    if tweets.len() < 2 {
-        tweets = doc.query_selector_all("article[data-testid=\"tweet\"]");
-    }
 
     let mut main_post = String::new();
     let mut replies: Vec<comments::CommentData> = Vec::new();
     let mut author_handle = String::new();
+    let mut main_tweet = false;
+    let mut thread_ended = false;
+    let mut current_depth = 0;
+    let mut last_was_tweet = false;
 
-    for (i, &tweet_id) in tweets.iter().enumerate() {
-        let user_name = doc
-            .query_selector_all_in_subtree(tweet_id, "[data-testid=\"User-Name\"]")
-            .first()
-            .map(|uid| {
-                let links = doc.query_selector_all_in_subtree(*uid, "a");
-                let display_name = links
-                    .first()
-                    .map(|&id| doc.text_content(id).trim().to_string())
-                    .unwrap_or_default();
-                let handle = links
-                    .get(1)
-                    .map(|&id| doc.text_content(id).trim().to_string())
-                    .unwrap_or_default();
-                if display_name.is_empty() && handle.is_empty() {
-                    String::new()
-                } else if display_name.is_empty() {
-                    handle.clone()
-                } else if handle.is_empty() {
-                    display_name.clone()
-                } else {
-                    format!("{display_name} {handle}")
-                }
-            })
-            .unwrap_or_default();
+    for &tweet_id in &tweets {
+        let handle = extract_handle(doc, tweet_id);
+        let user_name = extract_user_name(doc, tweet_id, &handle);
+        let (date, permalink) = extract_tweet_metadata(doc, tweet_id);
+        let content = extract_tweet_text(doc, tweet_id);
 
-        let time_id = doc
-            .query_selector_all_in_subtree(tweet_id, "time")
-            .into_iter()
-            .find(|id| doc.get_attr(*id, "datetime").is_some());
-        let date = time_id
-            .as_ref()
-            .and_then(|&tid| doc.get_attr(tid, "datetime"))
-            .map(crate::content_utils::extract_date)
-            .unwrap_or_default();
-
-        let permalink = time_id
-            .and_then(|tid| {
-                let time_parent = doc.parent(tid)?;
-                if doc.tag_name(time_parent) == "a" {
-                    doc.get_attr(time_parent, "href").map(|s| {
-                        if s.starts_with('/') {
-                            format!("https://x.com{s}")
-                        } else {
-                            s.to_string()
-                        }
-                    })
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_default();
-
-        let content = doc
-            .query_selector_all_in_subtree(tweet_id, "[data-testid=\"tweetText\"]")
-            .first()
-            .map(|&tt_id| doc.text_content(tt_id).trim().to_string())
-            .unwrap_or_default();
-
-        if i == 0 {
+        if !main_tweet {
             main_post = content;
-            author_handle = doc
-                .query_selector_all_in_subtree(tweet_id, "[data-testid=\"User-Name\"]")
-                .first()
-                .and_then(|uid| {
-                    let links = doc.query_selector_all_in_subtree(*uid, "a");
-                    links
-                        .get(1)
-                        .map(|&id| doc.text_content(id).trim().to_string())
-                })
-                .unwrap_or_default();
+            author_handle = handle;
+            main_tweet = true;
+            last_was_tweet = true;
+            continue;
+        }
+
+        if !thread_ended && !handle.is_empty() && handle == author_handle {
+            if !main_post.is_empty() {
+                main_post.push_str("\n<hr>\n");
+            }
+            main_post.push_str(&content);
+            last_was_tweet = true;
         } else {
+            thread_ended = true;
+            current_depth = if last_was_tweet { current_depth + 1 } else { 0 };
             replies.push(comments::CommentData {
                 author: user_name,
                 date,
                 content,
-                depth: 0,
+                depth: current_depth,
                 score: String::new(),
                 url: permalink,
             });
+            last_was_tweet = true;
         }
     }
 
@@ -386,6 +320,171 @@ fn extract_conversation(doc: &Document) -> HtmlExtraction {
             ("published".into(), published),
         ]),
     }
+}
+
+fn conversation_cells(doc: &Document) -> Vec<crate::NodeId> {
+    let mut candidates = [
+        doc.query_selector_all("[data-testid=\"cellInnerDiv\"]"),
+        doc.query_selector_all("section"),
+        doc.query_selector_all("h2"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    candidates.sort_by_key(|id| id.0);
+    candidates.dedup();
+
+    let mut cells = Vec::new();
+    for id in candidates {
+        if doc.get_attr(id, "data-testid") == Some("cellInnerDiv") {
+            cells.push(id);
+        } else if !cells.is_empty() && doc.closest(id, "article[data-testid=\"tweet\"]").is_none() {
+            break;
+        }
+    }
+    cells
+}
+
+fn extract_tweet_text(doc: &Document, tweet: crate::NodeId) -> String {
+    doc.query_selector_all_in_subtree(tweet, "[data-testid=\"tweetText\"]")
+        .first()
+        .map(|&id| doc.text_content(id).trim().to_string())
+        .unwrap_or_default()
+}
+
+fn extract_handle(doc: &Document, tweet: crate::NodeId) -> String {
+    let Some(name) = doc
+        .query_selector_all_in_subtree(tweet, "[data-testid=\"User-Name\"]")
+        .first()
+        .copied()
+    else {
+        return String::new();
+    };
+    let links = doc.query_selector_all_in_subtree(name, "a");
+    for link in &links {
+        let text = doc.text_content(*link).trim().to_string();
+        if is_handle_text(&text) {
+            return text;
+        }
+    }
+    for link in &links {
+        let href = doc.get_attr(*link, "href").unwrap_or("");
+        if let Some(handle) = handle_from_href(href) {
+            return handle;
+        }
+    }
+    let text = doc.text_content(name);
+    let mut candidate = String::new();
+    let mut at = false;
+    for character in text.chars() {
+        if character == '@' {
+            candidate.clear();
+            candidate.push('@');
+            at = true;
+        } else if at && (character.is_ascii_alphanumeric() || character == '_') {
+            candidate.push(character);
+            if candidate.len() > 16 {
+                at = false;
+            }
+        } else if at {
+            if is_handle_text(&candidate) {
+                return candidate;
+            }
+            at = false;
+        }
+    }
+    if at && is_handle_text(&candidate) {
+        return candidate;
+    }
+    String::new()
+}
+
+fn extract_user_name(doc: &Document, tweet: crate::NodeId, handle: &str) -> String {
+    let Some(name) = doc
+        .query_selector_all_in_subtree(tweet, "[data-testid=\"User-Name\"]")
+        .first()
+        .copied()
+    else {
+        return handle.to_string();
+    };
+    let display_name = doc
+        .query_selector_all_in_subtree(name, "a")
+        .into_iter()
+        .map(|id| doc.text_content(id).trim().to_string())
+        .find(|text| !text.is_empty() && !is_handle_text(text) && !text.starts_with('@'))
+        .unwrap_or_default();
+    if display_name.is_empty() {
+        handle.to_string()
+    } else if handle.is_empty() {
+        display_name
+    } else {
+        format!("{display_name} {handle}")
+    }
+}
+
+fn extract_tweet_metadata(doc: &Document, tweet: crate::NodeId) -> (String, String) {
+    let time_id = doc
+        .query_selector_all_in_subtree(tweet, "time")
+        .into_iter()
+        .find(|id| doc.get_attr(*id, "datetime").is_some());
+    let date = time_id
+        .and_then(|id| doc.get_attr(id, "datetime"))
+        .map(crate::content_utils::extract_date)
+        .unwrap_or_default();
+    let permalink = time_id
+        .and_then(|id| doc.parent(id))
+        .filter(|&parent| doc.tag_name_is(parent, "a"))
+        .and_then(|parent| doc.get_attr(parent, "href"))
+        .map(|href| {
+            if href.starts_with('/') {
+                format!("https://x.com{href}")
+            } else {
+                href.to_string()
+            }
+        })
+        .unwrap_or_default();
+    (date, permalink)
+}
+
+fn is_handle_text(text: &str) -> bool {
+    let mut chars = text.chars();
+    if chars.next() != Some('@') {
+        return false;
+    }
+    let rest = chars.collect::<String>();
+    (1..=15).contains(&rest.chars().count())
+        && rest
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+}
+
+fn handle_from_href(href: &str) -> Option<String> {
+    const RESERVED: &[&str] = &[
+        "i",
+        "home",
+        "explore",
+        "search",
+        "notifications",
+        "messages",
+        "settings",
+        "compose",
+        "hashtag",
+        "intent",
+    ];
+    let path = href
+        .split_once("://")
+        .and_then(|(_, rest)| rest.split_once('/').map(|(_, path)| path))
+        .unwrap_or_else(|| href.trim_start_matches('/'));
+    let first = path.split('/').next().unwrap_or("");
+    if first.is_empty()
+        || RESERVED
+            .iter()
+            .any(|reserved| first.eq_ignore_ascii_case(reserved))
+    {
+        return None;
+    }
+    let candidate = format!("@{first}");
+    is_handle_text(&candidate).then_some(candidate)
 }
 
 /// Recursively walk the DOM tree to find Draft.js blocks in document order.
@@ -693,4 +792,124 @@ fn parse_article_title_from_og(og_title: &str) -> String {
         return rest.to_string();
     }
     og_title.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{create, extract_conversation};
+    use crate::dom::Document;
+
+    fn tweet(handle: &str, name: &str, text: &str, id: &str) -> String {
+        format!(
+            r#"<article data-testid="tweet">
+                <div data-testid="User-Name">
+                    <a href="/{handle}">{name}</a>
+                    <a href="/{handle}">@{handle}</a>
+                    <a href="/{handle}/status/{id}"><time datetime="2026-01-02T03:04:05Z">Jan 2</time></a>
+                </div>
+                <div data-testid="tweetText">{text}</div>
+            </article>"#
+        )
+    }
+
+    fn parse(body: &str) -> Document {
+        Document::parse(&format!("<html><body>{body}</body></html>"))
+    }
+
+    #[test]
+    fn current_timeline_markup_keeps_post_heading_and_section() {
+        let main = tweet("examplename", "Example Name", "Main post", "1001");
+        let self_reply = tweet("examplename", "Example Name", "Self reply", "1002");
+        let reply = tweet("otherperson", "Other Person", "Other reply", "1003");
+        let doc = parse(&format!(
+            r#"<div aria-label="Timeline: Conversation">
+                <div><h2>Post</h2></div>
+                <section><div>
+                    <div data-testid="cellInnerDiv">{main}</div>
+                    <div data-testid="cellInnerDiv">{self_reply}</div>
+                    <div data-testid="cellInnerDiv">{reply}</div>
+                </div></section>
+            </div>"#
+        ));
+
+        let extraction = extract_conversation(&doc);
+
+        assert_eq!(
+            extraction.variables.get("author").map(String::as_str),
+            Some("@examplename")
+        );
+        assert!(extraction.content_html.contains("Main post"));
+        assert!(extraction.content_html.contains("Self reply"));
+        assert!(extraction.content_html.contains("Other reply"));
+        assert!(
+            extraction.content_html.find("Self reply").unwrap()
+                < extraction.content_html.find("## Comments").unwrap()
+        );
+    }
+
+    #[test]
+    fn discover_more_section_stops_legacy_timeline_scan() {
+        let main = tweet("examplename", "Example Name", "Main post", "1001");
+        let reply = tweet("otherperson", "Other Person", "Other reply", "1003");
+        let discover = tweet("unrelated", "Unrelated", "Promoted content", "1004");
+        let doc = parse(&format!(
+            r#"<div aria-label="Timeline: Conversation">
+                <div data-testid="cellInnerDiv">{main}</div>
+                <div data-testid="cellInnerDiv">{reply}</div>
+                <section><h2>Discover more</h2><div data-testid="cellInnerDiv">{discover}</div></section>
+            </div>"#
+        ));
+
+        let extraction = extract_conversation(&doc);
+
+        assert!(extraction.content_html.contains("Other reply"));
+        assert!(!extraction.content_html.contains("Promoted content"));
+    }
+
+    #[test]
+    fn reordered_name_block_recovers_plain_text_handle() {
+        let main = tweet("examplename", "Example Name", "Main post", "1001");
+        let doc = parse(&format!(
+            r#"<div aria-label="Timeline: Conversation">
+                <div data-testid="cellInnerDiv">{main}</div>
+                <div data-testid="cellInnerDiv">
+                    <article data-testid="tweet">
+                        <div data-testid="User-Name">
+                            <a href="/i/verified-badge">Verified</a>
+                            <a href="/examplename">Example Name</a>
+                            <span>@examplename</span>
+                            <a href="/examplename/status/1002"><time datetime="2026-01-02T04:04:05Z">Jan 2</time></a>
+                        </div>
+                        <div data-testid="tweetText">Self reply</div>
+                    </article>
+                </div>
+            </div>"#
+        ));
+
+        let extraction = extract_conversation(&doc);
+
+        assert_eq!(
+            extraction.variables.get("author").map(String::as_str),
+            Some("@examplename")
+        );
+        assert!(
+            extraction.content_html.find("Self reply").unwrap() < extraction.content_html.len()
+        );
+        assert!(!extraction.content_html.contains("## Comments"));
+    }
+
+    #[test]
+    fn bare_tweet_is_a_valid_x_extractor_document() {
+        let doc = parse(&format!(
+            "<div>{}</div>",
+            tweet("examplename", "Example Name", "A single tweet", "1001")
+        ));
+
+        assert!(create(&doc, "https://x.com/examplename/status/1001").is_some());
+        assert!(
+            extract_conversation(&doc)
+                .content_html
+                .contains("A single tweet")
+        );
+    }
 }
