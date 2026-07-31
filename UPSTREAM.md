@@ -117,6 +117,14 @@ option, determine whether it changes the public crate contract or is only an
 upstream constructor detail. Do not add fetch, transcript retrieval, or async
 extraction to the core crate.
 
+The current audit found no additional low-risk behavior to add beyond the
+seven resync areas already implemented. Upstream constructor-option forwarding
+maps conceptually to `ExtractionContext`, but implementing `includeReplies` or
+fetch injection consistently would require a deliberate Rust API decision
+across all conversation adapters. Reddit's Atom-feed fallback is likewise
+outside the static, network-free core contract. Keep both documented as scope
+differences until a separate fetch-capable design exists.
+
 ## Resync workflow
 
 For an upstream range, use the source commit recorded in

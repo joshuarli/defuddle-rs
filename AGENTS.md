@@ -2,12 +2,15 @@ This repository is a slimmed-down rust port of `../defuddle`, a TypeScript libra
 
 The port tracks the upstream snapshot documented in `tests/upstream/SNAPSHOT.md`.
 Upstream fixtures and expected output are vendored under `tests/upstream/`.
+Use [`UPSTREAM.md`](UPSTREAM.md) for the upstream-to-Rust architecture map,
+resync workflow, and documented scope differences.
 
 ## Map
 
 ```
 defuddle-rs/
 ├── Cargo.toml
+├── UPSTREAM.md             # upstream-to-Rust mappings and resync workflow
 ├── tests/
 │   ├── upstream/
 │   │   ├── SNAPSHOT.md
@@ -91,12 +94,13 @@ The adapter selector in `extractors/mod.rs` maps URL patterns and document shape
 | Hacker News | `news.ycombinator.com` | Posts, listings, and nested comments |
 | Reddit | `reddit.com`, `old.reddit.com` | Post body and old-Reddit comment trees |
 | GitHub | `github.com` | Issues and pull requests |
+| Gmail | `mail.google.com` | Static thread messages, metadata, and quoted-history cleanup |
 | ChatGPT | `chatgpt.com` | Conversation turns and citations |
 | Substack | `substack.com` and supported custom-domain markup | Notes and ProseMirror content |
 | Mastodon | `mastodon.*` | Posts, media, replies, and self-reply threads |
 | Twitter/X | `x.com`, `twitter.com` | Static articles and conversations |
 
-All site adapters implement `SiteAdapter::matches` and `SiteAdapter::extract`. They must remain synchronous and DOM-only. Site-specific behavior belongs in the corresponding extractor module; generic embeds, footnotes, sanitization, and standardization should not be added there unless the behavior is genuinely shared.
+All site adapters implement `SiteAdapter::matches` and `SiteAdapter::extract`. They must remain synchronous and DOM-only. Site-specific behavior belongs in the corresponding extractor module; generic embeds, footnotes, sanitization, and standardization should not be added there unless the behavior is genuinely shared. Gmail extraction is implemented by `crates/defuddle/src/extractors/gmail.rs` and matches rendered `.adn.ads` message rows without network access.
 
 There are no YouTube transcript or Bilibili adapters. Those require external fetching and are outside the core crate. Other upstream sites not represented by the adapter list are tracked as exclusions in `tests/upstream-exceptions.toml` where relevant.
 
@@ -115,8 +119,8 @@ There are no YouTube transcript or Bilibili adapters. Those require external fet
 cargo test                          # default workspace members
 cargo test --workspace              # includes the opt-in WASM adapter
 cargo test -p defuddle              # core unit, fixture, integration, and metadata tests
-cargo test -p defuddle --test fixtures
-cargo test -p defuddle --test integration
+cargo test -p defuddle --test fixture_harness
+cargo test -p defuddle --test integration_tests
 cargo test -- --nocapture
 ```
 
@@ -127,7 +131,7 @@ Performance benchmarks and profiling live under `benchmarks/`. New pipeline or a
 To inspect one fixture while debugging:
 
 ```bash
-cargo test -p defuddle --test fixtures -- --nocapture 2>&1 | grep -A 20 "EXTRACTOR comments--"
+cargo test -p defuddle --test fixture_harness -- --nocapture 2>&1 | grep -A 20 "EXTRACTOR comments--"
 ```
 
 ## Adding code
@@ -147,4 +151,3 @@ To add a standardization rule:
 4. Add focused tests and run the fixture gate.
 
 Do not reintroduce site-specific branches into the generic pipeline, renderer-specific code-block cleanup, BBCode, or math/LaTeX handling without an explicit design decision.
-
