@@ -788,3 +788,43 @@ fn substack_adapter_reads_embedded_preload_content() {
     assert_eq!(result.author, "Grace Hopper");
     assert!(result.content.contains("Preloaded body."));
 }
+
+#[test]
+fn gmail_adapter_extracts_static_thread_messages() {
+    let html = r#"
+        <html><head><title>Fallback - account@example.com - Gmail</title></head><body>
+          <h2 class="hP">Project kickoff</h2>
+          <div class="adn ads">
+            <span class="gD" name="Alex Rivera" email="alex@example.com">Alex Rivera</span>
+            <span class="g3" title="May 13, 2026, 11:02 PM">date</span>
+            <div class="a3s"><p>Hello Jane.</p></div>
+          </div>
+          <div class="adn ads">
+            <span class="gD" name="Jane Doe" email="jane@example.com">Jane Doe</span>
+            <span class="g3" title="May 14, 2026, 9:15 AM">date</span>
+            <div class="a3s">
+              <p>Thanks!</p>
+              <div class="gmail_quote"><blockquote>Quoted history.</blockquote></div>
+            </div>
+          </div>
+        </body></html>
+    "#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://mail.google.com/mail/u/0/#inbox/thread-f:1".into()),
+            ..Default::default()
+        },
+    )
+    .expect("Gmail extraction succeeds");
+
+    assert_eq!(result.extractor_type.as_deref(), Some("gmail"));
+    assert_eq!(result.title, "Project kickoff");
+    assert_eq!(result.author, "Alex Rivera");
+    assert_eq!(result.site, "Gmail");
+    assert_eq!(result.published, "2026-05-13");
+    assert!(result.content.contains("Hello Jane."));
+    assert!(result.content.contains("Thanks!"));
+    assert!(!result.content.contains("Quoted history."));
+}

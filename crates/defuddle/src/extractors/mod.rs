@@ -7,6 +7,7 @@ pub mod chatgpt;
 pub mod comments;
 mod dom_builder;
 pub mod github;
+pub mod gmail;
 pub mod hackernews;
 pub mod mastodon;
 pub mod reddit;
@@ -50,6 +51,7 @@ pub(crate) fn find_site_adapter(
         ("substack", substack::adapter),
         ("reddit", reddit::adapter),
         ("github", github::adapter),
+        ("gmail", gmail::adapter),
         ("chatgpt", chatgpt::adapter),
         ("mastodon", mastodon::adapter),
         ("twitter", twitter::adapter),
@@ -63,6 +65,7 @@ pub(crate) fn find_site_adapter(
             "substack" => context.page_url.contains("substack.com"),
             "reddit" => context.page_url.contains("reddit.com"),
             "github" => context.page_url.contains("github.com"),
+            "gmail" => context.page_url.contains("mail.google.com"),
             "chatgpt" => context.page_url.contains("chatgpt.com"),
             "mastodon" => context.page_url.contains("mastodon."),
             "twitter" => {
@@ -84,6 +87,7 @@ pub fn adapter_names() -> &'static [&'static str] {
         "substack",
         "reddit",
         "github",
+        "gmail",
         "chatgpt",
         "mastodon",
         "twitter",
