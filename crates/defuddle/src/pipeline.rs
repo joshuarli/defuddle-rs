@@ -210,9 +210,16 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
             for pattern in PARTIAL_SELECTORS {
                 let pat = pattern.to_lowercase();
                 if attr_values.contains(&pat) {
-                    // Word-boundary check: if pattern starts or ends with '-', ensure
-                    // the match is at a CSS class boundary (not mid-word like "commented").
-                    if pat.starts_with('-') || pat.ends_with('-') {
+                    // `logo` is common inside unrelated names such as
+                    // `a-content--logo-end`; match it only at a token edge.
+                    // Hyphen-prefixed/suffixed patterns use the same boundary
+                    // rule to avoid removing similarly named content blocks.
+                    if pat == "logo" {
+                        if is_token_edge_match(&attr_values, &pat) {
+                            matched = true;
+                            break;
+                        }
+                    } else if pat.starts_with('-') || pat.ends_with('-') {
                         if is_word_boundary_match(&attr_values, &pat) {
                             matched = true;
                             break;
@@ -226,7 +233,12 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
                     let has_delimiter = id_str.contains([' ', '_', '-', ':', '.']);
                     if has_delimiter {
                         if id_str.contains(&pat) {
-                            if pat.starts_with('-') || pat.ends_with('-') {
+                            if pat == "logo" {
+                                if is_token_edge_match(&id_str, &pat) {
+                                    matched = true;
+                                    break;
+                                }
+                            } else if pat.starts_with('-') || pat.ends_with('-') {
                                 if is_word_boundary_match(&id_str, &pat) {
                                     matched = true;
                                     break;
@@ -289,6 +301,30 @@ fn is_word_boundary_match(haystack: &str, pattern: &str) -> bool {
             }
         }
         return true;
+    }
+    false
+}
+
+fn is_token_edge_match(haystack: &str, pattern: &str) -> bool {
+    let mut offset = 0;
+    while let Some(relative_pos) = haystack[offset..].find(pattern) {
+        let pos = offset + relative_pos;
+        let end = pos + pattern.len();
+        let before_is_word_or_hyphen = pos > 0
+            && haystack[..pos]
+                .chars()
+                .next_back()
+                .is_some_and(|character| {
+                    character.is_ascii_alphanumeric() || character == '_' || character == '-'
+                });
+        let after_is_word_or_hyphen = end < haystack.len()
+            && haystack[end..].chars().next().is_some_and(|character| {
+                character.is_ascii_alphanumeric() || character == '_' || character == '-'
+            });
+        if !before_is_word_or_hyphen || !after_is_word_or_hyphen {
+            return true;
+        }
+        offset = end;
     }
     false
 }
@@ -1513,5 +1549,54 @@ fn remove_card_grid_blocks(doc: &mut Document, content_id: NodeId) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::remove_by_selector;
+    use crate::dom::Document;
+
+    #[test]
+    fn partial_selectors_match_logo_at_token_edges() {
+        let mut doc = Document::parse(
+            r#"<article>
+                <div class="logo">standalone</div>
+                <div class="logo-wrapper">prefix</div>
+                <div class="site-logo">suffix</div>
+                <div class="a-content--logo-end">content</div>
+                <div class="logotype">word</div>
+                <div class="adcontainer">ad</div>
+                <div class="articleheader">header</div>
+                <div class="media-card">media</div>
+                <div class="navcontainer">navigation</div>
+                <div class="ratingscontainer">ratings</div>
+                <div class="reactions">reactions</div>
+                <div class="sidebar-element">sidebar</div>
+                <ignore>ignored</ignore>
+            </article>"#,
+        );
+        let root = doc
+            .query_selector_all("article")
+            .first()
+            .copied()
+            .expect("article root");
+
+        remove_by_selector(&mut doc, true, true);
+
+        let html = doc.outer_html(root);
+        assert!(!html.contains("standalone"));
+        assert!(!html.contains("prefix"));
+        assert!(!html.contains("suffix"));
+        assert!(html.contains("content"));
+        assert!(!html.contains("word"));
+        assert!(!html.contains("ad"));
+        assert!(!html.contains("header"));
+        assert!(!html.contains("media"));
+        assert!(!html.contains("navigation"));
+        assert!(!html.contains("ratings"));
+        assert!(!html.contains("reactions"));
+        assert!(!html.contains("sidebar"));
+        assert!(!html.contains("ignored"));
     }
 }
