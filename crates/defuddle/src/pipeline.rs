@@ -1173,29 +1173,39 @@ fn remove_byline_blocks(doc: &mut Document, content_id: NodeId) {
 /// Remove sections headed by "Related Posts" / "Read Next" etc.
 fn remove_related_posts_sections(doc: &mut Document, content_id: NodeId) {
     let headings = doc.query_selector_all_in_subtree(content_id, "h2,h3,h4,h5");
-    let mut to_remove = Vec::new();
     for &h_id in &headings {
-        let text = doc.text_content(h_id).trim().to_string();
-        if related_heading_pattern(&text) {
-            to_remove.push(h_id);
-            // Remove the following sibling list if present
-            if let Some(pid) = doc.parent(h_id) {
-                let siblings = doc.children(pid).to_vec();
-                let pos = siblings.iter().position(|&s| s == h_id);
-                if let Some(p) = pos
-                    && let Some(&sib) = siblings[p + 1..].first()
-                    && doc.tag_name_is_any(sib, &["ul", "ol", "div"])
-                {
-                    let sib_text = doc.text_content(sib).trim().to_string();
-                    if sib_text.split_whitespace().count() < 80 {
-                        to_remove.push(sib);
-                    }
-                }
-            }
+        if doc.is_removed(h_id) {
+            continue;
         }
-    }
-    for id in to_remove {
-        doc.remove(id);
+        let text = doc.text_content(h_id).trim().to_string();
+        let is_related = related_heading_pattern(&text);
+        let is_cta = is_cta_heading(&text);
+        if !is_related && !is_cta {
+            continue;
+        }
+
+        let target = walk_up_isolated(doc, h_id, content_id);
+
+        // A related block injected between article paragraphs must be removed
+        // locally. Truncating from it would discard the rest of the article.
+        if has_following_prose(doc, target) {
+            if target != h_id {
+                doc.remove(target);
+            }
+            continue;
+        }
+
+        if target == h_id {
+            // A direct related heading may be a real section heading. CTA
+            // headings are safe to remove along with their trailing siblings.
+            if !is_cta {
+                continue;
+            }
+            remove_trailing_with_cascade(doc, target, content_id);
+        } else {
+            remove_trailing_with_cascade(doc, target, content_id);
+        }
+        break;
     }
 
     // Some readers expose related links as a trailing section without a
@@ -1226,6 +1236,99 @@ fn remove_related_posts_sections(doc: &mut Document, content_id: NodeId) {
             doc.remove(section);
         }
     }
+}
+
+fn has_following_prose(doc: &Document, node: NodeId) -> bool {
+    let mut sibling = doc.next_element_sibling(node);
+    while let Some(id) = sibling {
+        if doc.tag_name_is(id, "p") && count_words_in_node(doc, id) >= 25 {
+            return true;
+        }
+        if doc
+            .query_selector_all_in_subtree(id, "p")
+            .iter()
+            .any(|&p| count_words_in_node(doc, p) >= 25)
+        {
+            return true;
+        }
+        sibling = doc.next_element_sibling(id);
+    }
+    false
+}
+
+fn count_words_in_node(doc: &Document, node: NodeId) -> usize {
+    crate::content_utils::count_words(&doc.text_content(node))
+}
+
+fn preceding_prose_words(doc: &Document, node: NodeId, content_id: NodeId) -> usize {
+    let mut words = 0;
+    let mut current = Some(node);
+    while let Some(id) = current {
+        if id == content_id {
+            break;
+        }
+        let mut sibling = doc.prev_element_sibling(id);
+        while let Some(sibling_id) = sibling {
+            if doc.tag_name_is(sibling_id, "p") {
+                words += count_words_in_node(doc, sibling_id);
+            } else {
+                for p in doc.query_selector_all_in_subtree(sibling_id, "p") {
+                    words += count_words_in_node(doc, p);
+                }
+            }
+            sibling = doc.prev_element_sibling(sibling_id);
+        }
+        current = doc.parent(id);
+    }
+    words
+}
+
+fn walk_up_isolated(doc: &Document, node: NodeId, content_id: NodeId) -> NodeId {
+    let mut target = node;
+    while let Some(parent) = doc.parent(target) {
+        if parent == content_id {
+            break;
+        }
+        let mut preceding_words = 0;
+        let mut sibling = doc.prev_element_sibling(target);
+        while let Some(sibling_id) = sibling {
+            preceding_words += count_words_in_node(doc, sibling_id);
+            if preceding_words > 10 {
+                break;
+            }
+            sibling = doc.prev_element_sibling(sibling_id);
+        }
+        if preceding_words > 10 {
+            break;
+        }
+        target = parent;
+    }
+    target
+}
+
+fn remove_trailing_with_cascade(doc: &mut Document, target: NodeId, content_id: NodeId) {
+    let mut levels = Vec::new();
+    let mut current = target;
+    while let Some(parent) = doc.parent(current) {
+        if parent == content_id {
+            break;
+        }
+        levels.push((current, parent));
+        current = parent;
+    }
+
+    for (current, parent) in levels {
+        let children = doc.children(parent).to_vec();
+        if let Some(position) = children.iter().position(|&id| id == current) {
+            for sibling in children.into_iter().skip(position + 1) {
+                if doc.get_attr(sibling, "id") == Some("footnotes") {
+                    continue;
+                }
+                doc.remove(sibling);
+            }
+        }
+    }
+    doc.remove(target);
 }
 
 /// Remove table-of-contents: lists where most links are same-page anchors.
@@ -1510,51 +1613,77 @@ fn remove_trailing_cta_sections(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-/// Remove card-grid blocks: sibling groups of (img + heading) in a repeating pattern.
+/// Remove related-card grids without headings while preserving mid-article image rows.
 fn remove_card_grid_blocks(doc: &mut Document, content_id: NodeId) {
-    let containers = doc.query_selector_all_in_subtree(content_id, "div,section");
-    for container_id in containers {
+    let content_words = count_words_in_node(doc, content_id);
+    let containers = doc.query_selector_all_in_subtree(content_id, "div,ul,ol");
+    for grid_id in containers {
+        if doc.is_removed(grid_id) {
+            continue;
+        }
         let children: Vec<NodeId> = doc
-            .children(container_id)
+            .children(grid_id)
             .iter()
             .copied()
             .filter(|id| doc.is_element(*id))
             .collect();
-        if children.len() < 3 {
+        if children.len() < 2 {
             continue;
         }
 
-        // Count how many children have both an img and a heading descendant
-        let mut card_count = 0;
-        for &child in &children {
-            if !doc.is_element(child) {
-                continue;
-            }
-            let has_img = doc.has_selector_in_subtree(child, "img");
-            let has_heading = doc.has_selector_in_subtree(child, "h1,h2,h3,h4,h5,h6");
-            if has_img && has_heading {
-                card_count += 1;
-            }
+        let card_count = children
+            .iter()
+            .filter(|&&child| {
+                doc.has_selector_in_subtree(child, "img,picture")
+                    && doc.has_selector_in_subtree(child, "h2,h3,h4,a[href]")
+            })
+            .count();
+        if card_count < 2 || card_count * 10 < children.len() * 7 {
+            continue;
         }
 
-        // If more than half of children are cards, remove the whole container
-        if card_count >= 2 && card_count * 2 >= children.len() {
-            // But only if the container is not the main content itself
-            if container_id != content_id {
-                let c_words = doc.text_content(container_id).split_whitespace().count();
-                let total = doc.text_content(content_id).split_whitespace().count();
-                // Don't remove if this is the bulk of the content
-                if c_words < total / 2 {
-                    doc.remove(container_id);
-                }
-            }
+        // A grid should trail substantial article prose. This excludes top-of-
+        // page listings and navigation-like card groups.
+        if preceding_prose_words(doc, grid_id, content_id) < 100 {
+            continue;
         }
+
+        let grid_words = count_words_in_node(doc, grid_id);
+        if content_words > 0 && grid_words * 10 > content_words * 3 {
+            continue;
+        }
+
+        let target = walk_up_isolated(doc, grid_id, content_id);
+        if target == grid_id {
+            continue;
+        }
+        // A card list that is a sibling after a complete article is often a
+        // separate page-level recommendation region. Leave it available to
+        // the generic content scorer; inline grids inside the article body
+        // remain eligible for the checks below.
+        if doc.parent(target) == Some(content_id)
+            && doc
+                .prev_element_sibling(target)
+                .is_some_and(|sibling| doc.tag_name_is(sibling, "article"))
+        {
+            continue;
+        }
+        let target_words = count_words_in_node(doc, target);
+        if target_words > grid_words * 2 + 15 {
+            continue;
+        }
+        if has_following_prose(doc, target) {
+            continue;
+        }
+
+        remove_trailing_with_cascade(doc, target, content_id);
+        break;
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::remove_by_selector;
+    use super::{remove_by_selector, remove_content_patterns};
     use crate::dom::Document;
 
     #[test]
@@ -1598,5 +1727,69 @@ mod tests {
         assert!(!html.contains("reactions"));
         assert!(!html.contains("sidebar"));
         assert!(!html.contains("ignored"));
+    }
+
+    #[test]
+    fn removes_inline_related_cards_without_truncating_following_prose() {
+        let prose_before = "The article begins with careful historical context and several paragraphs that establish the subject for readers. ".repeat(4);
+        let prose_after = "The later discussion continues with evidence, comparisons, and conclusions that belong to the article and must remain available after cleanup. ".repeat(4);
+        let html = format!(
+            "<article><p>{prose_before}</p><div class=\"injected-story-block\"><h2>Related Stories</h2><div><article><a href=\"/one\"><img src=\"/one.jpg\"></a><h3>One story</h3></article><article><a href=\"/two\"><img src=\"/two.jpg\"></a><h3>Two story</h3></article></div></div><p>{prose_after}</p></article>"
+        );
+        let mut doc = Document::parse(&html);
+        let root = doc
+            .query_selector_all("article")
+            .first()
+            .copied()
+            .expect("article root");
+
+        remove_content_patterns(&mut doc, root);
+
+        let output = doc.outer_html(root);
+        assert!(!output.contains("Related Stories"));
+        assert!(!output.contains("One story"));
+        assert!(output.contains("later discussion continues"));
+    }
+
+    #[test]
+    fn removes_trailing_image_card_grid() {
+        let prose = "This article contains substantial reporting and explanation for readers who need the full context before reaching the recommendations at the end. ".repeat(8);
+        let html = format!(
+            "<article><p>{prose}</p><div class=\"tile-grid\"><ul><li><a href=\"/one\"><img src=\"/one.jpg\"></a></li><li><a href=\"/two\"><img src=\"/two.jpg\"></a></li><li><a href=\"/three\"><img src=\"/three.jpg\"></a></li></ul></div></article>"
+        );
+        let mut doc = Document::parse(&html);
+        let root = doc
+            .query_selector_all("article")
+            .first()
+            .copied()
+            .expect("article root");
+
+        remove_content_patterns(&mut doc, root);
+
+        let output = doc.outer_html(root);
+        assert!(!output.contains("tile-grid"));
+        assert!(output.contains("substantial reporting"));
+    }
+
+    #[test]
+    fn keeps_mid_article_multi_image_rows() {
+        let prose = "The methods section describes a repeatable process with enough detail for comparison across sites and subsequent review. ".repeat(5);
+        let html = format!(
+            "<article><p>{prose}</p><section><h2>Methods</h2><div class=\"tmulti\"><div class=\"trow\"><div class=\"tsingle\"><a href=\"/one\"><img src=\"/one.jpg\"></a></div><div class=\"tsingle\"><a href=\"/two\"><img src=\"/two.jpg\"></a></div></div></div><p>{prose}</p></section></article>"
+        );
+        let mut doc = Document::parse(&html);
+        let root = doc
+            .query_selector_all("article")
+            .first()
+            .copied()
+            .expect("article root");
+
+        remove_content_patterns(&mut doc, root);
+
+        let output = doc.outer_html(root);
+        assert!(output.contains("tmulti"));
+        assert!(output.contains("Methods"));
+        assert!(output.contains("one.jpg"));
+        assert!(output.contains("later") || output.contains("methods section"));
     }
 }
