@@ -84,14 +84,14 @@ cross-machine performance guarantee.
 
 | Workload | Median | Peak live allocation |
 | --- | ---: | ---: |
-| `substack_body_html` | 2.42 ms | 520 KB |
-| `substack_body_markdown` | 13.1 ms | 727 KB |
-| `substack_raw_html` | 4.73 ms | 1.01 MB |
-| `substack_raw_markdown` | 16.1 ms | 1.01 MB |
-| `wikipedia_html` | 17.3 ms | 1.01 MB |
+| `substack_body_html` | 2.39 ms | 520 KB |
+| `substack_body_markdown` | 13.2 ms | 727 KB |
+| `substack_raw_html` | 4.66 ms | 1.01 MB |
+| `substack_raw_markdown` | 16.2 ms | 1.01 MB |
+| `wikipedia_html` | 17.2 ms | 1.01 MB |
 | `wikipedia_markdown` | 20.6 ms | 1.18 MB |
-| `github_issue_markdown` | 4.13 ms | 532 KB |
-| `hackernews_comments_markdown` | 703 µs | 124 KB |
+| `github_issue_markdown` | 4.05 ms | 532 KB |
+| `hackernews_comments_markdown` | 702 µs | 124 KB |
 
 The remaining dominant wall-time path is Markdown postprocessing. A release
 profile of the Substack body fixture measured approximately 8.2 ms in
