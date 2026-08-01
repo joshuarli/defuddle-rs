@@ -207,6 +207,10 @@ effect and behavior change remain easy to bisect.
   noise-level on Wikipedia (about 17.24 ms versus 17.33 ms) and slightly
   slower on raw Substack HTML, so the rebuild/invalidation machinery was also
   discarded.
+- A pristine `Document` clone was retained before the first extraction so
+  retries could reuse it instead of reparsing the source HTML. Fixture parity
+  passed, but ordinary Substack Markdown rose from about 13.3 ms to 14.8 ms
+  and Wikipedia peak memory increased, so clone-based retry reuse was reverted.
 - PGO is deliberately deferred. The end-to-end fixture suite is shaped so the
   same `bench` binary can later drive PGO, but no profile-generation or
   profile-use flags should be inferred from the current workflow.
