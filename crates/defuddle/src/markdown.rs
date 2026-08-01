@@ -5,33 +5,9 @@ use htmd::{
     Element, HtmlToMarkdown,
     options::{HeadingStyle, LinkStyle},
 };
-use std::borrow::Cow;
 use std::sync::OnceLock;
 
-static INLINE_SPACING_REGEXES: OnceLock<Vec<regex_lite::Regex>> = OnceLock::new();
 static WBR_TAG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static QUOTED_FENCED_CODE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static MARKDOWN_HEADING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static EMPTY_LINK_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static FOOTNOTE_ESCAPE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static IMAGE_ESCAPE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static URL_ESCAPE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static EMAIL_ESCAPE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static BACKREF_CLEANUP_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static DETACHED_ITALIC_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static CODE_LINKED_WORD_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static QUOTED_FENCED_LANG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static HN_LISTING_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static BACKTICK_SPACE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static BOLD_NUM_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static BACKTICK_WORD_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static TABLE_CODE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static DASH_SEPARATOR_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static CHECKLIST_JOIN_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static TAG_LIKE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static MULTI_NL_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static BLANK_QUOTE_LINE_RUN_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static LINK_DEST_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static FOOTNOTE_REF_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static CHECKED_CHECKBOX_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static UNCHECKED_CHECKBOX_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
@@ -39,65 +15,6 @@ static MARK_TAG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static DEL_TAG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static PROTOCOL_RELATIVE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static ORIGIN_URL_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-
-fn inline_spacing_regexes() -> &'static [regex_lite::Regex] {
-    INLINE_SPACING_REGEXES.get_or_init(|| {
-        [
-            r"`\s*([^`]*?)\s*`",
-            r"([a-zA-Z0-9])(\*\*[^*]+\*\*)",
-            r"(\*\*[^*]+\*\*)([a-zA-Z0-9])",
-            r"([a-zA-Z0-9])(\*[^*]+\*)",
-            r"(\*[^*]+\*)([a-zA-Z0-9])",
-            r"\*([^*\n]+) \*",
-            r"\* +([^*\n]+?) +\*",
-            r"\* ([^*\n]+)\*",
-            r" (\* )([A-Za-z])",
-            r"(\*[^*\n]+\*) ([.,;:!?])",
-            r"([A-Za-z0-9,.;:!?])(\*[^*\n]+\*)",
-            r"\*([^*\n]+)\*([A-Za-z0-9(])",
-            r"(\[\^\d+\]) ([.,;:!?])",
-            r"\\(-)( )",
-            r"([a-zA-Z0-9:;,.!?])(`[^`]+`)",
-            r"(`[^`]+`)([a-zA-Z0-9])",
-            r"([a-zA-Z0-9])(\[[^\]]+\]\([^)]+\))",
-            r"(\[[^\]]+\]\([^)]+\))([a-zA-Z0-9])",
-            r"(\[[^\]]+\]\([^)]+\))(- )",
-            r"(\[[^\]]+\]\([^)]+\)) {2,}",
-            r#"([A-Za-z0-9"])(\[\^\d+\])"#,
-            r"(`[^`]+`)(\[\^\d+\])",
-            r"(\S) \* ([A-Z])",
-            r"([A-Za-z])(\*\*\*)",
-            r"(,)(\*\[)",
-            r"` +([^`\n]*?)`",
-            r"`([^`\n]*?) +`",
-            r"`([^`\n]*)`([A-Za-z])",
-            r"` +([^`\n]*)`",
-            r"\\\\<([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})>",
-        ]
-        .into_iter()
-        .map(|pattern| regex_lite::Regex::new(pattern).unwrap())
-        .collect()
-    })
-}
-
-fn replace_if_match<R: regex_lite::Replacer>(
-    line: String,
-    regex: &regex_lite::Regex,
-    replacement: R,
-) -> String {
-    regex.replace_all(&line, replacement).into_owned()
-}
-
-fn replace_all_owned<R: regex_lite::Replacer>(
-    input: String,
-    regex: &regex_lite::Regex,
-    replacement: R,
-) -> String {
-    match regex.replace_all(&input, replacement) {
-        Cow::Borrowed(_) => input,
-        Cow::Owned(replaced) => replaced,
-    }
-}
 
 /// Convert HTML content to Markdown using htmd (Turndown.js-compatible) with
 /// custom element handlers matching the upstream Defuddle Turndown rules.
@@ -678,248 +595,214 @@ fn preprocess_html_dom(html: &str) -> String {
 /// Postprocess markdown to clean up artifacts.
 /// Ported from TypeScript createMarkdownContent post-processing.
 fn postprocess_markdown(md: &str) -> String {
-    let md = escape_tag_like_text(md).replace("\\\\<", "\\<");
-    let md = replace_all_owned(
-        md,
-        QUOTED_FENCED_CODE_RE.get_or_init(|| {
-            regex_lite::Regex::new(r"(?m)^((?:>\s*)?```)[ \t]+([A-Za-z])").unwrap()
-        }),
-        "$1$2",
-    );
+    MarkdownPostprocessor::new(md).run()
+}
 
-    // Remove the page title h1 from the beginning if present.
-    // Note: h1 was promoted to h2 by standardize_headings, so only
-    // original h2 headers survive; we match ^# (h1) only like upstream.
-    let md = replace_all_owned(
-        md,
-        MARKDOWN_HEADING_RE.get_or_init(|| regex_lite::Regex::new(r"^# [^\n]+\n+").unwrap()),
-        "",
-    );
+struct MarkdownPostprocessor<'a> {
+    source: &'a str,
+    output: String,
+    in_fenced_code: bool,
+    previous_blank: bool,
+    filled_table_separator: bool,
+    previous_nonempty_is_list: bool,
+    previous_hn_metadata: bool,
+}
 
-    // Remove any empty links [](url) that remain, along with surrounding newlines
-    // But don't affect image links like ![](image.jpg)
-    // Strategy: find all [](url) that are NOT preceded by !
-    let empty_link_re =
-        EMPTY_LINK_RE.get_or_init(|| regex_lite::Regex::new(r"\[\]\([^)]+\)").unwrap());
-    let mut result = String::new();
-    let mut prev_end = 0;
-    for mat in empty_link_re.find_iter(&md) {
-        let start = mat.start();
-        if start > 0 && md.as_bytes()[start - 1] == b'!' {
-            continue;
+impl<'a> MarkdownPostprocessor<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            source,
+            output: String::with_capacity(source.len()),
+            in_fenced_code: false,
+            previous_blank: false,
+            filled_table_separator: false,
+            previous_nonempty_is_list: false,
+            previous_hn_metadata: false,
         }
-        result.push_str(md[prev_end..start].trim_end_matches('\n'));
-        prev_end = mat.end();
     }
-    result.push_str(&md[prev_end..]);
-    result = result.trim_end_matches('\n').to_string();
-    let md = result;
-    let md = md.replace(")![", ") ![");
 
-    let md = md.replace(
-        "```\nnode --prof app.js\n```\n\n![]",
-        "```c\nnode --prof app.js\n```\n![]",
-    );
+    fn run(mut self) -> String {
+        let source = remove_leading_markdown_title(self.source);
+        let mut lines = source.lines().peekable();
+        let mut previous_line = None;
 
-    // Normalize horizontal rules: htmd produces * * *, upstream expects ---
-    let md = md.replace("\n\n* * *\n\n", "\n\n---\n\n");
+        while let Some(line) = lines.next() {
+            let next_line = lines.peek().copied();
 
-    let md = fix_inline_spacing_outside_code(&md);
-
-    // htmd escapes the bracket syntax produced for extractor footnote references.
-    let footnote_escape_re =
-        FOOTNOTE_ESCAPE_RE.get_or_init(|| regex_lite::Regex::new(r#"\\(\[\^\d+)\\\]"#).unwrap());
-    let md = replace_all_owned(md, footnote_escape_re, "$1]");
-    let image_escape_re =
-        IMAGE_ESCAPE_RE.get_or_init(|| regex_lite::Regex::new(r"!\\\[\\\]\(([^)]+)\)").unwrap());
-    let md = replace_all_owned(md, image_escape_re, "![]($1)");
-    let url_escape_re =
-        URL_ESCAPE_RE.get_or_init(|| regex_lite::Regex::new(r"\(([^)\n]+)\)").unwrap());
-    let md = replace_all_owned(md, url_escape_re, |caps: &regex_lite::Captures| {
-        format!(
-            "({})",
-            caps.get(1)
-                .map(|m| m.as_str())
-                .unwrap_or("")
-                .replace("\\_", "_")
-        )
-    });
-    let md = md
-        .replace("\\<iframe", "<iframe")
-        .replace("\\</iframe>", "</iframe>");
-    let email_escape_re = EMAIL_ESCAPE_RE.get_or_init(|| {
-        regex_lite::Regex::new(
-            r#"\\<([A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})>"#,
-        )
-        .unwrap()
-    });
-    let md = replace_all_owned(md, email_escape_re, "<$1>");
-    let md = md.replace(". .", "..");
-    let backref_re = BACKREF_CLEANUP_RE
-        .get_or_init(|| regex_lite::Regex::new(r"\s*\[↩\]\(#fnref:[^)]+\)").unwrap());
-    let md = replace_all_owned(md, backref_re, "");
-
-    // Add a space between exclamation marks and image syntax ![
-    // e.g. "Yey!![IMG](url)" becomes "Yey! ![IMG](url)" to prevent
-    // the parser from misinterpreting the ! as part of the image markup.
-    // Also handles linked images: "Yey![![IMG](src)](href)"
-    let md = md.replace("!![", "! ![").replace("![![", "! [!");
-
-    // Format link destinations: escape parens in URLs, wrap spaced URLs in <>
-    let md = format_link_destinations(&md);
-
-    let md = collapse_blank_lines_outside_code(&md);
-
-    // A paragraph whose only content is a <br> can leave several blank
-    // blockquote lines behind. Keep the first marker so quote depth and the
-    // renderer's trailing-space hard-break convention remain unchanged.
-    let md = collapse_blank_quote_line_runs(&md);
-
-    // Clean up: single trailing newline, remove leading whitespace outside fenced code.
-    let mut result = String::new();
-    let mut prev_blank = false;
-    let mut in_fenced_code = false;
-    for line in md.lines() {
-        if line.trim_start().starts_with("```") {
-            in_fenced_code = !in_fenced_code;
-            result.push_str(line.trim());
-            result.push('\n');
-            prev_blank = false;
-            continue;
-        }
-        if in_fenced_code {
-            result.push_str(line);
-            result.push('\n');
-            prev_blank = false;
-            continue;
-        }
-        if line == ">" {
-            result.push_str("> ");
-            result.push('\n');
-            prev_blank = false;
-            continue;
-        }
-
-        let trimmed = normalize_table_code_line(&normalize_table_separator_line(line.trim()));
-        if trimmed.is_empty() {
-            if !prev_blank {
-                result.push('\n');
-                prev_blank = true;
+            if self.in_fenced_code {
+                self.output.push_str(line);
+                self.output.push('\n');
+                if line.trim_start().starts_with("```") {
+                    self.in_fenced_code = false;
+                }
+                self.previous_blank = false;
+                self.previous_hn_metadata = false;
+                previous_line = Some(line);
+                continue;
             }
-        } else {
-            result.push_str(&trimmed);
-            result.push('\n');
-            prev_blank = false;
+
+            if line.trim_start().starts_with("```") {
+                self.flush_line(line.trim(), false);
+                self.in_fenced_code = true;
+                previous_line = Some(line);
+                continue;
+            }
+
+            if is_quote_only_line(line) {
+                let quote_line = line;
+                while lines.peek().is_some_and(|next| is_quote_only_line(next)) {
+                    lines.next();
+                }
+                if next_line.is_some_and(is_quote_only_line) {
+                    self.flush_line(quote_line.trim_end(), false);
+                    previous_line = Some(line);
+                    continue;
+                }
+            }
+
+            if line.trim() == "* * *"
+                && previous_line.is_some_and(|previous| previous.trim().is_empty())
+                && next_line.is_some_and(|next| next.trim().is_empty())
+            {
+                self.flush_line("---", false);
+                previous_line = Some(line);
+                continue;
+            }
+
+            if line.trim() == "·"
+                && previous_line.is_some_and(|previous| previous.trim().is_empty())
+                && next_line.is_some_and(|next| next.trim().is_empty())
+            {
+                self.output.push_str(" \n");
+                self.previous_blank = false;
+                previous_line = Some(line);
+                continue;
+            }
+
+            if line.trim().is_empty()
+                && self.previous_hn_metadata
+                && next_line.is_some_and(is_hn_story_line)
+            {
+                previous_line = Some(line);
+                continue;
+            }
+
+            if is_hn_story_line(line)
+                && next_line.is_some_and(|next| next.trim().is_empty())
+                && lines.clone().nth(1).is_some_and(is_hn_metadata_line)
+            {
+                lines.next().expect("peeked blank line");
+                let metadata = lines.next().expect("peeked Hacker News metadata");
+                let story = process_inline_markdown_line(line);
+                self.flush_line_with_text(&story, false);
+                self.output.insert(self.output.len() - 1, ' ');
+                self.output.insert(self.output.len() - 1, ' ');
+                self.flush_line_with_text(&format!("\t{}", metadata.trim()), false);
+                let line_start = self.output[..self.output.len() - 1]
+                    .rfind('\n')
+                    .map_or(0, |index| index + 1);
+                self.output.insert(line_start, '\t');
+                self.previous_hn_metadata = true;
+                previous_line = Some(metadata);
+                continue;
+            }
+
+            let processed = process_inline_markdown_line(line);
+            self.flush_line_with_text(&processed, false);
+            previous_line = Some(line);
         }
+
+        self.output.trim().to_string()
     }
 
-    // Replace dot-spacer (produced by extractors for title separation)
-    // with a single-space paragraph. Must run after line-by-line cleanup
-    // which would otherwise trim the space line.
-    let result = result.replace("\n\n\u{00B7}\n\n", "\n\n \n\n");
-    let result = normalize_markdown_layout(&result);
-    let result = replace_all_owned(
-        result,
-        DETACHED_ITALIC_RE.get_or_init(|| regex_lite::Regex::new(r"\*([^*\n]+) \*").unwrap()),
-        "*$1*",
-    );
-    let result = replace_all_owned(
-        result,
-        CODE_LINKED_WORD_RE
-            .get_or_init(|| regex_lite::Regex::new(r"(`[^`\n]+`)([A-Za-z0-9])").unwrap()),
-        "$1 $2",
-    );
-    let result = result.trim_end().to_string();
-    let result = replace_all_owned(
-        result,
-        QUOTED_FENCED_LANG_RE
-            .get_or_init(|| regex_lite::Regex::new(r"(?m)^> ``` +([A-Za-z])").unwrap()),
-        "> ```$1",
-    );
-    let result = replace_all_owned(
-        result,
-        HN_LISTING_RE.get_or_init(|| {
-            regex_lite::Regex::new(r"(?m)^(\d+\. .+)\n\n((?:\d+) points · by .+)$").unwrap()
-        }),
-        "$1  \n\t$2",
-    );
-    let lines: Vec<&str> = result.lines().collect();
-    let mut normalized = Vec::new();
-    for (index, line) in lines.iter().enumerate() {
-        if line.is_empty()
-            && index > 0
-            && index + 1 < lines.len()
-            && lines[index - 1].starts_with('\t')
-            && lines[index + 1]
-                .split_once(". ")
-                .is_some_and(|(prefix, _)| prefix.chars().all(|ch| ch.is_ascii_digit()))
-        {
-            continue;
+    fn flush_line(&mut self, line: &str, in_code: bool) {
+        self.flush_line_with_text(line, in_code);
+    }
+
+    fn flush_line_with_text(&mut self, line: &str, in_code: bool) {
+        if in_code {
+            self.output.push_str(line);
+            self.output.push('\n');
+            return;
         }
-        normalized.push(
-            if line.contains('>') && line.chars().all(|ch| ch == '>' || ch == ' ') {
-                format!("{} ", line.trim_end())
-            } else {
-                (*line).to_string()
-            },
+
+        let mut line = line.trim().to_string();
+        if is_quote_only_line(&line) {
+            line.push(' ');
+        }
+        if line == "--" {
+            line.insert(0, '\\');
+        }
+
+        if line.is_empty() {
+            if !self.previous_blank {
+                self.output.push('\n');
+                self.previous_blank = true;
+            }
+            self.previous_hn_metadata = false;
+            return;
+        }
+
+        line = normalize_table_separator_line(&line);
+        line = normalize_table_code_line(&line);
+        line = normalize_layout_line(
+            &line,
+            &mut self.filled_table_separator,
+            self.previous_nonempty_is_list,
+            &mut self.output,
         );
+        line = normalize_terminal_spacing_line(&line);
+
+        if is_list_item(&line) && self.previous_nonempty_is_list && self.output.ends_with("\n\n") {
+            self.output.pop();
+        }
+        self.output.push_str(&line);
+        self.output.push('\n');
+        self.previous_blank = false;
+        self.previous_nonempty_is_list = is_list_item(&line);
+        self.previous_hn_metadata = false;
     }
-    let result = normalized.join("\n");
-    let result = replace_all_owned(
-        result,
-        BACKTICK_SPACE_RE.get_or_init(|| regex_lite::Regex::new(r"` +([^`\n]+)`").unwrap()),
-        "`$1`",
-    );
-    let result = replace_all_owned(
-        result,
-        BOLD_NUM_RE.get_or_init(|| regex_lite::Regex::new(r"(?m)(\d)\*\*\s*([A-Za-z_])").unwrap()),
-        "$1 ** $2",
-    );
-    let result = replace_all_owned(
-        result,
-        BACKTICK_WORD_RE.get_or_init(|| regex_lite::Regex::new(r"`([^`\n]+)`([A-Za-z])").unwrap()),
-        "`$1` $2",
-    );
-    let result = result
-        .lines()
-        .map(|line| {
-            let mut normalized = String::new();
-            for (index, part) in line.split('`').enumerate() {
-                if index > 0 {
-                    normalized.push('`');
-                }
-                if index % 2 == 1 {
-                    if line.starts_with('|') {
-                        normalized.push_str(part);
-                    } else {
-                        normalized.push_str(part.trim());
-                    }
-                } else {
-                    normalized.push_str(part);
-                }
-            }
-            normalized
+}
+
+fn remove_leading_markdown_title(md: &str) -> &str {
+    let Some(rest) = md.strip_prefix("# ") else {
+        return md;
+    };
+    let Some(newline) = rest.find('\n') else {
+        return md;
+    };
+    rest[newline + 1..].trim_start_matches('\n')
+}
+
+fn is_quote_only_line(line: &str) -> bool {
+    !line.trim().is_empty()
+        && line
+            .chars()
+            .all(|character| character == '>' || character == ' ' || character == '\t')
+}
+
+fn is_hn_story_line(line: &str) -> bool {
+    line.split_once(". ").is_some_and(|(prefix, rest)| {
+        !rest.is_empty() && prefix.chars().all(|character| character.is_ascii_digit())
+    })
+}
+
+fn is_hn_metadata_line(line: &str) -> bool {
+    let Some((points, rest)) = line.trim().split_once(" points · by ") else {
+        return false;
+    };
+    !points.is_empty()
+        && points.chars().all(|character| character.is_ascii_digit())
+        && !rest.is_empty()
+}
+
+fn is_list_item(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("- ")
+        || trimmed.starts_with("* ")
+        || trimmed.split_once(". ").is_some_and(|(prefix, rest)| {
+            !rest.is_empty() && prefix.chars().all(|character| character.is_ascii_digit())
         })
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim_start()
-        .to_string();
-    let table_code_re =
-        TABLE_CODE_RE.get_or_init(|| regex_lite::Regex::new(r"\| ```([^`\n]+)``` \|").unwrap());
-    let result = replace_all_owned(result, table_code_re, |caps: &regex_lite::Captures| {
-        let value = caps[1]
-            .trim()
-            .replace("/*implementation-defined*/", "/* implementation-defined */")
-            .replace("implementation-defined*/", "implementation-defined */");
-        format!("| ``` {value} ``` |")
-    });
-    let result = DASH_SEPARATOR_RE
-        .get_or_init(|| regex_lite::Regex::new(r"(?m)^--$").unwrap())
-        .replace_all(&result, r"\--")
-        .into_owned();
-    let result = normalize_strong_spacing_outside_code(&result);
-    let result = normalize_inline_code_spacing_outside_code(&result);
-    normalize_footnote_spacing_outside_code(&result)
 }
 
 fn normalize_table_separator_line(line: &str) -> String {
@@ -960,272 +843,454 @@ fn normalize_table_code_line(line: &str) -> String {
     cells.join("|")
 }
 
-fn normalize_markdown_layout(md: &str) -> String {
-    let mut out = String::new();
-    let mut in_fenced_code = false;
-    let mut filled_table_separator = false;
-
-    for line in md.lines() {
-        if line.trim_start().starts_with("```") {
-            in_fenced_code = !in_fenced_code;
-            out.push_str(line);
-            out.push('\n');
-            continue;
-        }
-        if in_fenced_code {
-            out.push_str(line);
-            out.push('\n');
-            continue;
-        }
-
-        let mut line = line.to_string();
-        let trimmed = line.trim().to_string();
-        if trimmed.starts_with('#') {
-            line = line.replace("**", "");
-        }
-        if trimmed.starts_with("✅ ") && trimmed.matches("✅ ").count() > 1 {
-            let items = trimmed
-                .split("✅ ")
-                .filter(|item| !item.is_empty())
-                .collect::<Vec<_>>();
-            for (index, item) in items.iter().enumerate() {
-                out.push('✅');
-                out.push(' ');
-                out.push_str(item.trim());
-                if index + 1 < items.len() {
-                    out.push_str("  \n");
+fn normalize_layout_line(
+    line: &str,
+    filled_table_separator: &mut bool,
+    previous_nonempty_is_list: bool,
+    output: &mut String,
+) -> String {
+    let trimmed = line.trim();
+    if trimmed.starts_with('#') {
+        return line.replace("**", "");
+    }
+    if trimmed.starts_with("✅ ") && trimmed.matches("✅ ").count() > 1 {
+        let items = trimmed
+            .split("✅ ")
+            .filter(|item| !item.is_empty())
+            .map(str::trim)
+            .collect::<Vec<_>>();
+        return format!("✅ {}", items.join("  \n✅ "));
+    }
+    if trimmed.starts_with('|') {
+        let cells = trimmed
+            .trim_matches('|')
+            .split('|')
+            .map(|cell| {
+                let cell = cell.trim();
+                if cell.len() >= 3 && cell.chars().all(|character| character == '-') {
+                    "---"
                 } else {
-                    out.push('\n');
+                    cell
                 }
-            }
-            continue;
+            })
+            .collect::<Vec<_>>();
+        let is_separator = cells.iter().all(|cell| cell.is_empty() || *cell == "---");
+        if is_separator && !*filled_table_separator && cells.iter().any(|cell| cell.is_empty()) {
+            *filled_table_separator = true;
+            return format!(
+                "| {} |",
+                cells.iter().map(|_| "---").collect::<Vec<_>>().join(" | ")
+            );
         }
-        if trimmed.starts_with('|') {
-            let cells = trimmed
-                .trim_matches('|')
-                .split('|')
-                .map(|cell| {
-                    let cell = cell.trim();
-                    if cell.len() >= 3 && cell.chars().all(|c| c == '-') {
-                        "---"
-                    } else {
-                        cell
-                    }
-                })
-                .collect::<Vec<_>>();
-            let is_separator = cells.iter().all(|cell| cell.is_empty() || *cell == "---");
-            if is_separator && !filled_table_separator && cells.iter().any(|cell| cell.is_empty()) {
-                line = format!(
-                    "| {} |",
-                    cells.iter().map(|_| "---").collect::<Vec<_>>().join(" | ")
-                );
-                filled_table_separator = true;
-            } else {
-                line = format!("| {} |", cells.join(" | "));
-                if is_separator {
-                    filled_table_separator = true;
-                }
-            }
-        } else if !trimmed.is_empty() {
-            filled_table_separator = false;
+        if is_separator {
+            *filled_table_separator = true;
         }
-
-        if let Some((prefix, rest)) = trimmed.split_once(". ")
-            && !prefix.is_empty()
-            && prefix.chars().all(|c| c.is_ascii_digit())
-        {
-            line = format!("{prefix}. {}", rest.trim_start());
-        }
-        let is_list_item = trimmed.starts_with("- ")
-            || trimmed.starts_with("* ")
-            || trimmed.split_once(". ").is_some_and(|(prefix, _)| {
-                !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit())
-            });
-        let previous_nonempty = out.lines().rev().find(|line| !line.trim().is_empty());
-        let previous_is_list_item = previous_nonempty.is_some_and(|previous| {
-            previous.trim_start().starts_with("- ")
-                || previous.trim_start().starts_with("* ")
-                || previous
-                    .trim_start()
-                    .split_once(". ")
-                    .is_some_and(|(prefix, _)| {
-                        !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit())
-                    })
-        });
-        if is_list_item && previous_is_list_item && out.ends_with("\n\n") {
-            out.pop();
-        }
-        out.push_str(&line);
-        out.push('\n');
+        return format!("| {} |", cells.join(" | "));
+    }
+    if !trimmed.is_empty() {
+        *filled_table_separator = false;
     }
 
-    let result = out.trim_end_matches('\n').to_string();
-    let checklist_re =
-        CHECKLIST_JOIN_RE.get_or_init(|| regex_lite::Regex::new(r"(?m)^(✅ .+)\n\n(✅ )").unwrap());
-    checklist_re.replace_all(&result, "$1  \n$2").to_string()
-}
-
-/// Escape tag-like sequences in text (e.g. "Monte<video>: A Real Place")
-/// so CommonMark renderers don't parse them as raw HTML and swallow
-/// following content. Ported from upstream markdown.ts turndownService.escape.
-fn escape_tag_like_text(md: &str) -> String {
-    let tag_like_re = TAG_LIKE_RE.get_or_init(|| {
-        regex_lite::Regex::new(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^>]*)?/?>").unwrap()
-    });
-    let mut result = String::new();
-    let mut in_fenced = false;
-    for line in md.lines() {
-        if line.trim_start().starts_with("```") {
-            in_fenced = !in_fenced;
-            result.push_str(line);
-            result.push('\n');
-        } else if in_fenced {
-            result.push_str(line);
-            result.push('\n');
-        } else {
-            let mut in_code = false;
-            let mut processed = String::new();
-            for (index, part) in line.split('`').enumerate() {
-                if index > 0 {
-                    processed.push('`');
-                    in_code = !in_code;
-                }
-                if in_code {
-                    processed.push_str(part);
-                } else {
-                    processed.push_str(
-                        &tag_like_re.replace_all(part, |caps: &regex_lite::Captures| {
-                            format!("\\{}", &caps[0])
-                        }),
-                    );
-                }
-            }
-            result.push_str(&processed);
-            result.push('\n');
-        }
-    }
-    result.trim_end_matches('\n').to_string()
-}
-
-fn fix_inline_spacing_outside_code(md: &str) -> String {
-    let mut out = String::new();
-    let mut in_fenced_code = false;
-    for line in md.lines() {
-        let processed = if line.trim_start().starts_with("```") {
-            in_fenced_code = !in_fenced_code;
-            line.to_string()
-        } else if in_fenced_code {
-            line.to_string()
-        } else {
-            fix_inline_spacing_line(line)
-        };
-        out.push_str(&processed);
-        out.push('\n');
-    }
-    out.trim_end_matches('\n').to_string()
-}
-
-fn collapse_blank_lines_outside_code(md: &str) -> String {
-    let mut out = String::new();
-    let mut segment = String::new();
-    let mut in_fenced_code = false;
-    let multi_nl_re = MULTI_NL_RE.get_or_init(|| regex_lite::Regex::new(r"\n{3,}").unwrap());
-
-    for line in md.lines() {
-        if line.trim_start().starts_with("```") {
-            if in_fenced_code {
-                out.push_str(line);
-                out.push('\n');
-                in_fenced_code = false;
-            } else {
-                out.push_str(&multi_nl_re.replace_all(&segment, "\n\n"));
-                segment.clear();
-                out.push_str(line);
-                out.push('\n');
-                in_fenced_code = true;
-            }
-            continue;
-        }
-
-        if in_fenced_code {
-            out.push_str(line);
-            out.push('\n');
-        } else {
-            segment.push_str(line);
-            segment.push('\n');
-        }
-    }
-
-    out.push_str(&multi_nl_re.replace_all(&segment, "\n\n"));
-    out.trim_end_matches('\n').to_string()
-}
-
-fn collapse_blank_quote_line_runs(md: &str) -> String {
-    let regex = BLANK_QUOTE_LINE_RUN_RE.get_or_init(|| {
-        regex_lite::Regex::new(r"(?m)^([ \t]*>[ \t>]*)(?:\n[ \t]*>[ \t>]*)+$").unwrap()
-    });
-    regex.replace_all(md, "$1").to_string()
-}
-
-fn fix_inline_spacing_line(line: &str) -> String {
-    if !line
-        .bytes()
-        .any(|byte| matches!(byte, b'`' | b'*' | b'[' | b'\\'))
+    if let Some((prefix, rest)) = trimmed.split_once(". ")
+        && !prefix.is_empty()
+        && prefix.chars().all(|character| character.is_ascii_digit())
     {
-        return line.to_string();
+        return format!("{prefix}. {}", rest.trim_start());
     }
-    let regexes = inline_spacing_regexes();
-    let mut line = line.to_owned();
-    macro_rules! replace {
-        ($index:expr, $replacement:expr) => {
-            line = replace_if_match(line, &regexes[$index], $replacement);
+
+    if is_list_item(trimmed) && previous_nonempty_is_list && output.ends_with("\n\n") {
+        output.pop();
+    }
+    line.to_string()
+}
+
+fn process_inline_markdown_line(line: &str) -> String {
+    let mut line = escape_tag_like_line(line);
+    line = normalize_quoted_fence_line(&line);
+    line = remove_empty_links_line(&line);
+    line = line.replace(")![", ") ![");
+    line = line.replace("!![", "! ![").replace("![![", "! [!");
+    line = line
+        .replace("\\<iframe", "<iframe")
+        .replace("\\</iframe>", "</iframe>");
+    line = line.replace(". .", "..");
+    line = remove_backreferences_line(&line);
+    line = fix_inline_spacing_line_stateful(&line);
+    line = normalize_escaped_markdown_line(&line);
+    line = normalize_url_parentheses_line(&line);
+    line = format_link_destinations_line(&line);
+    line
+}
+
+fn fix_inline_spacing_line_stateful(line: &str) -> String {
+    let mut output = String::with_capacity(line.len());
+    let mut cursor = 0;
+
+    while cursor < line.len() {
+        let rest = &line[cursor..];
+        if rest.starts_with('`')
+            && let Some(close_rel) = rest[1..].find('`')
+        {
+            let close = cursor + 1 + close_rel;
+            let content = line[cursor + 1..close].trim();
+            if output
+                .chars()
+                .last()
+                .is_some_and(|character| character.is_alphanumeric())
+            {
+                output.push(' ');
+            }
+            output.push('`');
+            output.push_str(content);
+            output.push('`');
+            if line[close + 1..].starts_with("[^") {
+                output.push(' ');
+            } else if line[close + 1..]
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_alphanumeric())
+            {
+                output.push(' ');
+            }
+            cursor = close + 1;
+            continue;
+        }
+        if rest.starts_with("**")
+            && let Some(close_rel) = rest[2..].find("**")
+        {
+            let close = cursor + 2 + close_rel;
+            let content = line[cursor + 2..close].trim();
+            if output
+                .chars()
+                .last()
+                .is_some_and(|character| character.is_alphanumeric())
+            {
+                output.push(' ');
+            }
+            output.push_str("**");
+            output.push_str(content);
+            output.push_str("**");
+            if line[close + 2..]
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_alphanumeric())
+            {
+                output.push(' ');
+            }
+            cursor = close + 2;
+            continue;
+        }
+        if (rest.starts_with('[') || rest.starts_with("!["))
+            && let Some(destination_rel) = rest.find("](")
+            && let Some(close_rel) = rest[destination_rel + 2..].find(')')
+        {
+            let close = cursor + destination_rel + 2 + close_rel + 1;
+            if output
+                .chars()
+                .last()
+                .is_some_and(|character| character.is_alphanumeric())
+            {
+                output.push(' ');
+            }
+            output.push_str(&line[cursor..close]);
+            let mut cursor_after_link = close;
+            let had_spacing = line[close..].starts_with("  ");
+            if had_spacing {
+                output.push(' ');
+                while line[cursor_after_link..].starts_with(' ') {
+                    cursor_after_link += 1;
+                }
+            }
+            if !had_spacing
+                && line[close..]
+                    .chars()
+                    .next()
+                    .is_some_and(|character| character.is_alphanumeric())
+            {
+                output.push(' ');
+            }
+            cursor = cursor_after_link;
+            continue;
+        }
+        if rest.starts_with("[^")
+            && let Some(end_rel) = rest.find(']')
+        {
+            let end = cursor + end_rel + 1;
+            if output.chars().last().is_some_and(|character| {
+                character.is_alphanumeric() || character == '"' || character == '`'
+            }) {
+                output.push(' ');
+            }
+            output.push_str(&line[cursor..end]);
+            if line[end..].starts_with('*') || line[end..].starts_with("[^") {
+                output.push(' ');
+            }
+            cursor = end;
+            continue;
+        }
+        if rest.starts_with('*')
+            && !rest.starts_with("**")
+            && let Some(close_rel) = rest[1..].find('*')
+        {
+            let close = cursor + 1 + close_rel;
+            let content = line[cursor + 1..close].trim();
+            if !content.is_empty() {
+                if output.chars().last().is_some_and(|character| {
+                    character.is_alphanumeric()
+                        || matches!(character, ',' | '.' | ';' | ':' | '!' | '?')
+                }) {
+                    output.push(' ');
+                }
+                output.push('*');
+                output.push_str(content);
+                output.push('*');
+                if line[close + 1..]
+                    .chars()
+                    .next()
+                    .is_some_and(|character| character.is_alphanumeric() || character == '(')
+                {
+                    output.push(' ');
+                }
+                cursor = close + 1;
+                continue;
+            }
+        }
+
+        if rest.starts_with("\\-") && line[cursor + 2..].starts_with(' ') {
+            output.push_str("\\-");
+            cursor += 3;
+            continue;
+        }
+        if rest.starts_with("\\\\<") {
+            output.push_str("\\<");
+            cursor += 3;
+            continue;
+        }
+
+        let character = rest.chars().next().expect("cursor is within line");
+        if matches!(character, '.' | ',' | ';' | ':' | '!' | '?')
+            && output_ends_with_footnote(&output)
+        {
+            while output.ends_with(' ') {
+                output.pop();
+            }
+        }
+        output.push(character);
+        cursor += character.len_utf8();
+    }
+
+    output
+}
+
+fn output_ends_with_footnote(output: &str) -> bool {
+    let output = output.trim_end();
+    let Some(start) = output.rfind("[^") else {
+        return false;
+    };
+    output[start..].ends_with(']')
+        && output[start + 2..output.len() - 1]
+            .chars()
+            .all(|character| character.is_ascii_digit())
+}
+
+fn escape_tag_like_line(line: &str) -> String {
+    let mut output = String::with_capacity(line.len());
+    let mut cursor = 0;
+    while cursor < line.len() {
+        let rest = &line[cursor..];
+        if rest.starts_with('`')
+            && let Some(close_rel) = rest[1..].find('`')
+        {
+            let close = cursor + 1 + close_rel;
+            output.push_str(&line[cursor..=close]);
+            cursor = close + 1;
+            continue;
+        }
+        if rest.starts_with('<') && looks_like_tag(&rest[1..]) {
+            output.push('\\');
+        }
+        let character = rest.chars().next().expect("cursor is within line");
+        output.push(character);
+        cursor += character.len_utf8();
+    }
+    output.replace("\\\\<", "\\<")
+}
+
+fn looks_like_tag(rest: &str) -> bool {
+    let rest = rest.strip_prefix('/').unwrap_or(rest);
+    let mut chars = rest.chars();
+    if !chars
+        .next()
+        .is_some_and(|character| character.is_ascii_alphabetic())
+    {
+        return false;
+    }
+    for character in chars {
+        if character == '>' || character == '/' {
+            return true;
+        }
+        if character.is_whitespace() {
+            return rest.contains('>');
+        }
+        if !(character.is_ascii_alphanumeric() || character == '-') {
+            return false;
+        }
+    }
+    false
+}
+
+fn normalize_quoted_fence_line(line: &str) -> String {
+    let trimmed = line.trim_start();
+    let prefix_len = line.len() - trimmed.len();
+    let rest = trimmed.strip_prefix('>').unwrap_or(trimmed).trim_start();
+    if let Some(language) = rest.strip_prefix("```") {
+        let language = language.trim_start();
+        if language.len() == 1
+            && language
+                .chars()
+                .all(|character| character.is_ascii_alphabetic())
+        {
+            let prefix = &line[..prefix_len];
+            return format!("{prefix}> ```{language}");
+        }
+    }
+    line.to_string()
+}
+
+fn remove_empty_links_line(line: &str) -> String {
+    let mut output = String::with_capacity(line.len());
+    let mut cursor = 0;
+    while let Some(start_rel) = line[cursor..].find("[](") {
+        let start = cursor + start_rel;
+        let Some(close_rel) = line[start + 3..].find(')') else {
+            break;
         };
+        if start > 0 && line.as_bytes()[start - 1] == b'!' {
+            output.push_str(&line[cursor..start + 3 + close_rel + 1]);
+        } else {
+            output.push_str(&line[cursor..start]);
+        }
+        cursor = start + 3 + close_rel + 1;
     }
+    output.push_str(&line[cursor..]);
+    output.trim_end_matches('\n').to_string()
+}
 
-    replace!(0, |c: &regex_lite::Captures| format!("`{}`", &c[1]));
-    replace!(1, |c: &regex_lite::Captures| format!("{} {}", &c[1], &c[2]));
-    replace!(2, |c: &regex_lite::Captures| format!("{} {}", &c[1], &c[2]));
-    replace!(3, |c: &regex_lite::Captures| format!("{} {}", &c[1], &c[2]));
-    replace!(4, |c: &regex_lite::Captures| format!("{} {}", &c[1], &c[2]));
-    replace!(5, "*$1*");
-    replace!(6, "*$1*");
-    replace!(7, "*$1*");
-    replace!(8, " *$2");
-    replace!(9, "$1$2");
-    replace!(10, "$1 $2");
-    replace!(11, "*$1* $2");
-    replace!(12, "$1$2");
-    replace!(13, "$1$2");
-    replace!(14, |c: &regex_lite::Captures| format!(
-        "{} {}",
-        &c[1], &c[2]
-    ));
-    replace!(15, |c: &regex_lite::Captures| format!(
-        "{} {}",
-        &c[1], &c[2]
-    ));
-    replace!(16, |c: &regex_lite::Captures| format!(
-        "{} {}",
-        &c[1], &c[2]
-    ));
-    replace!(17, |c: &regex_lite::Captures| format!(
-        "{} {}",
-        &c[1], &c[2]
-    ));
-    replace!(18, "$1 $2");
-    replace!(19, "$1 ");
-    replace!(20, "$1 $2");
-    replace!(21, "$1 $2");
-    replace!(22, "$1 *$2");
-    replace!(23, "$1 $2");
-    replace!(24, "$1 $2");
-    replace!(25, "`$1`");
-    replace!(26, "`$1`");
-    replace!(27, "`$1` $2");
-    replace!(28, "`$1`");
-    replace!(29, |c: &regex_lite::Captures| format!("\\<{}>", &c[1]));
+fn remove_backreferences_line(line: &str) -> String {
+    let marker = "[↩](#fnref:";
+    let mut output = String::with_capacity(line.len());
+    let mut cursor = 0;
+    while let Some(start_rel) = line[cursor..].find(marker) {
+        let start = cursor + start_rel;
+        let Some(close_rel) = line[start + marker.len()..].find(')') else {
+            break;
+        };
+        let mut content_end = start + marker.len() + close_rel + 1;
+        while output.ends_with(char::is_whitespace) {
+            output.pop();
+        }
+        output.push_str(&line[cursor..start]);
+        content_end = content_end.max(start + marker.len() + close_rel + 1);
+        cursor = content_end;
+    }
+    output.push_str(&line[cursor..]);
+    output
+}
 
-    normalize_strong_spacing(&line)
+fn normalize_escaped_markdown_line(line: &str) -> String {
+    let mut output = String::with_capacity(line.len());
+    let mut cursor = 0;
+    while cursor < line.len() {
+        let rest = &line[cursor..];
+        if rest.starts_with("\\[^")
+            && let Some(close_rel) = rest[3..].find("\\]")
+            && rest[3..3 + close_rel]
+                .chars()
+                .all(|character| character.is_ascii_digit())
+        {
+            output.push_str("[^");
+            output.push_str(&rest[3..3 + close_rel]);
+            output.push(']');
+            cursor += 3 + close_rel + 2;
+            continue;
+        }
+        if rest.starts_with("!\\[\\](")
+            && let Some(close_rel) = rest[6..].find(')')
+        {
+            output.push_str("![](");
+            output.push_str(&rest[6..6 + close_rel]);
+            output.push(')');
+            cursor += 6 + close_rel + 1;
+            continue;
+        }
+        if rest.starts_with("\\<")
+            && let Some(close_rel) = rest[2..].find('>')
+        {
+            let value = &rest[2..2 + close_rel];
+            if value.contains('@') && value.rsplit_once('.').is_some() {
+                output.push('<');
+                output.push_str(value);
+                output.push('>');
+                cursor += 2 + close_rel + 1;
+                continue;
+            }
+        }
+        let character = rest.chars().next().expect("cursor is within line");
+        output.push(character);
+        cursor += character.len_utf8();
+    }
+    output
+}
+
+fn normalize_url_parentheses_line(line: &str) -> String {
+    let mut output = String::with_capacity(line.len());
+    let mut cursor = 0;
+    while cursor < line.len() {
+        let rest = &line[cursor..];
+        let Some(open_rel) = rest.find('(') else {
+            output.push_str(rest);
+            break;
+        };
+        let open = cursor + open_rel;
+        output.push_str(&line[cursor..=open]);
+        let Some(close_rel) = line[open + 1..].find(')') else {
+            output.push_str(&line[open + 1..]);
+            break;
+        };
+        let close = open + 1 + close_rel;
+        output.push_str(&line[open + 1..close].replace("\\_", "_"));
+        output.push(')');
+        cursor = close + 1;
+    }
+    output
+}
+
+fn format_link_destinations_line(line: &str) -> String {
+    let mut output = String::with_capacity(line.len());
+    let mut cursor = 0;
+    while let Some(open_rel) = line[cursor..].find("](") {
+        let open = cursor + open_rel;
+        output.push_str(&line[cursor..open + 2]);
+        let Some(close_rel) = line[open + 2..].find(')') else {
+            output.push_str(&line[open + 2..]);
+            return output;
+        };
+        let close = open + 2 + close_rel;
+        let url = &line[open + 2..close];
+        if url.starts_with('<') && url.ends_with('>') {
+            output.push_str(url);
+        } else if url.contains(char::is_whitespace) && !url.contains('"') {
+            output.push('<');
+            output.push_str(&url.replace('>', "\\>"));
+            output.push('>');
+        } else {
+            output.push_str(&escape_link_parens(url));
+        }
+        output.push(')');
+        cursor = close + 1;
+    }
+    output.push_str(&line[cursor..]);
+    output
 }
 
 fn normalize_strong_spacing(line: &str) -> String {
@@ -1270,87 +1335,72 @@ fn normalize_strong_spacing(line: &str) -> String {
     output
 }
 
-fn normalize_strong_spacing_outside_code(md: &str) -> String {
-    let mut output = String::new();
-    let mut in_fenced_code = false;
-    for line in md.lines() {
-        if line.trim_start().starts_with("```") {
-            in_fenced_code = !in_fenced_code;
-            output.push_str(line);
-        } else if in_fenced_code {
-            output.push_str(line);
-        } else {
-            output.push_str(&normalize_strong_spacing(line));
-        }
-        output.push('\n');
-    }
-    output.trim_end_matches('\n').to_string()
-}
-
-fn normalize_inline_code_spacing_outside_code(md: &str) -> String {
-    let mut output = String::new();
-    let mut in_fenced_code = false;
-    for line in md.lines() {
-        if line.trim_start().starts_with("```") {
-            in_fenced_code = !in_fenced_code;
-            output.push_str(line);
-        } else if in_fenced_code {
-            output.push_str(line);
-        } else {
-            output.push_str(&normalize_inline_code_spacing(line));
-        }
-        output.push('\n');
-    }
-    output.trim_end_matches('\n').to_string()
-}
-
-fn normalize_inline_code_spacing(line: &str) -> String {
+fn normalize_terminal_spacing_line(line: &str) -> String {
     let mut output = String::with_capacity(line.len());
     let mut cursor = 0;
-    while let Some(open_rel) = line[cursor..].find('`') {
-        let open = cursor + open_rel;
-        output.push_str(&line[cursor..open]);
-        let content_start = open + 1;
-        let Some(close_rel) = line[content_start..].find('`') else {
-            output.push_str(&line[open..]);
-            return output;
-        };
-        let close = content_start + close_rel;
-        if output
-            .chars()
-            .last()
-            .is_some_and(|character| character.is_alphanumeric())
-        {
-            output.push(' ');
-        }
-        output.push_str(&line[open..close + 1]);
-        if line[close + 1..]
-            .chars()
-            .next()
-            .is_some_and(|character| character.is_alphanumeric())
-        {
-            output.push(' ');
-        }
-        cursor = close + 1;
-    }
-    output.push_str(&line[cursor..]);
-    output
-}
 
-fn normalize_footnote_spacing(line: &str) -> String {
-    let mut output = String::with_capacity(line.len());
-    let mut cursor = 0;
-    let mut in_code = false;
     while cursor < line.len() {
         let rest = &line[cursor..];
-        if rest.starts_with('`') {
-            in_code = !in_code;
-            output.push('`');
-            cursor += 1;
+        if rest.starts_with("**") {
+            let content_start = cursor + 2;
+            let Some(close_rel) = line[content_start..].find("**") else {
+                output.push_str(rest);
+                break;
+            };
+            let close = content_start + close_rel;
+            let inner = line[content_start..close].trim();
+            if inner.is_empty() {
+                output.push_str(&line[cursor..close + 2]);
+            } else {
+                if output
+                    .chars()
+                    .last()
+                    .is_some_and(|character| character.is_alphanumeric())
+                {
+                    output.push(' ');
+                }
+                output.push_str("**");
+                output.push_str(inner);
+                output.push_str("**");
+                if line[close + 2..]
+                    .chars()
+                    .next()
+                    .is_some_and(|character| character.is_alphanumeric())
+                {
+                    output.push(' ');
+                }
+            }
+            cursor = close + 2;
             continue;
         }
-        if !in_code
-            && rest.starts_with("[^")
+        if rest.starts_with('`') {
+            let content_start = cursor + 1;
+            let Some(close_rel) = line[content_start..].find('`') else {
+                output.push_str(rest);
+                break;
+            };
+            let close = content_start + close_rel;
+            if output
+                .chars()
+                .last()
+                .is_some_and(|character| character.is_alphanumeric())
+            {
+                output.push(' ');
+            }
+            output.push('`');
+            output.push_str(&normalize_strong_spacing(&line[content_start..close]));
+            output.push('`');
+            if line[close + 1..]
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_alphanumeric())
+            {
+                output.push(' ');
+            }
+            cursor = close + 1;
+            continue;
+        }
+        if rest.starts_with("[^")
             && let Some(end_rel) = rest.find(']')
         {
             let end = cursor + end_rel + 1;
@@ -1364,46 +1414,18 @@ fn normalize_footnote_spacing(line: &str) -> String {
             cursor = end;
             continue;
         }
+        if rest.starts_with(")[") {
+            output.push_str(") [");
+            cursor += 2;
+            continue;
+        }
+
         let character = rest.chars().next().expect("cursor is within line");
         output.push(character);
         cursor += character.len_utf8();
     }
-    output.replace(")[", ") [")
-}
 
-fn normalize_footnote_spacing_outside_code(md: &str) -> String {
-    let mut output = String::new();
-    let mut in_fenced_code = false;
-    for line in md.lines() {
-        if line.trim_start().starts_with("```") {
-            in_fenced_code = !in_fenced_code;
-            output.push_str(line);
-        } else if in_fenced_code {
-            output.push_str(line);
-        } else {
-            output.push_str(&normalize_footnote_spacing(line));
-        }
-        output.push('\n');
-    }
-    output.trim_end_matches('\n').to_string()
-}
-
-/// Format markdown link destinations: wrap URLs with spaces in <>, escape parens.
-fn format_link_destinations(md: &str) -> String {
-    let link_re = LINK_DEST_RE.get_or_init(|| regex_lite::Regex::new(r"\]\(([^)]+)\)").unwrap());
-    link_re
-        .replace_all(md, |caps: &regex_lite::Captures| {
-            let url = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-            let formatted = if url.starts_with('<') && url.ends_with('>') {
-                url.to_string()
-            } else if url.contains(char::is_whitespace) && !url.contains('"') {
-                format!("<{}>", url.replace('>', "\\>"))
-            } else {
-                escape_link_parens(url)
-            };
-            format!("]({})", formatted)
-        })
-        .to_string()
+    output
 }
 
 fn escape_link_parens(url: &str) -> String {
@@ -1564,25 +1586,10 @@ mod tests {
     }
 
     #[test]
-    fn collapses_runs_of_blank_blockquote_lines() {
-        let markdown = "Before\n\n> \n>  \n> >\n\nAfter";
-        assert_eq!(
-            collapse_blank_quote_line_runs(markdown),
-            "Before\n\n> \n\nAfter"
-        );
-    }
-
-    #[test]
     fn test_strong_spacing() {
         assert_eq!(
             normalize_strong_spacing(
                 "- **JavaScript arrays are resizable**and**can contain a mix**."
-            ),
-            "- **JavaScript arrays are resizable** and **can contain a mix**."
-        );
-        assert_eq!(
-            fix_inline_spacing_line(
-                "- **JavaScript arrays are resizable** and**can contain a mix**."
             ),
             "- **JavaScript arrays are resizable** and **can contain a mix**."
         );
@@ -1592,5 +1599,28 @@ mod tests {
             ),
             "- **JavaScript arrays are resizable** and **can contain a mix**."
         );
+    }
+
+    #[test]
+    fn postprocess_spacing_is_stateful_and_fenced_code_safe() {
+        let cases = [
+            "plain text",
+            "- **bold**and`code`[^1]",
+            "before`code`after [^1]*next",
+            "```rust\n**inside**`code`[^1]\n```\n**outside**[^2]",
+            "> **quoted**and `code`[^3]",
+            "| **header** | `code` |\n| --- | --- |",
+        ];
+
+        for markdown in cases {
+            let processed = postprocess_markdown(markdown);
+            assert!(
+                !processed.contains("  **bold**and"),
+                "markdown: {markdown:?}"
+            );
+        }
+        let fenced = postprocess_markdown("```rust\n**inside**`code`[^1]\n```\n**outside**[^2]");
+        assert!(fenced.contains("```rust\n**inside**`code`[^1]\n```"));
+        assert!(fenced.contains("**outside**[^2]"));
     }
 }

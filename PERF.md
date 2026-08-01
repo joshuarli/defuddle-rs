@@ -71,13 +71,13 @@ cross-machine performance guarantee.
 | Workload | Median | Peak live allocation |
 | --- | ---: | ---: |
 | `substack_body_html` | 2.44 ms | 520 KB |
-| `substack_body_markdown` | 41.6 ms | 1.17 MB |
+| `substack_body_markdown` | 13.1 ms | 925 KB |
 | `substack_raw_html` | 4.67 ms | 1.01 MB |
-| `substack_raw_markdown` | 44.5 ms | 1.22 MB |
+| `substack_raw_markdown` | 16.0 ms | 1.01 MB |
 | `wikipedia_html` | 17.5 ms | 1.01 MB |
-| `wikipedia_markdown` | 34.7 ms | 1.27 MB |
-| `github_issue_markdown` | 6.48 ms | 532 KB |
-| `hackernews_comments_markdown` | 1.69 ms | 124 KB |
+| `wikipedia_markdown` | 20.6 ms | 1.18 MB |
+| `github_issue_markdown` | 4.15 ms | 532 KB |
+| `hackernews_comments_markdown` | 731 µs | 124 KB |
 
 The remaining dominant wall-time path is Markdown postprocessing. A release
 profile of the Substack body fixture measured approximately 8.2 ms in
@@ -129,16 +129,19 @@ effect and behavior change remain easy to bisect.
   `substack_raw_markdown` cumulative allocation from 5.02 MB to 4.59 MB and
   peak live allocation from 1.65 MB to 1.22 MB, while the full benchmark run
   showed no meaningful timing regression.
+- `Stateful Markdown postprocessing` (working tree): replace the chained
+  full-string Markdown cleanup regexes with one line-oriented stateful pass.
+  The pass carries fenced-code, blank-line, table, list, quote, and
+  Hacker-News listing state while applying inline normalization directly to
+  the output buffer. On the same 100-sample release benchmark,
+  `substack_body_markdown` moved from 41.6 ms / 1.17 MB to 13.1 ms / 925 KB;
+  fixture output remains byte-for-byte equivalent.
 
 ## Experiments not retained
 
 - A broad attempt to avoid all Markdown preprocessing was rejected because
   image, table, and iframe normalization changes output. The retained guard is
   limited to fragments where those transformations cannot apply.
-- Rewriting the entire Markdown postprocessing regex chain was not kept as a
-  speculative refactor. Profiling identifies it as a hotspot, but a rewrite
-  needs output-equivalence coverage and a clear improvement beyond noise before
-  adding that complexity.
 - Preserving the input `String` when an inline-spacing regex had no match was
   measured at roughly 43.0 ms versus 42.6 ms for release postprocessing. That
   result was within noise, so the helper change was discarded.
