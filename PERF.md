@@ -71,7 +71,7 @@ cross-machine performance guarantee.
 | Workload | Median | Peak live allocation |
 | --- | ---: | ---: |
 | `substack_body_html` | 2.44 ms | 520 KB |
-| `substack_body_markdown` | 13.1 ms | 925 KB |
+| `substack_body_markdown` | 13.3 ms | 727 KB |
 | `substack_raw_html` | 4.67 ms | 1.01 MB |
 | `substack_raw_markdown` | 16.0 ms | 1.01 MB |
 | `wikipedia_html` | 17.5 ms | 1.01 MB |
@@ -136,6 +136,12 @@ effect and behavior change remain easy to bisect.
   the output buffer. On the same 100-sample release benchmark,
   `substack_body_markdown` moved from 41.6 ms / 1.17 MB to 13.1 ms / 925 KB;
   fixture output remains byte-for-byte equivalent.
+- `Selected-subtree Markdown DOM reuse`: clone only the selected content
+  subtree, apply image/table/iframe normalization directly to that clone, and
+  avoid reparsing the serialized fragment during Markdown preprocessing. The
+  representative Markdown medians stayed within noise, while
+  `substack_body_markdown` peak live allocation fell from about 925 KB to
+  727 KB (about 21%) with unchanged fixture output.
 
 ## Experiments not retained
 

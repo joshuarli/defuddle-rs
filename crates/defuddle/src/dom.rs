@@ -452,6 +452,13 @@ impl Document {
         self.clone_subtree_from(source, source_id, Some(parent))
     }
 
+    pub(crate) fn clone_subtree(source: &Document, source_id: NodeId) -> (Self, NodeId) {
+        let mut document = Self::empty();
+        let root = document.clone_subtree_from(source, source_id, None);
+        document.root = root;
+        (document, root)
+    }
+
     pub fn tag_name(&self, node: NodeId) -> &str {
         match &self.node(node).kind {
             NodeKind::Element { name, .. } => name.as_str(),

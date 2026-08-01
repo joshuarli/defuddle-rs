@@ -34,6 +34,13 @@ fn html_to_markdown_internal(html: &str, mut diagnostics: Option<&mut Diagnostic
         preprocess_html_for_markdown(html)
     });
 
+    convert_cleaned_html_to_markdown(&cleaned, &mut diagnostics)
+}
+
+fn convert_cleaned_html_to_markdown(
+    cleaned: &str,
+    mut diagnostics: &mut Option<&mut Diagnostics>,
+) -> String {
     let converter = build_converter();
 
     let converted = measure_phase(&mut diagnostics, "markdown convert", || {
@@ -43,7 +50,7 @@ fn html_to_markdown_internal(html: &str, mut diagnostics: Option<&mut Diagnostic
         Ok(md) => measure_phase(&mut diagnostics, "markdown postprocess", || {
             postprocess_markdown(&md)
         }),
-        Err(_) => cleaned,
+        Err(_) => cleaned.to_string(),
     }
 }
 
@@ -504,6 +511,11 @@ fn build_converter() -> HtmlToMarkdown {
 
 /// Full HTML preprocessing before markdown conversion.
 fn preprocess_html_for_markdown(html: &str) -> String {
+    let html = preprocess_html_text(html);
+    preprocess_html_dom(&html)
+}
+
+fn preprocess_html_text(html: &str) -> String {
     let html = html
         .replace("&nbsp;", " ")
         .replace("<br>", "\n")
@@ -530,7 +542,7 @@ fn preprocess_html_for_markdown(html: &str) -> String {
     // Handle inline formatting: <mark> → ==text==, <del>/<s>/<strike> → ~~text~~
     let html = convert_inline_formatting(&html);
 
-    preprocess_html_dom(&html)
+    html
 }
 
 fn preprocess_html_dom(html: &str) -> String {
@@ -542,11 +554,21 @@ fn preprocess_html_dom(html: &str) -> String {
     }
 
     let mut doc = Document::parse(html);
-    for id in doc.query_selector_all("wbr") {
+    let root = doc
+        .query_selector_all("body")
+        .first()
+        .copied()
+        .unwrap_or(doc.root());
+    preprocess_markdown_dom(&mut doc, root);
+    doc.inner_html(root)
+}
+
+fn preprocess_markdown_dom(doc: &mut Document, root: NodeId) {
+    for id in doc.query_selector_all_in_subtree(root, "wbr") {
         doc.remove(id);
     }
 
-    for id in doc.query_selector_all("img") {
+    for id in doc.query_selector_all_in_subtree(root, "img") {
         // Markdown output intentionally omits image alt text. Captions and
         // surrounding text remain in the document, while alt text often
         // duplicates or exposes noisy accessibility labels from the page.
@@ -563,13 +585,13 @@ fn preprocess_html_dom(html: &str) -> String {
         }
     }
 
-    for id in doc.query_selector_all("table") {
+    for id in doc.query_selector_all_in_subtree(root, "table") {
         for attr in doc.attr_names(id).to_vec() {
             doc.remove_attr(id, &attr);
         }
     }
 
-    for id in doc.query_selector_all("iframe") {
+    for id in doc.query_selector_all_in_subtree(root, "iframe") {
         let Some(src) = doc.get_attr(id, "src").map(str::to_owned) else {
             continue;
         };
@@ -583,13 +605,6 @@ fn preprocess_html_dom(html: &str) -> String {
             );
         }
     }
-
-    let root = doc
-        .query_selector_all("body")
-        .first()
-        .copied()
-        .unwrap_or(doc.root());
-    doc.inner_html(root)
 }
 
 /// Postprocess markdown to clean up artifacts.
@@ -1520,8 +1535,7 @@ fn convert_inline_formatting(html: &str) -> String {
 
 /// Convert the content of a DOM element to Markdown.
 pub fn content_to_markdown(doc: &Document, content_id: NodeId) -> String {
-    let html = doc.inner_html(content_id);
-    html_to_markdown(&html)
+    content_to_markdown_from_document(doc, content_id, None)
 }
 
 pub(crate) fn content_to_markdown_with_diagnostics(
@@ -1529,8 +1543,31 @@ pub(crate) fn content_to_markdown_with_diagnostics(
     content_id: NodeId,
     diagnostics: &mut Diagnostics,
 ) -> String {
-    let html = diagnostics.measure("markdown serialize", || doc.inner_html(content_id));
-    html_to_markdown_with_diagnostics(&html, diagnostics)
+    content_to_markdown_from_document(doc, content_id, Some(diagnostics))
+}
+
+fn content_to_markdown_from_document(
+    doc: &Document,
+    content_id: NodeId,
+    mut diagnostics: Option<&mut Diagnostics>,
+) -> String {
+    let needs_dom_preprocess = ["img", "table", "iframe"].iter().any(|selector| {
+        !doc.query_selector_all_in_subtree(content_id, selector)
+            .is_empty()
+    });
+    let html = measure_phase(&mut diagnostics, "markdown serialize", || {
+        if needs_dom_preprocess {
+            let (mut markdown_doc, root) = Document::clone_subtree(doc, content_id);
+            preprocess_markdown_dom(&mut markdown_doc, root);
+            markdown_doc.inner_html(root)
+        } else {
+            doc.inner_html(content_id)
+        }
+    });
+    let cleaned = measure_phase(&mut diagnostics, "markdown preprocess", || {
+        preprocess_html_text(&html)
+    });
+    convert_cleaned_html_to_markdown(&cleaned, &mut diagnostics)
 }
 
 pub fn normalize_origin_links(md: &str) -> String {
