@@ -1,6 +1,6 @@
 use crate::content_utils::contains_ascii_case_insensitive;
 use crate::dom::{Document, NodeId};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct AnalysisFacts {
@@ -115,6 +115,16 @@ impl AnalysisSnapshot {
         Some(total.saturating_sub(usize::from(self_count)))
     }
 
+    pub(crate) fn overlay(&self) -> MutationOverlay<'_> {
+        MutationOverlay {
+            snapshot: self,
+            removed: FxHashSet::default(),
+            tag_overrides: FxHashMap::default(),
+            attr_overrides: FxHashMap::default(),
+            log: Vec::new(),
+        }
+    }
+
     fn visit(
         &mut self,
         doc: &Document,
@@ -176,6 +186,180 @@ impl AnalysisSnapshot {
             .is_some_and(|value| value == "smart-brevity");
         self.nodes[index].facts = facts;
         index
+    }
+}
+
+#[derive(Debug, Clone)]
+enum OverlayMutation {
+    Removed {
+        node: NodeId,
+        previous: bool,
+    },
+    Tag {
+        node: NodeId,
+        previous: Option<String>,
+    },
+    Attribute {
+        node: NodeId,
+        name: String,
+        previous: Option<Option<String>>,
+    },
+}
+
+#[derive(Debug)]
+pub(crate) struct MutationOverlay<'a> {
+    snapshot: &'a AnalysisSnapshot,
+    removed: FxHashSet<NodeId>,
+    tag_overrides: FxHashMap<NodeId, String>,
+    attr_overrides: FxHashMap<(NodeId, String), Option<String>>,
+    log: Vec<OverlayMutation>,
+}
+
+impl<'a> MutationOverlay<'a> {
+    pub(crate) fn checkpoint(&self) -> usize {
+        self.log.len()
+    }
+
+    pub(crate) fn rollback(&mut self, checkpoint: usize) {
+        while self.log.len() > checkpoint {
+            match self.log.pop().expect("overlay log length checked") {
+                OverlayMutation::Removed { node, previous } => {
+                    if previous {
+                        self.removed.insert(node);
+                    } else {
+                        self.removed.remove(&node);
+                    }
+                }
+                OverlayMutation::Tag { node, previous } => {
+                    if let Some(previous) = previous {
+                        self.tag_overrides.insert(node, previous);
+                    } else {
+                        self.tag_overrides.remove(&node);
+                    }
+                }
+                OverlayMutation::Attribute {
+                    node,
+                    name,
+                    previous,
+                } => {
+                    let key = (node, name);
+                    if let Some(previous) = previous {
+                        self.attr_overrides.insert(key, previous);
+                    } else {
+                        self.attr_overrides.remove(&key);
+                    }
+                }
+            }
+        }
+    }
+
+    pub(crate) fn remove(&mut self, node: NodeId) {
+        let previous = self.removed.contains(&node);
+        self.log.push(OverlayMutation::Removed { node, previous });
+        self.removed.insert(node);
+    }
+
+    pub(crate) fn set_tag_name(&mut self, node: NodeId, tag: &str) {
+        let previous = self.tag_overrides.get(&node).cloned();
+        self.log.push(OverlayMutation::Tag { node, previous });
+        self.tag_overrides.insert(node, tag.to_owned());
+    }
+
+    pub(crate) fn set_attr(&mut self, node: NodeId, name: &str, value: &str) {
+        let key = (node, name.to_ascii_lowercase());
+        let previous = self.attr_overrides.get(&key).cloned();
+        self.log.push(OverlayMutation::Attribute {
+            node,
+            name: key.1.clone(),
+            previous,
+        });
+        self.attr_overrides.insert(key, Some(value.to_owned()));
+    }
+
+    pub(crate) fn remove_attr(&mut self, node: NodeId, name: &str) {
+        let key = (node, name.to_ascii_lowercase());
+        let previous = self.attr_overrides.get(&key).cloned();
+        self.log.push(OverlayMutation::Attribute {
+            node,
+            name: key.1.clone(),
+            previous,
+        });
+        self.attr_overrides.insert(key, None);
+    }
+
+    pub(crate) fn is_visible(&self, node: NodeId) -> bool {
+        let Some(&current_index) = self.snapshot.lookup.get(&node) else {
+            return false;
+        };
+        let mut current = current_index;
+        loop {
+            let current_node = self.snapshot.nodes[current].dom_id;
+            if self.removed.contains(&current_node) {
+                return false;
+            }
+            let Some(parent) = self.snapshot.nodes[current].parent else {
+                return true;
+            };
+            current = parent;
+        }
+    }
+
+    pub(crate) fn select_tag(&self, tag: &str) -> Vec<NodeId> {
+        self.snapshot
+            .nodes
+            .iter()
+            .filter(|node| {
+                self.is_visible(node.dom_id) && self.tag_name(node.dom_id).eq_ignore_ascii_case(tag)
+            })
+            .map(|node| node.dom_id)
+            .collect()
+    }
+
+    pub(crate) fn tag_name(&self, node: NodeId) -> &str {
+        self.tag_overrides
+            .get(&node)
+            .map(String::as_str)
+            .or_else(|| {
+                self.snapshot
+                    .lookup
+                    .get(&node)
+                    .map(|&index| self.snapshot.nodes[index].tag.as_str())
+            })
+            .unwrap_or("")
+    }
+
+    pub(crate) fn apply_to(&self, doc: &mut Document) {
+        for (&node, tag) in &self.tag_overrides {
+            if self.is_visible(node) {
+                doc.set_tag_name(node, tag);
+            }
+        }
+        for (&(node, ref name), value) in &self.attr_overrides {
+            if self.is_visible(node) {
+                if let Some(value) = value {
+                    doc.set_attr(node, name, value);
+                } else {
+                    doc.remove_attr(node, name);
+                }
+            }
+        }
+        let removals = self
+            .removed
+            .iter()
+            .copied()
+            .filter(|&node| {
+                self.snapshot
+                    .lookup
+                    .get(&node)
+                    .and_then(|&index| self.snapshot.nodes[index].parent)
+                    .is_none_or(|parent| {
+                        !self.removed.contains(&self.snapshot.nodes[parent].dom_id)
+                    })
+            })
+            .collect::<Vec<_>>();
+        for node in removals {
+            doc.remove(node);
+        }
     }
 }
 
@@ -242,5 +426,38 @@ mod tests {
             start.elapsed().as_secs_f64() * 100.0
         );
         assert!(node_count > 0);
+    }
+
+    #[test]
+    fn mutation_overlay_checkpoints_and_applies() {
+        let mut doc =
+            Document::parse("<article><h2>Title</h2><p id=keep>Keep</p><p>Drop</p></article>");
+        let root = doc.root();
+        let snapshot = AnalysisSnapshot::from_subtree(&doc, root);
+        let paragraphs = snapshot.select_tag("p");
+        let heading = snapshot.select_tag("h2").into_iter().next().unwrap();
+        let checkpoint;
+
+        let mut overlay = snapshot.overlay();
+        checkpoint = overlay.checkpoint();
+        overlay.remove(paragraphs[1]);
+        overlay.set_tag_name(heading, "h3");
+        overlay.set_attr(paragraphs[0], "data-kept", "yes");
+        assert!(!overlay.is_visible(paragraphs[1]));
+        assert_eq!(overlay.tag_name(heading), "h3");
+        assert_eq!(overlay.select_tag("p").len(), 1);
+
+        overlay.rollback(checkpoint);
+        assert!(overlay.is_visible(paragraphs[1]));
+        assert_eq!(overlay.tag_name(heading), "h2");
+        assert_eq!(overlay.select_tag("p").len(), 2);
+
+        overlay.remove(paragraphs[1]);
+        overlay.set_tag_name(heading, "h3");
+        overlay.set_attr(paragraphs[0], "data-kept", "yes");
+        overlay.apply_to(&mut doc);
+        assert!(doc.query_selector_all("h3").len() == 1);
+        assert!(doc.query_selector_all("#keep[data-kept=\"yes\"]").len() == 1);
+        assert!(doc.query_selector_all("p").len() == 1);
     }
 }

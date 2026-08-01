@@ -458,11 +458,11 @@ fn parse_internal_once(
 
     if config.profile {
         if let Some(content_id) = content_id {
-            let node_count = diagnostics.measure("analysis snapshot", || {
-                let snapshot = analysis::AnalysisSnapshot::from_subtree(&doc, content_id);
-                snapshot.node_count()
+            let snapshot = diagnostics.measure("analysis snapshot", || {
+                analysis::AnalysisSnapshot::from_subtree(&doc, content_id)
             });
-            std::hint::black_box(node_count);
+            let overlay = diagnostics.measure("analysis overlay", || snapshot.overlay());
+            std::hint::black_box((snapshot.node_count(), overlay.checkpoint()));
         }
     }
 
