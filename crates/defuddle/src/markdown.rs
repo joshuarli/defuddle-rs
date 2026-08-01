@@ -30,9 +30,7 @@ pub(crate) fn html_to_markdown_with_diagnostics(
 }
 
 fn html_to_markdown_internal(html: &str, mut diagnostics: Option<&mut Diagnostics>) -> String {
-    let cleaned = measure_phase(&mut diagnostics, "markdown preprocess", || {
-        preprocess_html_for_markdown(html)
-    });
+    let cleaned = preprocess_html_for_markdown_with_diagnostics(html, &mut diagnostics);
 
     convert_cleaned_html_to_markdown(&cleaned, &mut diagnostics)
 }
@@ -509,24 +507,43 @@ fn build_converter() -> HtmlToMarkdown {
     builder.build()
 }
 
-/// Full HTML preprocessing before markdown conversion.
-fn preprocess_html_for_markdown(html: &str) -> String {
-    let html = preprocess_html_text(html);
-    preprocess_html_dom(&html)
+fn preprocess_html_for_markdown_with_diagnostics(
+    html: &str,
+    diagnostics: &mut Option<&mut Diagnostics>,
+) -> String {
+    let html = preprocess_html_text_with_diagnostics(html, diagnostics);
+    measure_phase(diagnostics, "markdown preprocess dom", || {
+        preprocess_html_dom(&html)
+    })
 }
 
 fn preprocess_html_text(html: &str) -> String {
-    let html = html
-        .replace("&nbsp;", " ")
-        .replace("<br>", "\n")
-        .replace("<br/>", "\n")
-        .replace("<br />", "\n");
+    let mut diagnostics = None;
+    preprocess_html_text_with_diagnostics(html, &mut diagnostics)
+}
+
+fn preprocess_html_text_with_diagnostics(
+    html: &str,
+    diagnostics: &mut Option<&mut Diagnostics>,
+) -> String {
+    let html = measure_phase(diagnostics, "markdown text basic", || {
+        html.replace("&nbsp;", " ")
+            .replace("<br>", "\n")
+            .replace("<br/>", "\n")
+            .replace("<br />", "\n")
+    });
 
     // Strip <wbr> tags
-    let html = WBR_TAG_RE
-        .get_or_init(|| regex_lite::Regex::new(r"<wbr\s*/?>").unwrap())
-        .replace_all(&html, "")
-        .to_string();
+    let html = if html.contains("<wbr") {
+        measure_phase(diagnostics, "markdown text wbr", || {
+            WBR_TAG_RE
+                .get_or_init(|| regex_lite::Regex::new(r"<wbr\s*/?>").unwrap())
+                .replace_all(&html, "")
+                .to_string()
+        })
+    } else {
+        html
+    };
 
     // Handle callout blocks: convert to blockquote format
     // The html-to-markdown-rs handler for div[data-callout] handles this
@@ -534,15 +551,36 @@ fn preprocess_html_text(html: &str) -> String {
     // No string-level regex needed.
 
     // Handle footnote inline references
-    let html = convert_footnotes_to_markdown(&html);
+    let html = if html.contains("footnote-ref") {
+        measure_phase(diagnostics, "markdown text footnotes", || {
+            convert_footnotes_to_markdown(&html)
+        })
+    } else {
+        html
+    };
 
     // Handle task list checkboxes
-    let html = convert_task_lists(&html);
+    let html = if html.contains("checkbox") {
+        measure_phase(diagnostics, "markdown text tasks", || {
+            convert_task_lists(&html)
+        })
+    } else {
+        html
+    };
 
     // Handle inline formatting: <mark> → ==text==, <del>/<s>/<strike> → ~~text~~
-    let html = convert_inline_formatting(&html);
-
-    html
+    let has_inline_formatting = html.contains("<mark")
+        || html.contains("<del")
+        || html.contains("<strike")
+        || html.contains("<s>")
+        || html.contains("<s ");
+    if has_inline_formatting {
+        measure_phase(diagnostics, "markdown text inline", || {
+            convert_inline_formatting(&html)
+        })
+    } else {
+        html
+    }
 }
 
 fn preprocess_html_dom(html: &str) -> String {
