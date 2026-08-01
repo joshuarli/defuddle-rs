@@ -199,7 +199,9 @@ effect and behavior change remain easy to bisect.
   selectors such as `p`, `a`, and `article`. The first implementation failed
   fixture parity across 49 active fixtures because tag renames and DOM
   mutations invalidated the index. It was reverted immediately; any future
-  index must be mutation-aware and preserve document-order semantics.
+  index must be mutation-aware and preserve document-order semantics. A second
+  version updated the index on tag renames, but still failed 19 fixtures due to
+  ordering/DOM mutation interactions and was also reverted.
 - PGO is deliberately deferred. The end-to-end fixture suite is shaped so the
   same `bench` binary can later drive PGO, but no profile-generation or
   profile-use flags should be inferred from the current workflow.
