@@ -153,6 +153,19 @@ effect and behavior change remain easy to bisect.
   hidden styles produced no measurable improvement on the representative
   fixtures. The normalization helpers were discarded rather than adding
   another abstraction for negligible savings.
+- A batched selector plan for `scoring::find_main_content` was tested in two
+  forms: one shared traversal and one tag/id/class candidate-bucket plan. The
+  200-sample HTML medians stayed within noise (for example, Wikipedia was
+  17.33 ms before and 17.65 ms with the bucket plan), while Markdown runs were
+  roughly 3–5% slower from per-node candidate bookkeeping. Both versions were
+  discarded; a broader selector index would need a better workload-specific
+  plan before adding mutation invalidation complexity.
+- A postorder `BlockFeatures` cache was tested for `pipeline::score_and_remove`.
+  It removed repeated descendant count and heading scans but added a full
+  subtree feature vector and traversal. Representative HTML medians remained
+  flat to slightly worse (Substack body 2.47 ms to 2.49 ms; Wikipedia
+  17.33 ms to 17.49 ms), so the cache was discarded rather than retaining a
+  neutral abstraction.
 - PGO is deliberately deferred. The end-to-end fixture suite is shaped so the
   same `bench` binary can later drive PGO, but no profile-generation or
   profile-use flags should be inferred from the current workflow.
