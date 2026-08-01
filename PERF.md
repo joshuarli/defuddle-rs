@@ -142,6 +142,14 @@ effect and behavior change remain easy to bisect.
 - Preserving the input `String` when an inline-spacing regex had no match was
   measured at roughly 43.0 ms versus 42.6 ms for release postprocessing. That
   result was within noise, so the helper change was discarded.
+- Fusing `text_content().to_lowercase()` into a single DOM traversal changed
+  Wikipedia HTML from 34,044 allocations / 6.743 MB to 34,042 allocations /
+  6.732 MB, while timing was slightly worse. The allocation difference was
+  noise-level, so the extra lowercase traversal API was discarded.
+- Combining lowercase conversion and space removal for partial attributes and
+  hidden styles produced no measurable improvement on the representative
+  fixtures. The normalization helpers were discarded rather than adding
+  another abstraction for negligible savings.
 - PGO is deliberately deferred. The end-to-end fixture suite is shaped so the
   same `bench` binary can later drive PGO, but no profile-generation or
   profile-use flags should be inferred from the current workflow.
