@@ -172,6 +172,18 @@ effect and behavior change remain easy to bisect.
   3.81 ms at 200 samples with the same 787 KB peak, so the API-only buffer
   reuse experiment was discarded; meaningful reuse needs a larger ownership
   or lifetime change.
+- Compacting repeated DOM tag names into enum-backed storage reduced peak live
+  memory slightly but regressed Wikipedia HTML by several percent and did not
+  improve the representative Markdown suite. It was reverted because the
+  storage complexity did not buy a meaningful end-to-end gain.
+- Interning common DOM attribute names produced roughly a 1% memory reduction
+  on Substack HTML but was neutral to slightly slower on wall time and did not
+  improve cumulative allocations enough to justify the broader attribute API
+  conversion. It was reverted.
+- Replacing per-node child `Vec<NodeId>` allocations with `SmallVec` inline
+  storage reduced HTML allocations by roughly 2–4% and improved Substack HTML
+  by about 2.5%, but made Substack and raw Markdown roughly 3–5% slower. The
+  experiment was reverted under the no-regression rule.
 - PGO is deliberately deferred. The end-to-end fixture suite is shaped so the
   same `bench` binary can later drive PGO, but no profile-generation or
   profile-use flags should be inferred from the current workflow.
