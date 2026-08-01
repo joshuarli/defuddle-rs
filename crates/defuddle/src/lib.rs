@@ -244,6 +244,7 @@ pub fn parse_html(
             name: "site extraction",
             elapsed_nanos,
         });
+        drop(std::mem::replace(&mut context.doc, Document::empty()));
         let mut parsed_page = site_result(
             extraction,
             name,
