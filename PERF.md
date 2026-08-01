@@ -47,6 +47,20 @@ Compare medians across several runs rather than relying on a single fastest or
 slowest sample. A change that is not clearly outside normal run-to-run noise
 should not be kept merely because one run improved.
 
+## Optimization scope rules
+
+Benchmark fixtures are measurement inputs, not optimization targets. Do not
+add page-, domain-, extractor-, fixture-, or workload-specific fast paths to
+improve a named benchmark. A retained optimization must improve a generic
+class of inputs through the public `parse_html()` pipeline and must preserve
+the same behavior contract for inputs outside the benchmark set. If a result
+only helps one capture or one site shape, treat it as a fixture-specific
+workaround and reject it from the performance architecture.
+
+The benchmark suite may be used to discover bottlenecks and validate broad
+regressions, but not to justify special cases keyed by URL, extractor name,
+fixture identity, document dimensions, or incidental markup fingerprints.
+
 ## Reading allocation output
 
 Divan reports two useful allocation views for each timed operation:
