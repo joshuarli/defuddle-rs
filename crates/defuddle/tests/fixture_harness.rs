@@ -54,8 +54,8 @@ fn fixture_harness_discovers_vendored_snapshot() {
     let expected_md = files_with_extension(expected_dir(), "md");
     let expected_html = files_with_extension(expected_dir(), "html");
 
-    assert_eq!(fixtures.len(), 168);
-    assert_eq!(expected_md.len(), 168);
+    assert_eq!(fixtures.len(), 218);
+    assert_eq!(expected_md.len(), 218);
     assert_eq!(expected_html.len(), 3);
 }
 

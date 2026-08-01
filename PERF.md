@@ -40,6 +40,13 @@ Set `DEFUDDLE_ZIM_PHASES=1` to run one unbenchmarked pass and print aggregate
 wall time, total and average phase time, invocation counts, phase shares, and
 retry counts across the whole corpus.
 
+The fixture harness also includes 50 deterministic article pages selected from
+the substantial ZIM payloads under
+`tests/upstream/defuddle/fixtures/wikipedia-zim--*.html`, with matching Markdown
+goldens under `tests/upstream/defuddle/expected/wikipedia-zim--*.md`. These
+fixtures are intended as an accuracy gate before optimizing the full-corpus
+workload; the archive itself remains an external benchmark input.
+
 For repeatable comparisons, keep the source revision, Rust toolchain, machine,
 allocator, and benchmark options constant. Capture both revisions with the
 same sample count, for example:
