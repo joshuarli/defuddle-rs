@@ -1,4 +1,5 @@
 use crate::dom::{Document, NodeId};
+use crate::pipeline::Diagnostics;
 use htmd::element_handler::{HandlerResult, Handlers};
 use htmd::{
     Element, HtmlToMarkdown,
@@ -89,13 +90,43 @@ fn replace_if_match<R: regex_lite::Replacer>(
 /// Convert HTML content to Markdown using htmd (Turndown.js-compatible) with
 /// custom element handlers matching the upstream Defuddle Turndown rules.
 pub fn html_to_markdown(html: &str) -> String {
-    let cleaned = preprocess_html_for_markdown(html);
+    html_to_markdown_internal(html, None)
+}
+
+pub(crate) fn html_to_markdown_with_diagnostics(
+    html: &str,
+    diagnostics: &mut Diagnostics,
+) -> String {
+    html_to_markdown_internal(html, Some(diagnostics))
+}
+
+fn html_to_markdown_internal(html: &str, mut diagnostics: Option<&mut Diagnostics>) -> String {
+    let cleaned = measure_phase(&mut diagnostics, "markdown preprocess", || {
+        preprocess_html_for_markdown(html)
+    });
 
     let converter = build_converter();
 
-    match converter.convert(&cleaned) {
-        Ok(md) => postprocess_markdown(&md),
+    let converted = measure_phase(&mut diagnostics, "markdown convert", || {
+        converter.convert(&cleaned)
+    });
+    match converted {
+        Ok(md) => measure_phase(&mut diagnostics, "markdown postprocess", || {
+            postprocess_markdown(&md)
+        }),
         Err(_) => cleaned,
+    }
+}
+
+fn measure_phase<T>(
+    diagnostics: &mut Option<&mut Diagnostics>,
+    name: &'static str,
+    operation: impl FnOnce() -> T,
+) -> T {
+    if let Some(diagnostics) = diagnostics.as_deref_mut() {
+        diagnostics.measure(name, operation)
+    } else {
+        operation()
     }
 }
 
@@ -1442,6 +1473,15 @@ fn convert_inline_formatting(html: &str) -> String {
 pub fn content_to_markdown(doc: &Document, content_id: NodeId) -> String {
     let html = doc.inner_html(content_id);
     html_to_markdown(&html)
+}
+
+pub(crate) fn content_to_markdown_with_diagnostics(
+    doc: &Document,
+    content_id: NodeId,
+    diagnostics: &mut Diagnostics,
+) -> String {
+    let html = diagnostics.measure("markdown serialize", || doc.inner_html(content_id));
+    html_to_markdown_with_diagnostics(&html, diagnostics)
 }
 
 pub fn normalize_origin_links(md: &str) -> String {

@@ -35,6 +35,24 @@ impl Diagnostics {
             .map(|phase| phase.elapsed_nanos)
             .sum()
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn report_if_requested(&self) {
+        if std::env::var_os("DEFUDDLE_PROFILE").is_none() {
+            return;
+        }
+        eprintln!("defuddle profile:");
+        for phase in &self.phases {
+            eprintln!(
+                "  {:<24} {:>8.3} ms",
+                phase.name,
+                phase.elapsed_nanos as f64 / 1_000_000.0
+            );
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn report_if_requested(&self) {}
 }
 
 pub(crate) fn timed<T>(operation: impl FnOnce() -> T) -> (T, u128) {

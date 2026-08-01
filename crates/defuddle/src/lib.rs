@@ -254,7 +254,9 @@ pub fn parse_html(
             separate_markdown,
             context.page_url,
             debug,
+            &mut context.diagnostics,
         );
+        context.diagnostics.report_if_requested();
         if defuddle_options.profile {
             parsed_page.parse_time = context.diagnostics.total_nanos() as u64 / 1_000_000;
         }
@@ -298,6 +300,7 @@ fn site_result(
     separate_markdown: bool,
     page_url: &str,
     debug: bool,
+    diagnostics: &mut pipeline::Diagnostics,
 ) -> DefuddleResult {
     sanitize::strip_unsafe_elements(&mut extraction.extracted_content.document);
     standardize::resolve_urls(
@@ -312,8 +315,12 @@ fn site_result(
     );
     let mut variables = extraction.variables;
     let content_html = extraction.extracted_content.html();
-    let content_markdown = separate_markdown
-        .then(|| markdown::normalize_origin_links(&markdown::html_to_markdown(&content_html)));
+    let content_markdown = separate_markdown.then(|| {
+        markdown::normalize_origin_links(&markdown::html_to_markdown_with_diagnostics(
+            &content_html,
+            diagnostics,
+        ))
+    });
     let schema_org_data = if schema_org_data.is_empty() {
         Value::Array(Array::new())
     } else {
@@ -393,13 +400,17 @@ fn parse_internal(mut context: pipeline::ExtractionContext<'_>) -> DefuddleResul
         debug: context.defuddle_options.debug,
     };
     let doc = std::mem::replace(&mut context.doc, Document::empty());
-    let mut parsed_page = parse_internal_once(doc, &config);
+    let mut parsed_page = parse_internal_once(doc, &config, &mut context.diagnostics);
 
     let mut word_count = pipeline::count_html_words(&parsed_page.content);
 
     if word_count < 200 {
         config.remove_partial = false;
-        let retry_parsed_page = parse_internal_once(Document::parse(config.source_html), &config);
+        let retry_parsed_page = parse_internal_once(
+            Document::parse(config.source_html),
+            &config,
+            &mut context.diagnostics,
+        );
         let retry_word_count = pipeline::count_html_words(&retry_parsed_page.content);
         if retry_word_count > word_count {
             parsed_page = retry_parsed_page;
@@ -409,7 +420,11 @@ fn parse_internal(mut context: pipeline::ExtractionContext<'_>) -> DefuddleResul
 
     if word_count < 50 {
         config.remove_hidden = false;
-        let retry_parsed_page = parse_internal_once(Document::parse(config.source_html), &config);
+        let retry_parsed_page = parse_internal_once(
+            Document::parse(config.source_html),
+            &config,
+            &mut context.diagnostics,
+        );
         let retry_word_count = pipeline::count_html_words(&retry_parsed_page.content);
         if retry_word_count > word_count {
             parsed_page = retry_parsed_page;
@@ -419,10 +434,15 @@ fn parse_internal(mut context: pipeline::ExtractionContext<'_>) -> DefuddleResul
     if context.defuddle_options.profile {
         parsed_page.parse_time = context.diagnostics.total_nanos() as u64 / 1_000_000;
     }
+    context.diagnostics.report_if_requested();
     parsed_page
 }
 
-fn parse_internal_once(mut doc: Document, config: &GenericPipelineConfig<'_>) -> DefuddleResult {
+fn parse_internal_once(
+    mut doc: Document,
+    config: &GenericPipelineConfig<'_>,
+    diagnostics: &mut pipeline::Diagnostics,
+) -> DefuddleResult {
     // Find main content first
     let main_content = pipeline::extract_content(&mut doc, config.content_selector, config.debug);
     let body_ids = doc.query_selector_all("body");
@@ -497,7 +517,8 @@ fn parse_internal_once(mut doc: Document, config: &GenericPipelineConfig<'_>) ->
             extracted_html = post(&extracted_html);
         }
         let md = if config.separate_markdown {
-            let markdown_raw = markdown::content_to_markdown(&doc, content);
+            let markdown_raw =
+                markdown::content_to_markdown_with_diagnostics(&doc, content, diagnostics);
             let mut markdown = markdown::normalize_origin_links(&markdown_raw)
                 .replace("Vox_\\(website) ", "Vox_\\(website\\) ");
             if let Some(ref ov) = overrides
