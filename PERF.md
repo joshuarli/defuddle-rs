@@ -184,8 +184,80 @@ normal benchmark noise. Profile-only construction measured about 0.97 ms for
 the 612-node Substack subtree, with an empty overlay below displayed timer
 precision.
 
+## GOAL sequence
+
+The lean baseline was freshly captured from `3515e05` with the required
+100-sample release benchmark in `/tmp/defuddle-lean-baseline.txt`. The retained
+sequence is measured in `/tmp/defuddle-final-sequence.txt`.
+
+- Markdown presence guards in `markdown.rs`: skip WBR, footnote, task-list, and
+  inline-formatting regex passes when their marker is absent. Fixture output is
+  unchanged; `substack_body_markdown` moved from 13.14 ms to about 6.7 ms in
+  the focused validation run, and `substack_raw_markdown` from 15.96 ms to
+  about 9.4 ms before later generic optimizations.
+- Protected selector pruning in `pipeline::remove_by_selector_protected()`:
+  preserve the selected content subtree and its ancestors during document-wide
+  cleanup. This eliminated the Wikipedia low-word-count retry (`0 -> 1840`
+  words), saving about 10 ms on that workload while preserving all fixtures.
+- Scoped compiled selector buckets in
+  `dom::Document::query_selector_union_optimized_into()`: bucket static generic
+  selector unions by final tag while leaving other DOM selector callers on the
+  existing matcher. This reduced Wikipedia HTML from about 17.2 ms to 13.0 ms
+  and cumulative allocation from 6.754 MB to 4.643 MB.
+
+| Workload | Baseline median | Final median | Wall delta | Cumulative allocation |
+| --- | ---: | ---: | ---: | ---: |
+| `github_issue_html` | 3.469 ms | 3.585 ms | +3.3% | 1.052 MB → 1.052 MB |
+| `github_issue_markdown` | 3.998 ms | 3.816 ms | -4.6% | 1.176 MB → 1.161 MB |
+| `hackernews_comments_html` | 281.8 µs | 280.1 µs | -0.6% | 262.2 KB → 262.2 KB |
+| `hackernews_comments_markdown` | 689.7 µs | 450.8 µs | -34.6% | 355.2 KB → 343.5 KB |
+| `substack_body_html` | 2.385 ms | 2.372 ms | -0.5% | 808.7 KB → 808.7 KB |
+| `substack_body_markdown` | 13.14 ms | 5.88 ms | -55.3% | 2.735 MB → 2.376 MB |
+| `substack_raw_html` | 4.554 ms | 4.609 ms | +1.2% | 1.507 MB → 1.507 MB |
+| `substack_raw_markdown` | 15.96 ms | 8.389 ms | -47.4% | 3.517 MB → 3.141 MB |
+| `wikipedia_footnotes_html` | 3.166 ms | 2.942 ms | -7.1% | 3.915 MB → 3.932 MB |
+| `wikipedia_footnotes_markdown` | 3.784 ms | 3.164 ms | -16.4% | 4.052 MB → 4.05 MB |
+| `wikipedia_html` | 17.21 ms | 12.94 ms | -24.8% | 6.754 MB → 4.643 MB |
+| `wikipedia_markdown` | 20.45 ms | 14.22 ms | -30.5% | 7.43 MB → 5.202 MB |
+
+The remaining primary gap is `github_issue_markdown`, where the benchmark is
+already within the no-regression guard but below the 20% target. GitHub's
+profile is dominated by HTML parsing and site extraction rather than Markdown
+preprocessing, so further Markdown-only changes are unlikely to reach that
+ target without a broader DOM/parser optimization.
+
 ## Experiments not retained
 
+- Storing parser text and comments in `html5ever::StrTendril` instead of
+  `String` reduced allocation counts but did not improve cumulative allocation
+  bytes or broad wall time. Peak live allocation rose on several representative
+  workloads, so the storage change was discarded.
+- Reserving a fixed `Vec<Node>` capacity during HTML parsing preserved fixture
+  output but left representative medians mixed and did not produce a broad
+  allocation win. It was discarded rather than imposing a fixed memory cost on
+  small documents.
+- The broad `2edd108 Complete generic snapshot overlay migration` was reverted
+  by `3515e05 Revert broad snapshot overlay migration`. It preserved fixtures
+  but added complexity without a broad wall-time win and increased large-page
+  cumulative allocation; the lean baseline keeps the earlier scoring-overlay
+  milestone only.
+- Reusing one pre-collected `*` element list across all content-pattern passes
+  preserved fixtures but moved the focused `wikipedia_html` run from 17.21 ms
+  to 17.39 ms. The change was within noise and was discarded rather than
+  retaining another phase-specific traversal cache.
+- Applying the selector bucket globally through
+  `Document::query_selector_union_into()` improved Wikipedia but pushed the
+  focused `github_issue_html` run above the 5% guard. The retained
+  `query_selector_union_optimized_into()` scope is limited to generic selector
+  removal; site-extractor and standardization callers keep the existing
+  matcher.
+- Reusing the site extractor's mutable output DOM through
+  `markdown::content_to_markdown_with_diagnostics()` instead of serializing to
+  HTML and using `markdown::html_to_markdown_with_diagnostics()` preserved
+  fixture output but regressed `substack_body_markdown` from 13.14 ms to
+  14.82 ms and `substack_raw_markdown` from 15.96 ms to 17.33 ms. The selected
+  document clone and preprocessing path is more expensive for these extractor
+  outputs, so the change was discarded.
 - A broad attempt to avoid all Markdown preprocessing was rejected because
   image, table, and iframe normalization changes output. The retained guard is
   limited to fragments where those transformations cannot apply.
