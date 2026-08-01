@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-htmd = "0.5"
+htmd = "0.5.5"
 html5ever = "0.38"
 markup5ever_rcdom = "0.38"
 regex-lite = "0.1"
@@ -19,8 +19,9 @@ cssparser = "0.37"
 workspace = true
 
 [dev-dependencies]
+divan = "0.1.21"
 walkdir = "2"
 
 [[bench]]
-name = "baseline"
+name = "bench"
 harness = false
