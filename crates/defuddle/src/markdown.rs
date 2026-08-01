@@ -574,6 +574,13 @@ fn preprocess_html_for_markdown(html: &str) -> String {
 }
 
 fn preprocess_html_dom(html: &str) -> String {
+    // The DOM pass only changes image sources/alt text, table attributes, and
+    // iframe embeds. Avoid reparsing ordinary article fragments that do not
+    // contain any of those elements.
+    if !html.contains("<img") && !html.contains("<table") && !html.contains("<iframe") {
+        return html.to_string();
+    }
+
     let mut doc = Document::parse(html);
     for id in doc.query_selector_all("wbr") {
         doc.remove(id);
