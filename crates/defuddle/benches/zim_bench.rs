@@ -4,7 +4,8 @@ use std::{collections::BTreeMap, env, time::Instant};
 
 use defuddle::{DefuddleOptions, ParseProfile, parse_html, parse_html_profiled};
 use divan::{AllocProfiler, Bencher, black_box};
-use zim::{MimeType, Zim};
+use rayon::prelude::*;
+use zim::{DirectoryEntry, MimeType, Zim};
 
 #[global_allocator]
 static ALLOC: AllocProfiler = AllocProfiler::system();
@@ -87,6 +88,66 @@ fn load_corpus() -> ZimCorpus {
     );
 
     ZimCorpus { pages, html_bytes }
+}
+
+fn configured_zim_path() -> std::ffi::OsString {
+    env::var_os("DEFUDDLE_ZIM").unwrap_or_else(|| DEFAULT_ZIM_PATH.into())
+}
+
+fn configured_batch_size() -> usize {
+    env::var("DEFUDDLE_ZIM_BATCH_SIZE")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(256)
+        .max(1)
+}
+
+fn configured_batch_bytes() -> usize {
+    env::var("DEFUDDLE_ZIM_BATCH_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(64 * 1024 * 1024)
+        .max(1)
+}
+
+fn load_next_batch<I>(
+    zim: &Zim,
+    entries: &mut I,
+    batch_size: usize,
+    batch_bytes: usize,
+) -> Option<ZimCorpus>
+where
+    I: Iterator<Item = zim::Result<DirectoryEntry>>,
+{
+    let mut pages = Vec::with_capacity(batch_size);
+    let mut html_bytes = 0;
+
+    while pages.len() < batch_size && (pages.is_empty() || html_bytes < batch_bytes) {
+        let Some(item) = entries.next() else {
+            break;
+        };
+        let entry = item.expect("ZIM directory entry is readable");
+        let is_html = matches!(
+            &entry.mime_type,
+            MimeType::Type(mime) if mime.starts_with("text/html")
+        );
+        if !is_html {
+            continue;
+        }
+
+        let content = zim
+            .entry_content(&entry)
+            .expect("ZIM HTML entry content is readable")
+            .expect("ZIM HTML entry has content");
+        let bytes = content.to_vec().expect("ZIM HTML content is readable");
+        html_bytes += bytes.len();
+        pages.push(ZimPage {
+            html: String::from_utf8_lossy(&bytes).into_owned(),
+            url: format!("{WIKIPEDIA_URL_PREFIX}{}", entry.url),
+        });
+    }
+
+    (!pages.is_empty()).then_some(ZimCorpus { pages, html_bytes })
 }
 
 fn options_for(page: &ZimPage) -> DefuddleOptions {
@@ -205,24 +266,118 @@ fn nanos_to_ms(nanos: u128) -> f64 {
     nanos as f64 / 1_000_000.0
 }
 
+fn benchmark_workers() -> usize {
+    let workers = env::var("DEFUDDLE_ZIM_THREADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(1);
+    workers.max(1)
+}
+
+fn process_pages(pages: &[ZimPage]) -> (usize, usize) {
+    let mut markdown_bytes = 0;
+    for page in pages {
+        let result =
+            parse_html(&page.html, options_for(page)).expect("benchmark extraction succeeds");
+        markdown_bytes += result.content_markdown.as_deref().map_or(0, str::len);
+        black_box(result);
+    }
+    (pages.len(), markdown_bytes)
+}
+
+struct PageProcessor {
+    workers: usize,
+    pool: Option<rayon::ThreadPool>,
+}
+
+impl PageProcessor {
+    fn new(workers: usize) -> Self {
+        let pool = (workers > 1).then(|| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(workers)
+                .build()
+                .expect("benchmark worker pool builds")
+        });
+        Self { workers, pool }
+    }
+
+    fn process(&self, corpus: &ZimCorpus) -> (usize, usize) {
+        if self.workers == 1 {
+            return process_pages(&corpus.pages);
+        }
+
+        let markdown_bytes = self
+            .pool
+            .as_ref()
+            .expect("parallel benchmark pool exists")
+            .install(|| {
+                corpus
+                    .pages
+                    .par_iter()
+                    .map(|page| process_pages(std::slice::from_ref(page)).1)
+                    .sum()
+            });
+        (corpus.pages.len(), markdown_bytes)
+    }
+}
+
+fn run_streaming_throughput() {
+    let overall_started = Instant::now();
+    let path = configured_zim_path();
+    let zim = Zim::new(&path).unwrap_or_else(|error| {
+        panic!(
+            "failed to open {}: {error}; set DEFUDDLE_ZIM to the archive path",
+            path.to_string_lossy()
+        )
+    });
+    let batch_size = configured_batch_size();
+    let batch_bytes = configured_batch_bytes();
+    let workers = benchmark_workers();
+    let processor = PageProcessor::new(workers);
+    let mut entries = zim.iterate_by_urls();
+    let mut total_pages = 0;
+    let mut total_markdown_bytes = 0;
+    let mut total_parse_nanos = 0;
+    let mut batches = 0;
+    let mut peak_batch_html_bytes = 0;
+
+    while let Some(batch) = load_next_batch(&zim, &mut entries, batch_size, batch_bytes) {
+        peak_batch_html_bytes = peak_batch_html_bytes.max(batch.html_bytes);
+        let started = Instant::now();
+        let (pages, markdown_bytes) = processor.process(&batch);
+        total_parse_nanos += started.elapsed().as_nanos();
+        total_pages += pages;
+        total_markdown_bytes += markdown_bytes;
+        batches += 1;
+    }
+
+    println!(
+        "streaming throughput: {total_pages} pages, {total_markdown_bytes} Markdown bytes, {workers} workers, {batches} batches, {:.3} ms parser time, {:.3} ms total wall, {:.2} MiB peak batch HTML",
+        nanos_to_ms(total_parse_nanos),
+        nanos_to_ms(overall_started.elapsed().as_nanos()),
+        peak_batch_html_bytes as f64 / 1_048_576.0
+    );
+}
+
 #[divan::bench]
 fn wikipedia_zim_markdown(bencher: Bencher) {
     let corpus = load_corpus();
+    let workers = benchmark_workers();
+    let processor = PageProcessor::new(workers);
+    eprintln!("benchmark workers: {workers}");
     bencher.bench_local(|| {
-        let mut markdown_bytes = 0;
-        for page in &corpus.pages {
-            let result =
-                parse_html(&page.html, options_for(page)).expect("benchmark extraction succeeds");
-            markdown_bytes += result.content_markdown.as_deref().map_or(0, str::len);
-            black_box(result);
-        }
-        black_box((corpus.pages.len(), corpus.html_bytes, markdown_bytes));
+        let (pages, markdown_bytes) = processor.process(&corpus);
+        black_box((pages, corpus.html_bytes, markdown_bytes));
     });
 }
 
 fn main() {
     if env::var_os("DEFUDDLE_ZIM_PHASES").is_some() {
         report_phase_breakdown(&load_corpus());
+        return;
+    }
+    if env::var_os("DEFUDDLE_ZIM_THROUGHPUT").is_some() {
+        run_streaming_throughput();
         return;
     }
     divan::main();

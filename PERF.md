@@ -44,6 +44,22 @@ For controlled phase isolation, set `DEFUDDLE_ZIM_VARIANT` to one of
 `no-selector-removal`, `no-exact-selectors`, `no-partial-selectors`,
 `no-scoring`, `no-content-patterns`, `no-standardize`, or `html-only`.
 
+For one-shot sequential/parallel throughput comparisons, set
+`DEFUDDLE_ZIM_THROUGHPUT=1`; `DEFUDDLE_ZIM_THREADS` controls the worker count
+and `DEFUDDLE_ZIM_BATCH_SIZE` / `DEFUDDLE_ZIM_BATCH_BYTES` bound each in-memory
+batch (defaults: 256 pages / 64 MiB). Corpus loading and decompression are
+excluded from the parser timer, while total wall time is also reported:
+
+```bash
+DEFUDDLE_ZIM_THREADS=8 DEFUDDLE_ZIM_THROUGHPUT=1 \
+  cargo bench -p defuddle --bench zim_bench
+```
+
+The throughput mode is intentionally separate from Divan’s allocation table:
+worker allocations are thread-local, and Divan’s normal allocator report is
+not a complete measure for work performed by threads spawned inside a
+benchmark closure.
+
 The fixture harness also includes 50 deterministic article pages selected from
 the substantial ZIM payloads under
 `tests/upstream/defuddle/fixtures/wikipedia-zim--*.html`, with matching Markdown
