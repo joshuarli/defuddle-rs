@@ -4,6 +4,7 @@ use html5ever::tree_builder::{ElemName, TreeSink};
 use html5ever::{Attribute, LocalName, Namespace, QualName};
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;
+use std::mem;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -106,6 +107,7 @@ enum NodeKind {
     Text(String),
     Comment(String),
     ProcessingInstruction,
+    Removed,
 }
 
 struct ParseSink {
@@ -882,9 +884,14 @@ impl Document {
     }
 
     fn mark_removed(&mut self, node: NodeId) {
-        let children = self.node(node).children.clone();
+        if self.node(node).removed {
+            return;
+        }
+        let children = mem::take(&mut self.node_mut(node).children);
+        let kind = mem::replace(&mut self.node_mut(node).kind, NodeKind::Removed);
         self.node_mut(node).removed = true;
         self.node_mut(node).parent = None;
+        drop(kind);
         for child in children {
             self.mark_removed(child);
         }
@@ -1143,6 +1150,7 @@ impl Document {
                     out.push('>');
                 }
             }
+            NodeKind::Removed => {}
         }
     }
 }
