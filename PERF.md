@@ -166,6 +166,16 @@ effect and behavior change remain easy to bisect.
   construction measured about 1.0 ms per build across ten test iterations;
   overlay construction was below the displayed timer precision.
 
+The before/after end-to-end comparison for this architecture milestone is
+intentionally flat: the snapshot and overlay are profile-gated while the
+mutable DOM remains the production oracle. The current 100-sample medians are
+`substack_body_markdown` 13.1 ms, `substack_raw_markdown` 16.0 ms,
+`wikipedia_markdown` 21.1 ms, `substack_body_html` 2.45 ms, and
+`wikipedia_html` 17.7 ms; the corresponding pre-milestone medians were within
+normal benchmark noise. Profile-only construction measured about 0.97 ms for
+the 612-node Substack subtree, with an empty overlay below displayed timer
+precision.
+
 ## Experiments not retained
 
 - A broad attempt to avoid all Markdown preprocessing was rejected because
