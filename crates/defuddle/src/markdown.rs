@@ -1147,6 +1147,12 @@ fn collapse_blank_quote_line_runs(md: &str) -> String {
 }
 
 fn fix_inline_spacing_line(line: &str) -> String {
+    if !line
+        .bytes()
+        .any(|byte| matches!(byte, b'`' | b'*' | b'[' | b'\\'))
+    {
+        return line.to_string();
+    }
     let regexes = inline_spacing_regexes();
     let mut line = line.to_owned();
     macro_rules! replace {
