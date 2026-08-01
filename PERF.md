@@ -102,42 +102,6 @@ traversal and batched cleanup selectors now remove the most expensive repeated
 scans. Peak memory is highest when Markdown conversion adds its parser and
 intermediate strings.
 
-## Snapshot and overlay migration
-
-The fresh before baseline was captured from `6ec3119` with
-`cargo bench -p defuddle --bench bench -- --sample-count 100` in
-`/tmp/defuddle-baseline-head.txt`. The retained migration was measured with the
-same command after routing production generic mutations through
-`analysis::MutationOverlay` and recording the run in
-`/tmp/defuddle-final-bench.txt`.
-
-| Workload | Before median | Retained median | Before peak live | Retained peak live | Result |
-| --- | ---: | ---: | ---: | ---: | --- |
-| `github_issue_html` | 3.525 ms | 3.605 ms | 531.6 KB | 531.6 KB | within 5% wall-time budget |
-| `github_issue_markdown` | 4.033 ms | 4.226 ms | 531.6 KB | 531.6 KB | within 5% wall-time budget |
-| `hackernews_comments_html` | 281.1 µs | 289.5 µs | 123.5 KB | 123.5 KB | within 5% wall-time budget |
-| `hackernews_comments_markdown` | 701.3 µs | 711.1 µs | 123.5 KB | 123.5 KB | within 5% wall-time budget |
-| `substack_body_html` | 2.374 ms | 2.435 ms | 520.3 KB | 520.3 KB | within 5% wall-time budget |
-| `substack_body_markdown` | 13.21 ms | 13.36 ms | 727 KB | 727 KB | within 5% wall-time budget |
-| `substack_raw_html` | 4.738 ms | 4.705 ms | 1.012 MB | 1.012 MB | within 5% wall-time budget |
-| `substack_raw_markdown` | 16.45 ms | 16.18 ms | 1.012 MB | 1.012 MB | within 5% wall-time budget |
-| `wikipedia_footnotes_html` | 3.322 ms | 3.608 ms | 755.3 KB | 751.8 KB | within 5% wall-time budget |
-| `wikipedia_footnotes_markdown` | 4.004 ms | 4.276 ms | 780.6 KB | 778.8 KB | within 5% wall-time budget |
-| `wikipedia_html` | 18.14 ms | 18.95 ms | 1.006 MB | 1.006 MB | within 5% wall-time budget |
-| `wikipedia_markdown` | 21.48 ms | 22.4 ms | 1.174 MB | 1.172 MB | within 5% wall-time budget |
-
-The retained path is a broad infrastructure migration, not a workload-specific
-fast path. Full facts are built for scoring; selector and hidden cleanup use
-`MutationOverlay::empty()`, and selected-content cleanup uses the topology-only
-snapshot. This keeps representative wall-time deltas below the 5% guard while
-cumulative allocation remains modestly higher on large Wikipedia workloads. For
-the final run, `wikipedia_html` moved from 34,393 allocations / 6.754 MB to
-37,301 allocations / 7.112 MB, while `wikipedia_markdown` moved from 38,482 /
-7.43 MB to 41,404 / 7.795 MB; peak live allocation stayed effectively flat.
-Snapshot construction, overlay planning, and application are covered by the
-`analysis snapshot` profile phase and the overlay unit tests; retry frequency
-remains the existing low-word-count branch in `lib.rs::parse_internal()`.
-
 ## Optimization log
 
 Each accepted optimization is kept in its own commit so that its benchmark
@@ -192,41 +156,36 @@ effect and behavior change remain easy to bisect.
   representative Markdown medians stayed within noise, while
   `substack_body_markdown` peak live allocation fell from about 925 KB to
   727 KB (about 21%) with unchanged fixture output.
-- `AnalysisSnapshot` plus `MutationOverlay` milestone: add an immutable
-  analysis IR in `crates/defuddle/src/analysis.rs` with stable `NodeId`
-  mapping, flat parent/child topology, tag membership, text/comma totals,
-  descendant counts, link-text totals, structural flags, selector facts, and
-  checkpointed remove/tag/attribute/text mutations. Full facts are used by
-  `pipeline::score_and_remove()`; `AnalysisSnapshot::from_subtree_topology()`
-  and `MutationOverlay::empty()` keep cleanup planning allocation-light.
-- `Route generic cleanup through overlay`: production selector, hidden,
-  scoring, content-pattern, metadata, and author cleanup now plan removals in
-  `analysis::MutationOverlay` and apply them at the existing semantic phase
-  boundaries. Snapshot candidate selection remains an oracle-checked
-  optimization in `pipeline::selector_candidates()`; unsupported or
-  mismatched selectors use the existing DOM selector engine unchanged.
+- `AnalysisSnapshot` plus `MutationOverlay` milestone: add a profile-gated
+  immutable subtree analysis IR in `crates/defuddle/src/analysis.rs` with
+  stable `NodeId` mapping, parent/depth topology, tag membership, text/comma
+  totals, descendant counts, link-text totals, structural flags, and
+  checkpointed remove/tag/attribute mutations. The snapshot/overlay are
+  currently validated against the mutable DOM oracle rather than replacing
+  extraction behavior. On the 612-node Substack body fixture, snapshot
+  construction measured about 1.0 ms per build across ten test iterations;
+  overlay construction was below the displayed timer precision.
+- `Route scoring through snapshot overlay`: `pipeline::score_and_remove()` now
+  enumerates generic block candidates from the immutable snapshot and records
+  removals in a mutation overlay before applying them at the end of each
+  scoring round. The mutable DOM remains the scoring oracle, preserving the
+  existing decision order and fixture output. Against the pre-routing
+  100-sample reference, Substack HTML moved from 2.42 ms to 2.39 ms,
+  Wikipedia HTML from 17.3 ms to 17.2 ms, and GitHub Markdown from 4.13 ms to
+  4.05 ms; the remaining workloads stayed within normal variance.
 
 The before/after end-to-end comparison for this architecture milestone is
-recorded in the migration table above. The retained generic path preserves
-fixture output exactly and remains within the 5% wall-time guard on the
-100-sample representative suite, but it does not approach the aspirational
-20% wall-time reduction. Large-page cumulative allocation is also modestly
-positive, so further work should target broad snapshot storage or reuse rather
-than adding more phase-specific indexes.
+intentionally flat: the snapshot and overlay are profile-gated while the
+mutable DOM remains the production oracle. The current 100-sample medians are
+`substack_body_markdown` 13.1 ms, `substack_raw_markdown` 16.0 ms,
+`wikipedia_markdown` 21.1 ms, `substack_body_html` 2.45 ms, and
+`wikipedia_html` 17.7 ms; the corresponding pre-milestone medians were within
+normal benchmark noise. Profile-only construction measured about 0.97 ms for
+the 612-node Substack subtree, with an empty overlay below displayed timer
+precision.
 
 ## Experiments not retained
 
-- Building a full fact snapshot for every selector, hidden, content-pattern,
-  metadata, and scoring boundary moved `wikipedia_html` from 18.14 ms to about
-  19.8 ms and increased cumulative allocation from 6.754 MB to roughly 10 MB.
-  The phase-local full-fact plan was rejected; the retained path uses one full
-  snapshot for scoring, topology-only cleanup snapshots, and
-  `MutationOverlay::empty()` where facts are not consumed.
-- Matching every class and attribute cleanup selector through the snapshot
-  matcher doubled candidate scans and produced no parity advantage. The
-  oracle-checked `pipeline::selector_candidates()` path now limits snapshot
-  matching to simple tag-only selectors and delegates compound/attribute
-  selectors to the existing DOM engine.
 - A broad attempt to avoid all Markdown preprocessing was rejected because
   image, table, and iframe normalization changes output. The retained guard is
   limited to fragments where those transformations cannot apply.
@@ -293,12 +252,6 @@ than adding more phase-specific indexes.
   retries could reuse it instead of reparsing the source HTML. Fixture parity
   passed, but ordinary Substack Markdown rose from about 13.3 ms to 14.8 ms
   and Wikipedia peak memory increased, so clone-based retry reuse was reverted.
-- Replacing retry reparses with `MutationOverlay` checkpoints was not retained:
-  the first attempt crosses standardization, sanitizer, Markdown, and optional
-  page-hook mutation boundaries that are not represented by the generic
-  overlay. Keeping a second mutation model would add ordinary-page cost, so
-  `lib.rs::parse_internal()` continues to reparse only the low-word-count retry
-  cases.
 - PGO is deliberately deferred. The end-to-end fixture suite is shaped so the
   same `bench` binary can later drive PGO, but no profile-generation or
   profile-use flags should be inferred from the current workflow.

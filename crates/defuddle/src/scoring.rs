@@ -284,20 +284,10 @@ pub fn score_non_content_block_with_text(doc: &Document, node: NodeId, text: &st
 }
 
 pub fn find_main_content(doc: &Document, entry_point_selectors: &[&str]) -> Option<NodeId> {
-    find_main_content_with_candidates(doc, entry_point_selectors, |selector| {
-        doc.query_selector_all(selector)
-    })
-}
-
-fn find_main_content_with_candidates(
-    doc: &Document,
-    entry_point_selectors: &[&str],
-    mut select: impl FnMut(&str) -> Vec<NodeId>,
-) -> Option<NodeId> {
     let mut candidates: Vec<(NodeId, f64, usize)> = Vec::new();
 
     for (index, selector) in entry_point_selectors.iter().enumerate() {
-        let elements = select(selector);
+        let elements = doc.query_selector_all(selector);
         for el in elements {
             let mut text = String::new();
             doc.text_content_into(el, &mut text);

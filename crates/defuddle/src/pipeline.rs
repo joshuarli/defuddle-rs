@@ -1,4 +1,4 @@
-use crate::analysis::{AnalysisSnapshot, MutationOverlay};
+use crate::analysis::AnalysisSnapshot;
 use crate::content_utils::count_words;
 use crate::dom::{Document, NodeId};
 use crate::extraction_selectors::{ENTRY_POINT_ELEMENTS, EXACT_SELECTORS, PARTIAL_SELECTORS};
@@ -115,67 +115,7 @@ fn partial_selector_patterns() -> &'static [String] {
     })
 }
 
-fn remove_node(doc: &mut Document, overlay: &mut Option<&mut MutationOverlay<'_>>, node: NodeId) {
-    if let Some(overlay) = overlay.as_deref_mut() {
-        overlay.remove(node);
-    } else {
-        doc.remove(node);
-    }
-}
-
-fn selector_candidates(
-    doc: &Document,
-    overlay: Option<&MutationOverlay<'_>>,
-    root: NodeId,
-    selector: &str,
-) -> Vec<NodeId> {
-    let dom_candidates = doc.query_selector_all_in_subtree(root, selector);
-    if !selector.split(',').map(str::trim).all(|part| {
-        !part.is_empty()
-            && part
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || character == '*')
-    }) {
-        return dom_candidates;
-    }
-    let Some(overlay) = overlay else {
-        return dom_candidates;
-    };
-    let Some(snapshot_candidates) = overlay.select_selector(selector) else {
-        return dom_candidates;
-    };
-    let snapshot_candidates = snapshot_candidates
-        .into_iter()
-        .filter(|&node| overlay.contains(root, node))
-        .collect::<Vec<_>>();
-    if snapshot_candidates == dom_candidates {
-        snapshot_candidates
-    } else {
-        dom_candidates
-    }
-}
-
 pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial: bool) {
-    let mut overlay = None;
-    remove_by_selector_impl(doc, &mut overlay, remove_exact, remove_partial);
-}
-
-pub(crate) fn remove_by_selector_in_overlay(
-    doc: &mut Document,
-    overlay: &mut MutationOverlay<'_>,
-    remove_exact: bool,
-    remove_partial: bool,
-) {
-    let mut target = Some(overlay);
-    remove_by_selector_impl(doc, &mut target, remove_exact, remove_partial);
-}
-
-fn remove_by_selector_impl(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    remove_exact: bool,
-    remove_partial: bool,
-) {
     let mut matches = Vec::new();
     if remove_exact {
         // Remove dangerous elements and clutter
@@ -200,45 +140,33 @@ fn remove_by_selector_impl(
             if doc.has_closest(id, &["pre", "code"]) {
                 continue;
             }
-            remove_node(doc, overlay, id);
+            doc.remove(id);
         }
 
         // Manual handling for multi-:not()/:has() compound selectors
         // Remove all scripts.
-        matches = overlay
-            .as_deref()
-            .map(|overlay| overlay.select_tag("script"))
-            .unwrap_or_else(|| doc.query_selector_all("script"));
+        doc.query_selector_all_into("script", &mut matches);
         for &id in &matches {
-            remove_node(doc, overlay, id);
+            doc.remove(id);
         }
         // Remove iframes without src or with empty src
-        matches = overlay
-            .as_deref()
-            .map(|overlay| overlay.select_tag("iframe"))
-            .unwrap_or_else(|| doc.query_selector_all("iframe"));
+        doc.query_selector_all_into("iframe", &mut matches);
         for &id in &matches {
             if doc.get_attr(id, "src").is_none_or(|s| s.is_empty()) {
-                remove_node(doc, overlay, id);
+                doc.remove(id);
             }
         }
         // Remove video/audio without src and without <source> children
-        matches = overlay
-            .as_deref()
-            .map(|overlay| overlay.select_tag("video"))
-            .unwrap_or_else(|| doc.query_selector_all("video"));
+        doc.query_selector_all_into("video", &mut matches);
         for &id in &matches {
             if doc.get_attr(id, "src").is_none() && !doc.has_selector_in_subtree(id, "source") {
-                remove_node(doc, overlay, id);
+                doc.remove(id);
             }
         }
-        matches = overlay
-            .as_deref()
-            .map(|overlay| overlay.select_tag("audio"))
-            .unwrap_or_else(|| doc.query_selector_all("audio"));
+        doc.query_selector_all_into("audio", &mut matches);
         for &id in &matches {
             if doc.get_attr(id, "src").is_none() && !doc.has_selector_in_subtree(id, "source") {
-                remove_node(doc, overlay, id);
+                doc.remove(id);
             }
         }
     }
@@ -385,7 +313,7 @@ fn remove_by_selector_impl(
         }
 
         for id in to_remove {
-            remove_node(doc, overlay, id);
+            doc.remove(id);
         }
     }
 }
@@ -430,23 +358,7 @@ fn is_token_edge_match(haystack: &str, pattern: &str) -> bool {
     false
 }
 pub fn remove_hidden_elements(doc: &mut Document) {
-    let mut overlay = None;
-    remove_hidden_elements_impl(doc, &mut overlay);
-}
-
-pub(crate) fn remove_hidden_elements_in_overlay(
-    doc: &mut Document,
-    overlay: &mut MutationOverlay<'_>,
-) {
-    let mut target = Some(overlay);
-    remove_hidden_elements_impl(doc, &mut target);
-}
-
-fn remove_hidden_elements_impl(doc: &mut Document, overlay: &mut Option<&mut MutationOverlay<'_>>) {
-    let all_elements = overlay
-        .as_deref()
-        .and_then(|overlay| overlay.select_selector("*"))
-        .unwrap_or_else(|| doc.query_selector_all("*"));
+    let all_elements = doc.query_selector_all("*");
     let mut to_remove = Vec::new();
 
     for id in all_elements {
@@ -512,10 +424,10 @@ fn remove_hidden_elements_impl(doc: &mut Document, overlay: &mut Option<&mut Mut
                     "h2" | "h3" | "h4" | "h5" | "h6"
                 )
             {
-                remove_node(doc, overlay, previous);
+                doc.remove(previous);
             }
         }
-        remove_node(doc, overlay, id);
+        doc.remove(id);
     }
 }
 /// Remove low-scoring elements based on link-density heuristics.
@@ -537,11 +449,7 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
         }
 
         for id in all {
-            if overlay.tag_name(id).eq_ignore_ascii_case("pre")
-                || overlay.tag_name(id).eq_ignore_ascii_case("code")
-                || overlay.tag_name(id).eq_ignore_ascii_case("blockquote")
-                || overlay.tag_name(id).eq_ignore_ascii_case("figure")
-            {
+            if doc.tag_name_is_any(id, &["pre", "code", "blockquote", "figure"]) {
                 continue;
             }
             if doc.has_closest(id, &["pre", "code", "blockquote", "figure", "table"]) {
@@ -550,7 +458,7 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
             if doc.has_selector_in_subtree(id, ".gated-content, [data-schema=smart-brevity]") {
                 continue;
             }
-            if overlay
+            if doc
                 .get_attr(id, "class")
                 .unwrap_or("")
                 .split_whitespace()
@@ -560,15 +468,25 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
                 continue;
             }
             text.clear();
-            text.push_str(&overlay.text_content(id));
-            let facts = overlay.facts(id).unwrap_or_default();
-            if facts.image_count == 1
-                && facts.link_count > 0
+            doc.text_content_into(id, &mut text);
+            if doc.count_selector_in_subtree(id, "img") == 1
+                && doc.has_selector_in_subtree(id, "a")
                 && text.split_whitespace().count() < 30
             {
                 continue;
             }
-            if facts.has_author_image_link {
+            if doc
+                .query_selector_all_in_subtree(id, "img")
+                .iter()
+                .any(|img| {
+                    doc.get_attr(*img, "alt")
+                        .is_some_and(|alt| !alt.trim().is_empty())
+                        && doc.closest(*img, "a").is_some_and(|a| {
+                            doc.get_attr(a, "href")
+                                .is_some_and(|href| href.contains("/@"))
+                        })
+                })
+            {
                 continue;
             }
             let score = scoring::score_non_content_block_with_text(doc, id, &text);
@@ -620,13 +538,10 @@ pub fn extract_content(
 
 /// Remove "eyebrow" elements — short category/taxonomy labels immediately preceding
 /// the first heading (e.g. "Blog post", "Off-nominal", "Announcements").
-fn remove_eyebrow_label(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    content_id: NodeId,
-) {
+fn remove_eyebrow_label(doc: &mut Document, content_id: NodeId) {
     // Find first h1 or h2
-    let first_heading = selector_candidates(doc, overlay.as_deref(), content_id, "h1, h2")
+    let first_heading = doc
+        .query_selector_all_in_subtree(content_id, "h1, h2")
         .first()
         .copied();
     let Some(first_h) = first_heading else { return };
@@ -678,40 +593,22 @@ fn remove_eyebrow_label(
         return;
     }
 
-    remove_node(doc, overlay, prev);
+    doc.remove(prev);
 }
 
 /// Remove common boilerplate and content patterns from the document.
 pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
-    let mut overlay = None;
-    remove_content_patterns_impl(doc, &mut overlay, content_id);
-}
-
-pub(crate) fn remove_content_patterns_in_overlay(
-    doc: &mut Document,
-    overlay: &mut MutationOverlay<'_>,
-    content_id: NodeId,
-) {
-    let mut target = Some(overlay);
-    remove_content_patterns_impl(doc, &mut target, content_id);
-}
-
-fn remove_content_patterns_impl(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    content_id: NodeId,
-) {
-    let mut matches: Vec<NodeId>;
+    let mut matches = Vec::new();
     let mut text = String::new();
 
     // Remove eyebrow/category labels before the first heading
-    remove_eyebrow_label(doc, overlay, content_id);
-    matches = selector_candidates(doc, overlay.as_deref(), content_id, ".abstract");
+    remove_eyebrow_label(doc, content_id);
+    doc.query_selector_all_in_subtree_into(content_id, ".abstract", &mut matches);
     for &abstract_node in &matches {
-        remove_node(doc, overlay, abstract_node);
+        doc.remove(abstract_node);
     }
     // Check all elements and remove boilerplate by class
-    matches = selector_candidates(doc, overlay.as_deref(), content_id, "*");
+    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
         if let Some(c) = doc.get_attr(id, "class") {
             let is_boilerplate = [
@@ -741,7 +638,7 @@ fn remove_content_patterns_impl(
                 text.clear();
                 doc.text_content_into(id, &mut text);
                 if text.split_whitespace().count() < 50 {
-                    remove_node(doc, overlay, id);
+                    doc.remove(id);
                 }
             }
         }
@@ -764,17 +661,17 @@ fn remove_content_patterns_impl(
     ];
     for pattern in &read_time_patterns {
         let selector = format!("[class*=\"{pattern}\" i], [id*=\"{pattern}\" i]");
-        matches = selector_candidates(doc, overlay.as_deref(), content_id, &selector);
+        doc.query_selector_all_in_subtree_into(content_id, &selector, &mut matches);
         for &id in &matches {
             if !doc.has_closest(id, &["pre", "code"]) {
-                remove_node(doc, overlay, id);
+                doc.remove(id);
             }
         }
     }
 
     // Remove eyebrow/breadcrumb labels: short divs with single-word text
     // like "Blog", "News", "Home" that appear before headings
-    matches = selector_candidates(doc, overlay.as_deref(), content_id, "*");
+    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
         if !doc.is_element(id) {
             continue;
@@ -792,7 +689,7 @@ fn remove_content_patterns_impl(
         if crate::content_utils::contains_ascii_case_insensitive(class, "breadcrumb")
             || crate::content_utils::contains_ascii_case_insensitive(class, "nav")
         {
-            remove_node(doc, overlay, id);
+            doc.remove(id);
             continue;
         }
         // List/nav elements with breadcrumb-like patterns
@@ -802,7 +699,7 @@ fn remove_content_patterns_impl(
             if link_count >= 1
                 && crate::content_utils::contains_ascii_case_insensitive(class, "text-")
             {
-                remove_node(doc, overlay, id);
+                doc.remove(id);
                 continue;
             }
         }
@@ -814,7 +711,7 @@ fn remove_content_patterns_impl(
                 || crate::content_utils::contains_ascii_case_insensitive(class, "overline")
                 || crate::content_utils::contains_ascii_case_insensitive(class, "kicker"))
         {
-            remove_node(doc, overlay, id);
+            doc.remove(id);
         }
     }
 
@@ -823,7 +720,7 @@ fn remove_content_patterns_impl(
     let share_author_re = SHARE_AUTHOR_LABEL_RE.get_or_init(|| {
         regex_lite::Regex::new(r"(?i)^(share|follow|authors?|written\s+by)$").unwrap()
     });
-    matches = selector_candidates(doc, overlay.as_deref(), content_id, "*");
+    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
         if !doc.is_element(id) {
             continue;
@@ -854,12 +751,12 @@ fn remove_content_patterns_impl(
                     break;
                 }
             }
-            remove_node(doc, overlay, target);
+            doc.remove(target);
         }
     }
 
     // Remove "by Author" byline patterns when adjacent to headings
-    matches = selector_candidates(doc, overlay.as_deref(), content_id, "*");
+    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
         if !doc.is_element(id) {
             continue;
@@ -880,7 +777,7 @@ fn remove_content_patterns_impl(
             let text = text.trim();
             let word_count = text.split_whitespace().count();
             if word_count < 40 {
-                remove_node(doc, overlay, id);
+                doc.remove(id);
                 continue;
             }
         }
@@ -905,7 +802,7 @@ fn remove_content_patterns_impl(
                 })
             });
             if adjacent_heading {
-                remove_node(doc, overlay, id);
+                doc.remove(id);
             }
         }
     }
@@ -927,7 +824,7 @@ fn remove_content_patterns_impl(
         )
         .unwrap()
     });
-    matches = selector_candidates(doc, overlay.as_deref(), content_id, "*");
+    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
         if !doc.is_element(id) {
             continue;
@@ -953,37 +850,37 @@ fn remove_content_patterns_impl(
             }
             let word_count = text.split_whitespace().count();
             if word_count <= 3 || compact_read_meta {
-                remove_node(doc, overlay, id);
+                doc.remove(id);
             }
         }
     }
 
     // Remove byline blocks (author link + date near article top)
-    remove_byline_blocks(doc, overlay, content_id);
+    remove_byline_blocks(doc, content_id);
 
     // Remove related-posts headings and their following lists
-    remove_related_posts_sections(doc, overlay, content_id);
+    remove_related_posts_sections(doc, content_id);
 
     // Remove table-of-contents sections (short-item lists where all items are links)
-    remove_table_of_contents(doc, overlay, content_id);
+    remove_table_of_contents(doc, content_id);
 
     // Remove newsletter/subscribe blocks
-    remove_newsletter_blocks(doc, overlay, content_id);
+    remove_newsletter_blocks(doc, content_id);
 
     // Remove social engagement counters (e.g. "13 Likes", "5 Comments")
-    remove_social_counters(doc, overlay, content_id);
+    remove_social_counters(doc, content_id);
 
     // Remove social counter links (anchors wrapping "Likes" / "Comments" text)
-    remove_social_counter_links(doc, overlay, content_id);
+    remove_social_counter_links(doc, content_id);
 
     // Remove cookie consent banners
-    remove_cookie_consent(doc, overlay, content_id);
+    remove_cookie_consent(doc, content_id);
 
     // Remove trailing CTA-like sections (thin heading-introduced blocks at end)
-    remove_trailing_cta_sections(doc, overlay, content_id);
+    remove_trailing_cta_sections(doc, content_id);
 
     // Remove card-grid blocks (repeated img+heading sibling patterns)
-    remove_card_grid_blocks(doc, overlay, content_id);
+    remove_card_grid_blocks(doc, content_id);
 }
 
 fn is_heading_tag(doc: &Document, id: NodeId) -> bool {
@@ -992,26 +889,9 @@ fn is_heading_tag(doc: &Document, id: NodeId) -> bool {
 
 /// Remove metadata blocks adjacent to the first heading (date, author info).
 pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
-    let mut overlay = None;
-    remove_metadata_blocks_impl(doc, &mut overlay, content_id);
-}
-
-pub(crate) fn remove_metadata_blocks_in_overlay(
-    doc: &mut Document,
-    overlay: &mut MutationOverlay<'_>,
-    content_id: NodeId,
-) {
-    let mut target = Some(overlay);
-    remove_metadata_blocks_impl(doc, &mut target, content_id);
-}
-
-fn remove_metadata_blocks_impl(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    content_id: NodeId,
-) {
     // Find the first heading
-    let first_h = selector_candidates(doc, overlay.as_deref(), content_id, "h1,h2")
+    let first_h = doc
+        .query_selector_all_in_subtree(content_id, "h1,h2")
         .into_iter()
         .next();
 
@@ -1046,7 +926,7 @@ fn remove_metadata_blocks_impl(
                             let has_image =
                                 !doc.query_selector_all_in_subtree(prev_id, "img").is_empty();
                             if !(has_profile_link && has_image) {
-                                remove_node(doc, overlay, prev_id);
+                                doc.remove(prev_id);
                             }
                         }
                     }
@@ -1065,7 +945,7 @@ fn remove_metadata_blocks_impl(
                                     .is_some()
                             });
                         if class.contains("frontmatter") {
-                            remove_node(doc, overlay, next_id);
+                            doc.remove(next_id);
                         } else if class.contains("meta")
                             || class.contains("date")
                             || class.contains("author")
@@ -1087,7 +967,7 @@ fn remove_metadata_blocks_impl(
                             if word_count < 30
                                 && doc.query_selector_all_in_subtree(next_id, "img").is_empty()
                             {
-                                remove_node(doc, overlay, next_id);
+                                doc.remove(next_id);
                             }
                         }
                         // Also check for date patterns in text content
@@ -1101,7 +981,7 @@ fn remove_metadata_blocks_impl(
                             if word_count < 20
                                 && doc.query_selector_all_in_subtree(next_id, "img").is_empty()
                             {
-                                remove_node(doc, overlay, next_id);
+                                doc.remove(next_id);
                             }
                         }
                     }
@@ -1152,7 +1032,7 @@ fn remove_metadata_blocks_impl(
                         });
                 let has_image = !doc.query_selector_all_in_subtree(next, "img").is_empty();
                 if !(has_profile_link && has_image) {
-                    remove_node(doc, overlay, next);
+                    doc.remove(next);
                 }
             }
         }
@@ -1160,26 +1040,6 @@ fn remove_metadata_blocks_impl(
 }
 
 pub fn remove_author_sibling(doc: &mut Document, content_id: NodeId, author: &str) {
-    let mut overlay = None;
-    remove_author_sibling_impl(doc, &mut overlay, content_id, author);
-}
-
-pub(crate) fn remove_author_sibling_in_overlay(
-    doc: &mut Document,
-    overlay: &mut MutationOverlay<'_>,
-    content_id: NodeId,
-    author: &str,
-) {
-    let mut target = Some(overlay);
-    remove_author_sibling_impl(doc, &mut target, content_id, author);
-}
-
-fn remove_author_sibling_impl(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    content_id: NodeId,
-    author: &str,
-) {
     if author.trim().is_empty() || author.split_whitespace().count() < 2 {
         return;
     }
@@ -1199,7 +1059,7 @@ fn remove_author_sibling_impl(
         && !text.contains(['.', '!', '?'])
         && doc.query_selector_all_in_subtree(sibling, "img").is_empty()
     {
-        remove_node(doc, overlay, sibling);
+        doc.remove(sibling);
     }
 }
 
@@ -1277,18 +1137,14 @@ fn is_appendix_heading(text: &str) -> bool {
 
 /// Remove author+date byline blocks that appear near the top of article content.
 /// These typically contain an author link and a date within a short wrapper element.
-fn remove_byline_blocks(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    content_id: NodeId,
-) {
+fn remove_byline_blocks(doc: &mut Document, content_id: NodeId) {
     for section in doc.query_selector_all_in_subtree(content_id, "section") {
         let text = doc.text_content(section);
         if text.split_whitespace().count() < 15
             && text.contains("By ")
             && doc.count_selector_in_subtree(section, "img") == 1
         {
-            remove_node(doc, overlay, section);
+            doc.remove(section);
         }
     }
     let children = doc.children(content_id).to_vec();
@@ -1314,14 +1170,14 @@ fn remove_byline_blocks(
             && crate::metadata::parse_date_text(&text).is_some()
             && doc.count_selector_in_subtree(child, "img") == 1
         {
-            remove_node(doc, overlay, child);
+            doc.remove(child);
             continue;
         }
 
         if (class.contains("byline") || class.contains("author") || class.contains("meta"))
             && word_count < 30
         {
-            remove_node(doc, overlay, child);
+            doc.remove(child);
             continue;
         }
         // Also match patterns with author link + date text
@@ -1341,7 +1197,7 @@ fn remove_byline_blocks(
                                 .is_some_and(|href| href.contains("/@"))
                         });
                 if !has_profile_image {
-                    remove_node(doc, overlay, child);
+                    doc.remove(child);
                 }
             }
         }
@@ -1349,11 +1205,7 @@ fn remove_byline_blocks(
 }
 
 /// Remove sections headed by "Related Posts" / "Read Next" etc.
-fn remove_related_posts_sections(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    content_id: NodeId,
-) {
+fn remove_related_posts_sections(doc: &mut Document, content_id: NodeId) {
     let headings = doc.query_selector_all_in_subtree(content_id, "h2,h3,h4,h5");
     for &h_id in &headings {
         if doc.is_removed(h_id) {
@@ -1372,7 +1224,7 @@ fn remove_related_posts_sections(
         // locally. Truncating from it would discard the rest of the article.
         if has_following_prose(doc, target) {
             if target != h_id {
-                remove_node(doc, overlay, target);
+                doc.remove(target);
             }
             continue;
         }
@@ -1383,9 +1235,9 @@ fn remove_related_posts_sections(
             if !is_cta {
                 continue;
             }
-            remove_trailing_with_cascade(doc, overlay, target, content_id);
+            remove_trailing_with_cascade(doc, target, content_id);
         } else {
-            remove_trailing_with_cascade(doc, overlay, target, content_id);
+            remove_trailing_with_cascade(doc, target, content_id);
         }
         break;
     }
@@ -1415,7 +1267,7 @@ fn remove_related_posts_sections(
                 .query_selector_all_in_subtree(section, "h1,h2,h3,h4")
                 .is_empty()
         {
-            remove_node(doc, overlay, section);
+            doc.remove(section);
         }
     }
 }
@@ -1488,12 +1340,7 @@ fn walk_up_isolated(doc: &Document, node: NodeId, content_id: NodeId) -> NodeId 
     target
 }
 
-fn remove_trailing_with_cascade(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    target: NodeId,
-    content_id: NodeId,
-) {
+fn remove_trailing_with_cascade(doc: &mut Document, target: NodeId, content_id: NodeId) {
     let mut levels = Vec::new();
     let mut current = target;
     while let Some(parent) = doc.parent(current) {
@@ -1511,19 +1358,15 @@ fn remove_trailing_with_cascade(
                 if doc.get_attr(sibling, "id") == Some("footnotes") {
                     continue;
                 }
-                remove_node(doc, overlay, sibling);
+                doc.remove(sibling);
             }
         }
     }
-    remove_node(doc, overlay, target);
+    doc.remove(target);
 }
 
 /// Remove table-of-contents: lists where most links are same-page anchors.
-fn remove_table_of_contents(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    content_id: NodeId,
-) {
+fn remove_table_of_contents(doc: &mut Document, content_id: NodeId) {
     let lists = doc.query_selector_all_in_subtree(content_id, "ul,ol");
     for list_id in lists {
         let items = doc.query_selector_all_in_subtree(list_id, "li");
@@ -1571,26 +1414,22 @@ fn remove_table_of_contents(
                 if previous.is_some_and(|&id| {
                     doc.is_element(id) && doc.tag_name(id).eq_ignore_ascii_case("hr")
                 }) {
-                    remove_node(doc, overlay, *previous.unwrap());
+                    doc.remove(*previous.unwrap());
                 }
                 if next.is_some_and(|&id| {
                     doc.is_element(id) && doc.tag_name(id).eq_ignore_ascii_case("hr")
                 }) {
-                    remove_node(doc, overlay, *next.unwrap());
+                    doc.remove(*next.unwrap());
                 }
             }
         }
-        remove_node(doc, overlay, list_id);
+        doc.remove(list_id);
         break;
     }
 }
 
 /// Remove newsletter/subscribe call-to-action blocks.
-fn remove_newsletter_blocks(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    content_id: NodeId,
-) {
+fn remove_newsletter_blocks(doc: &mut Document, content_id: NodeId) {
     let newsletter_re = NEWSLETTER_RE.get_or_init(|| {
         regex_lite::Regex::new(
             r"(?i)\bsubscribe\b[\s\S]{0,40}\bnewsletter\b|\bnewsletter\b[\s\S]{0,40}\bsubscribe\b|\bsign[- ]up\b[\s\S]{0,80}\b(?:newsletter|email alert)|\b(?:don['\u2019]?t (?:want to )?miss|never miss)\b"
@@ -1610,17 +1449,13 @@ fn remove_newsletter_blocks(
             continue;
         }
         if newsletter_re.is_match(text) {
-            remove_node(doc, overlay, id);
+            doc.remove(id);
         }
     }
 }
 
 /// Remove social engagement counters like "13 Likes", "5 Comments", "2 Shares".
-fn remove_social_counters(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    content_id: NodeId,
-) {
+fn remove_social_counters(doc: &mut Document, content_id: NodeId) {
     let social_re = SOCIAL_COUNTER_RE.get_or_init(|| {
         regex_lite::Regex::new(
             r"(?i)^\d+\s+(?:Likes?|Comments?|Shares?|Retweets?|Reposts?|Restacks?|Views?)$",
@@ -1643,18 +1478,14 @@ fn remove_social_counters(
             doc.text_content_into(pid, &mut text);
             let wrapper_text = text.trim();
             if wrapper_text.split_whitespace().count() < 10 {
-                remove_node(doc, overlay, pid);
+                doc.remove(pid);
             }
         }
     }
 }
 
 /// Remove social counter links: anchors wrapping "Likes" / "Comments" text.
-fn remove_social_counter_links(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    content_id: NodeId,
-) {
+fn remove_social_counter_links(doc: &mut Document, content_id: NodeId) {
     let likes_re = LIKES_RE
         .get_or_init(|| regex_lite::Regex::new(r"(?i)^\d+\s+(?:Likes?|Comments?)$").unwrap());
     let anchors = doc.query_selector_all_in_subtree(content_id, "a");
@@ -1682,18 +1513,14 @@ fn remove_social_counter_links(
                 }
             }
             if target != a_id {
-                remove_node(doc, overlay, target);
+                doc.remove(target);
             }
         }
     }
 }
 
 /// Remove cookie consent banners and overlays.
-fn remove_cookie_consent(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    content_id: NodeId,
-) {
+fn remove_cookie_consent(doc: &mut Document, content_id: NodeId) {
     let cookie_classes = [
         "cookie-consent",
         "cookie-banner",
@@ -1710,18 +1537,14 @@ fn remove_cookie_consent(
         let selector = format!("[class*=\"{pattern}\" i], [id*=\"{pattern}\" i]");
         for id in doc.query_selector_all_in_subtree(content_id, &selector) {
             if !doc.has_closest(id, &["pre", "code"]) {
-                remove_node(doc, overlay, id);
+                doc.remove(id);
             }
         }
     }
 }
 
 /// Remove trailing CTA / appendix sections: thin heading-introduced blocks at end.
-fn remove_trailing_cta_sections(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    content_id: NodeId,
-) {
+fn remove_trailing_cta_sections(doc: &mut Document, content_id: NodeId) {
     if !doc
         .query_selector_all_in_subtree(content_id, ".author-bio")
         .is_empty()
@@ -1818,18 +1641,14 @@ fn remove_trailing_cta_sections(
         });
         if !has_conclusion && (has_heading || has_cta || is_link_dense) {
             for id in trailing_ids {
-                remove_node(doc, overlay, id);
+                doc.remove(id);
             }
         }
     }
 }
 
 /// Remove related-card grids without headings while preserving mid-article image rows.
-fn remove_card_grid_blocks(
-    doc: &mut Document,
-    overlay: &mut Option<&mut MutationOverlay<'_>>,
-    content_id: NodeId,
-) {
+fn remove_card_grid_blocks(doc: &mut Document, content_id: NodeId) {
     let content_words = count_words_in_node(doc, content_id);
     let containers = doc.query_selector_all_in_subtree(content_id, "div,ul,ol");
     for grid_id in containers {
@@ -1891,7 +1710,7 @@ fn remove_card_grid_blocks(
             continue;
         }
 
-        remove_trailing_with_cascade(doc, overlay, target, content_id);
+        remove_trailing_with_cascade(doc, target, content_id);
         break;
     }
 }

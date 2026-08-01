@@ -22,7 +22,7 @@ and data types at each boundary.
 | `src/defuddle.ts::Defuddle.parse()` and `parseInternal()` | `crates/defuddle/src/lib.rs::parse_html()`, `parse_internal()`, and `parse_internal_once()` | The Rust entry point is a free function. It owns parsing, metadata, adapter dispatch, retry policy, and result assembly. |
 | `DefuddleOptions` and `DefuddleResponse` in `src/types.ts` | `DefuddleOptions` and `DefuddleResult` in `crates/defuddle/src/lib.rs` | Compare fields before porting an option. Browser, fetch, and async options do not automatically belong in the Rust API. |
 | Browser or Linkedom `Document` and `Element` | `crates/defuddle/src/dom.rs::Document` plus `dom::NodeId` | The Rust DOM is a mutable flat node store. Every mutation, subtree query, and serialization step works through node IDs. |
-| Derived read-only document facts and mutation state | `crates/defuddle/src/analysis.rs::AnalysisSnapshot` and `analysis::MutationOverlay` | `AnalysisSnapshot::from_subtree()` owns full text, link-density, attribute, and structural facts; `AnalysisSnapshot::from_subtree_topology()` and `MutationOverlay::empty()` cover cleanup phases that only need topology or removal state. Production generic cleanup routes through `pipeline::remove_by_selector_in_overlay()`, `pipeline::remove_hidden_elements_in_overlay()`, `pipeline::score_and_remove()`, `pipeline::remove_content_patterns_in_overlay()`, `pipeline::remove_metadata_blocks_in_overlay()`, and `pipeline::remove_author_sibling_in_overlay()`. Supported selector candidate comparisons use `pipeline::selector_candidates()` and fall back to the DOM selector engine when parity differs. |
+| Derived read-only document facts and mutation state | `crates/defuddle/src/analysis.rs::AnalysisSnapshot` and `analysis::MutationOverlay` | The Rust pipeline builds an immutable subtree snapshot with topology, tag membership, text totals, descendant counts, and structural flags. `pipeline::score_and_remove()` uses snapshot candidate enumeration plus checkpointable overlay removals while the mutable DOM remains the scoring oracle. |
 | `src/extractor-registry.ts::ExtractorRegistry` | `crates/defuddle/src/extractors/mod.rs::find_site_adapter()` and `adapter_names()` | Rust adapters are selected by a domain gate followed by `SiteAdapter::matches()`. Keep priority explicit in the candidate array. |
 | `BaseExtractor` in `src/extractors/_base.ts` | `extractors::SiteAdapter`, `HtmlExtraction`, and `SiteExtraction` | Rust has no shared extractor constructor. An adapter receives `ExtractionContext` and returns DOM-backed output. |
 | `ExtractorResult.content` HTML | `pipeline::ExtractedContent` with a `Document` and root `NodeId` | Use `site_extraction_from_html()` when an adapter naturally builds an HTML string. `extractors/dom_builder.rs::Builder` is preferable for structured output. |
@@ -198,31 +198,3 @@ Rust owner: <file>::<symbol>
 Tests: <focused test>, <fixture/integration test>
 Scope note: <why behavior is excluded or adapted, if applicable>
 ```
-
-## Snapshot and overlay ownership
-
-`analysis::AnalysisSnapshot` is immutable for the lifetime of one generic phase
-set. `AnalysisSnapshot::from_subtree()` materializes full facts used by
-`pipeline::score_and_remove()`, while
-`AnalysisSnapshot::from_subtree_topology()` avoids text and attribute materialization
-for cleanup phases that only need document order, ancestry, and visibility.
-`analysis::MutationOverlay` owns planned remove/tag/attribute/text changes,
-checkpoint rollback, and overlay-aware serialization through
-`analysis::MutationOverlay::serialize()`. `MutationOverlay::empty()` is the
-allocation-light removal planner for phases whose reads intentionally remain on
-the mutable DOM oracle.
-
-The production phase boundaries are covered by the fixture gate
-`crates/defuddle/tests/fixture_harness.rs::fixture_runner_reports_placeholder_mismatches_deterministically`
-and the overlay contracts by `analysis::tests::mutation_overlay_checkpoints_and_applies`,
-`analysis::tests::empty_overlay_plans_removals_without_snapshot_facts`,
-`analysis::tests::snapshot_detects_dom_mutations_after_capture`, and
-`analysis::tests::overlay_serialization_includes_pending_state`. DOM mutations
-advance `dom::Document::mutation_generation()`; stale full snapshots are rejected
-by `MutationOverlay::apply_to()` rather than silently reused.
-
-Retry behavior remains in `lib.rs::parse_internal()`: the first attempt and
-retries reparse the original HTML. Overlay checkpoints cannot yet cover the
-post-selection standardization, sanitizer, Markdown, and page-hook mutations
-without retaining a second mutable mutation model, so replacing reparsing was
-measured and rejected in `PERF.md`.

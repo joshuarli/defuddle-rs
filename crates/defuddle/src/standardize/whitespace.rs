@@ -77,9 +77,10 @@ pub(crate) fn standardize_spaces(doc: &mut Document, node: NodeId) {
     let children = doc.children(node).to_vec();
     for child in children {
         if doc.is_text(child) {
-            let text = doc.text_content(child);
-            // Only replace non-breaking spaces — do NOT collapse consecutive spaces
-            doc.set_text(child, &text.replace('\u{00A0}', " "));
+            if let Some(text) = doc.text_content_mut(child) {
+                // Only replace non-breaking spaces — do NOT collapse consecutive spaces
+                *text = text.replace('\u{00A0}', " ");
+            }
         } else if doc.is_element(child) {
             standardize_spaces(doc, child);
         }
