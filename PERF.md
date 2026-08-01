@@ -71,13 +71,13 @@ cross-machine performance guarantee.
 | Workload | Median | Peak live allocation |
 | --- | ---: | ---: |
 | `substack_body_html` | 2.44 ms | 520 KB |
-| `substack_body_markdown` | 41.8 ms | 1.59 MB |
+| `substack_body_markdown` | 41.6 ms | 1.17 MB |
 | `substack_raw_html` | 4.67 ms | 1.01 MB |
-| `substack_raw_markdown` | 44.5 ms | 1.65 MB |
+| `substack_raw_markdown` | 44.5 ms | 1.22 MB |
 | `wikipedia_html` | 17.5 ms | 1.01 MB |
-| `wikipedia_markdown` | 34.6 ms | 1.40 MB |
-| `github_issue_markdown` | 6.59 ms | 532 KB |
-| `hackernews_comments_markdown` | 1.76 ms | 124 KB |
+| `wikipedia_markdown` | 34.7 ms | 1.27 MB |
+| `github_issue_markdown` | 6.48 ms | 532 KB |
+| `hackernews_comments_markdown` | 1.69 ms | 124 KB |
 
 The remaining dominant wall-time path is Markdown postprocessing. A release
 profile of the Substack body fixture measured approximately 8.2 ms in
@@ -124,6 +124,11 @@ effect and behavior change remain easy to bisect.
   lowercased partial-selector patterns. On `wikipedia_html`, this reduced the
   median from about 20.2 ms to 17.5 ms and cumulative allocation from about
   7.88 MB / 138k allocations to 6.74 MB / 34k allocations.
+- `84a2099 Reduce Markdown postprocess allocations`: preserve the existing
+  input string when full-string regex passes find no matches. This reduced
+  `substack_raw_markdown` cumulative allocation from 5.02 MB to 4.59 MB and
+  peak live allocation from 1.65 MB to 1.22 MB, while the full benchmark run
+  showed no meaningful timing regression.
 
 ## Experiments not retained
 
