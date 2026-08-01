@@ -25,9 +25,9 @@ walkdir = "2"
 zim = { git = "https://github.com/dignifiedquire/zim", rev = "82b897e479254601efdabc0f37c1cb9e7e20f7d3", version = "0.5.0" }
 
 [[bench]]
-name = "bench"
+name = "zim_bench"
 harness = false
 
 [[bench]]
-name = "zim_bench"
+name = "zim_extract"
 harness = false

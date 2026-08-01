@@ -1,7 +1,7 @@
 # Performance
 
 Defuddle performance work is measured through the public `parse_html()` path
-on representative HTML fixtures. The benchmark binary uses Divan and the
+over an extracted Wikipedia HTML directory. The benchmark binary uses Divan and the
 system allocator wrapped by `AllocProfiler`; it is intentionally useful as a
 future PGO workload, but PGO is not currently part of the build or release
 workflow.
@@ -14,51 +14,38 @@ Run the complete benchmark set with:
 make bench
 ```
 
-The entry point is the `bench` target in `Makefile`, which runs
-`crates/defuddle/benches/bench.rs` in the optimized Cargo profile. The suite
-covers HTML and Markdown output for local Substack captures and vendored
-upstream Wikipedia, GitHub, Hacker News, and footnote fixtures.
-
-The opt-in `zim_bench` workload processes every HTML payload in a local ZIM
-archive and converts it to Markdown. The archive is opened, enumerated, and
-copied into owned HTML strings before Divan starts timing, so ZIM lookup,
-cluster decompression, and archive I/O are excluded from the end-to-end
-Defuddle measurement:
+The `extract-zim-html` target runs `crates/defuddle/benches/zim_extract.rs`.
+It indexes HTML entries by cluster, decompresses each cluster once, writes the
+HTML files in parallel, and emits `manifest.tsv` for URL preservation. The
+`bench` target runs `crates/defuddle/benches/zim_bench.rs`; it requires the
+resulting directory and loads all HTML before Divan starts timing:
 
 ```bash
-make bench-zim
-DEFUDDLE_ZIM=/path/to/archive.zim cargo bench -p defuddle --bench zim_bench
-DEFUDDLE_ZIM_PHASES=1 make bench-zim
+DEFUDDLE_ZIM=/path/to/archive.zim \
+DEFUDDLE_HTML_DIR=/path/to/extracted-html \
+make extract-zim-html
+DEFUDDLE_HTML_DIR=/path/to/extracted-html make bench
+DEFUDDLE_HTML_DIR=/path/to/extracted-html DEFUDDLE_PHASES=1 make bench
 ```
 
-The workload currently uses `wikipedia_en_100_nopic_2026-07.zim`, which has
-1,314 HTML payloads totaling about 62.7 MiB. It reports the number of loaded
-pages during setup and times only repeated `parse_html()` calls with
-`separate_markdown: true`. Keep the archive outside the repository; the
-default path is convenient for a local copy and is not a checked-in fixture.
-Set `DEFUDDLE_ZIM_PHASES=1` to run one unbenchmarked pass and print aggregate
-wall time, total and average phase time, invocation counts, phase shares, and
-retry counts across the whole corpus.
+The small reference archive produces 1,314 HTML files totaling about 64 MiB
+on disk. The directory benchmark times only repeated `parse_html()` calls with
+`separate_markdown: true`; ZIM access and extraction are deliberately outside
+the timed operation. Set `DEFUDDLE_PHASES=1` to run one unbenchmarked pass and
+print aggregate wall time, total and average phase time, invocation counts,
+phase shares, and retry counts across the extracted directory.
 
-For controlled phase isolation, set `DEFUDDLE_ZIM_VARIANT` to one of
+For controlled phase isolation, set `DEFUDDLE_VARIANT` to one of
 `no-selector-removal`, `no-exact-selectors`, `no-partial-selectors`,
 `no-scoring`, `no-content-patterns`, `no-standardize`, or `html-only`.
 
-For one-shot sequential/parallel throughput comparisons, set
-`DEFUDDLE_ZIM_THROUGHPUT=1`; `DEFUDDLE_ZIM_THREADS` controls the worker count
-and `DEFUDDLE_ZIM_BATCH_SIZE` / `DEFUDDLE_ZIM_BATCH_BYTES` bound each in-memory
-batch (defaults: 256 pages / 64 MiB). Corpus loading and decompression are
-excluded from the parser timer, while total wall time is also reported:
+`DEFUDDLE_THREADS` controls the parser worker count. Use the directory
+benchmark for throughput comparisons; use the extractor's cluster progress
+output separately when measuring ZIM extraction.
 
 ```bash
-DEFUDDLE_ZIM_THREADS=8 DEFUDDLE_ZIM_THROUGHPUT=1 \
-  cargo bench -p defuddle --bench zim_bench
+DEFUDDLE_HTML_DIR=/path/to/extracted-html DEFUDDLE_THREADS=8 make bench
 ```
-
-The throughput mode is intentionally separate from Divan’s allocation table:
-worker allocations are thread-local, and Divan’s normal allocator report is
-not a complete measure for work performed by threads spawned inside a
-benchmark closure.
 
 The fixture harness also includes 50 deterministic article pages selected from
 the substantial ZIM payloads under
@@ -72,14 +59,14 @@ allocator, and benchmark options constant. Capture both revisions with the
 same sample count, for example:
 
 ```bash
-cargo bench -p defuddle --bench bench -- --sample-count 100 \
+cargo bench -p defuddle --bench zim_bench -- --sample-count 100 \
   > /tmp/defuddle-bench.txt
 ```
 
 Divan accepts a positional name filter, so a focused run looks like:
 
 ```bash
-cargo bench -p defuddle --bench bench -- substack_raw_markdown --sample-count 100
+cargo bench -p defuddle --bench zim_bench -- html_directory_markdown --sample-count 100
 ```
 
 For phase-level Markdown timing, set `DEFUDDLE_PROFILE=1`. This prints the
