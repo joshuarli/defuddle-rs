@@ -156,6 +156,13 @@ effect and behavior change remain easy to bisect.
   representative Markdown medians stayed within noise, while
   `substack_body_markdown` peak live allocation fell from about 925 KB to
   727 KB (about 21%) with unchanged fixture output.
+- `AnalysisSnapshot` first milestone: add a profile-gated immutable subtree
+  analysis IR in `crates/defuddle/src/analysis.rs` with stable `NodeId`
+  mapping, parent/depth topology, tag membership, text/comma totals,
+  descendant counts, link-text totals, and structural flags. The snapshot is
+  currently validated against the mutable DOM oracle rather than replacing
+  extraction behavior. On the 612-node Substack body fixture, construction
+  measured about 1.0 ms per build across ten test iterations.
 
 ## Experiments not retained
 

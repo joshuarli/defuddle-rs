@@ -627,6 +627,13 @@ impl Document {
         out
     }
 
+    pub(crate) fn text_node_value(&self, node: NodeId) -> Option<&str> {
+        match &self.node(node).kind {
+            NodeKind::Text(text) => Some(text),
+            _ => None,
+        }
+    }
+
     pub fn get_attr(&self, node: NodeId, name: &str) -> Option<&str> {
         match &self.node(node).kind {
             NodeKind::Element { attrs, .. } => attrs

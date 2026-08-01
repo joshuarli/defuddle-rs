@@ -44,6 +44,10 @@
 //! - Evaluate live browser CSS/layout
 //! - Access shadow DOM from extension isolated worlds
 //! - Support async/streaming extraction (future work)
+// The snapshot is profile-gated until its parity contract is stable enough to
+// replace the mutable-DOM oracle in extraction phases.
+#[allow(dead_code)]
+mod analysis;
 mod embeds;
 mod extraction_selectors;
 
@@ -176,6 +180,7 @@ struct GenericPipelineConfig<'a> {
     separate_markdown: bool,
     content_selector: Option<&'a str>,
     debug: bool,
+    profile: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -278,6 +283,7 @@ pub fn parse_html(
         separate_markdown,
         content_selector,
         debug,
+        profile: defuddle_options.profile,
     };
     Ok(parse_internal(pipeline::ExtractionContext {
         source_html,
@@ -398,6 +404,7 @@ fn parse_internal(mut context: pipeline::ExtractionContext<'_>) -> DefuddleResul
         separate_markdown: context.defuddle_options.separate_markdown,
         content_selector: context.defuddle_options.content_selector.as_deref(),
         debug: context.defuddle_options.debug,
+        profile: context.defuddle_options.profile,
     };
     let doc = std::mem::replace(&mut context.doc, Document::empty());
     let mut parsed_page = parse_internal_once(doc, &config, &mut context.diagnostics);
@@ -448,6 +455,16 @@ fn parse_internal_once(
     let body_ids = doc.query_selector_all("body");
     let content_id = main_content.or_else(|| body_ids.first().copied());
     let overrides = overrides::lookup_page_overrides(&config.metadata.title);
+
+    if config.profile {
+        if let Some(content_id) = content_id {
+            let node_count = diagnostics.measure("analysis snapshot", || {
+                let snapshot = analysis::AnalysisSnapshot::from_subtree(&doc, content_id);
+                snapshot.node_count()
+            });
+            std::hint::black_box(node_count);
+        }
+    }
 
     // Convert Bootstrap alerts and Hugo admonitions to callout format
     // BEFORE remove_by_selector strips .alert elements
