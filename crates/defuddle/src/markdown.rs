@@ -5,6 +5,7 @@ use htmd::{
     Element, HtmlToMarkdown,
     options::{HeadingStyle, LinkStyle},
 };
+use std::borrow::Cow;
 use std::sync::OnceLock;
 
 static INLINE_SPACING_REGEXES: OnceLock<Vec<regex_lite::Regex>> = OnceLock::new();
@@ -85,6 +86,17 @@ fn replace_if_match<R: regex_lite::Replacer>(
     replacement: R,
 ) -> String {
     regex.replace_all(&line, replacement).into_owned()
+}
+
+fn replace_all_owned<R: regex_lite::Replacer>(
+    input: String,
+    regex: &regex_lite::Regex,
+    replacement: R,
+) -> String {
+    match regex.replace_all(&input, replacement) {
+        Cow::Borrowed(_) => input,
+        Cow::Owned(replaced) => replaced,
+    }
 }
 
 /// Convert HTML content to Markdown using htmd (Turndown.js-compatible) with
@@ -667,18 +679,22 @@ fn preprocess_html_dom(html: &str) -> String {
 /// Ported from TypeScript createMarkdownContent post-processing.
 fn postprocess_markdown(md: &str) -> String {
     let md = escape_tag_like_text(md).replace("\\\\<", "\\<");
-    let md = QUOTED_FENCED_CODE_RE
-        .get_or_init(|| regex_lite::Regex::new(r"(?m)^((?:>\s*)?```)[ \t]+([A-Za-z])").unwrap())
-        .replace_all(&md, "$1$2")
-        .to_string();
+    let md = replace_all_owned(
+        md,
+        QUOTED_FENCED_CODE_RE.get_or_init(|| {
+            regex_lite::Regex::new(r"(?m)^((?:>\s*)?```)[ \t]+([A-Za-z])").unwrap()
+        }),
+        "$1$2",
+    );
 
     // Remove the page title h1 from the beginning if present.
     // Note: h1 was promoted to h2 by standardize_headings, so only
     // original h2 headers survive; we match ^# (h1) only like upstream.
-    let md = MARKDOWN_HEADING_RE
-        .get_or_init(|| regex_lite::Regex::new(r"^# [^\n]+\n+").unwrap())
-        .replace(&md, "")
-        .to_string();
+    let md = replace_all_owned(
+        md,
+        MARKDOWN_HEADING_RE.get_or_init(|| regex_lite::Regex::new(r"^# [^\n]+\n+").unwrap()),
+        "",
+    );
 
     // Remove any empty links [](url) that remain, along with surrounding newlines
     // But don't affect image links like ![](image.jpg)
@@ -713,23 +729,21 @@ fn postprocess_markdown(md: &str) -> String {
     // htmd escapes the bracket syntax produced for extractor footnote references.
     let footnote_escape_re =
         FOOTNOTE_ESCAPE_RE.get_or_init(|| regex_lite::Regex::new(r#"\\(\[\^\d+)\\\]"#).unwrap());
-    let md = footnote_escape_re.replace_all(&md, "$1]").to_string();
+    let md = replace_all_owned(md, footnote_escape_re, "$1]");
     let image_escape_re =
         IMAGE_ESCAPE_RE.get_or_init(|| regex_lite::Regex::new(r"!\\\[\\\]\(([^)]+)\)").unwrap());
-    let md = image_escape_re.replace_all(&md, "![]($1)").to_string();
+    let md = replace_all_owned(md, image_escape_re, "![]($1)");
     let url_escape_re =
         URL_ESCAPE_RE.get_or_init(|| regex_lite::Regex::new(r"\(([^)\n]+)\)").unwrap());
-    let md = url_escape_re
-        .replace_all(&md, |caps: &regex_lite::Captures| {
-            format!(
-                "({})",
-                caps.get(1)
-                    .map(|m| m.as_str())
-                    .unwrap_or("")
-                    .replace("\\_", "_")
-            )
-        })
-        .to_string();
+    let md = replace_all_owned(md, url_escape_re, |caps: &regex_lite::Captures| {
+        format!(
+            "({})",
+            caps.get(1)
+                .map(|m| m.as_str())
+                .unwrap_or("")
+                .replace("\\_", "_")
+        )
+    });
     let md = md
         .replace("\\<iframe", "<iframe")
         .replace("\\</iframe>", "</iframe>");
@@ -739,11 +753,11 @@ fn postprocess_markdown(md: &str) -> String {
         )
         .unwrap()
     });
-    let md = email_escape_re.replace_all(&md, "<$1>").to_string();
+    let md = replace_all_owned(md, email_escape_re, "<$1>");
     let md = md.replace(". .", "..");
     let backref_re = BACKREF_CLEANUP_RE
         .get_or_init(|| regex_lite::Regex::new(r"\s*\[↩\]\(#fnref:[^)]+\)").unwrap());
-    let md = backref_re.replace_all(&md, "").to_string();
+    let md = replace_all_owned(md, backref_re, "");
 
     // Add a space between exclamation marks and image syntax ![
     // e.g. "Yey!![IMG](url)" becomes "Yey! ![IMG](url)" to prevent
@@ -804,25 +818,31 @@ fn postprocess_markdown(md: &str) -> String {
     // which would otherwise trim the space line.
     let result = result.replace("\n\n\u{00B7}\n\n", "\n\n \n\n");
     let result = normalize_markdown_layout(&result);
-    let result = DETACHED_ITALIC_RE
-        .get_or_init(|| regex_lite::Regex::new(r"\*([^*\n]+) \*").unwrap())
-        .replace_all(&result, "*$1*")
-        .to_string();
-    let result = CODE_LINKED_WORD_RE
-        .get_or_init(|| regex_lite::Regex::new(r"(`[^`\n]+`)([A-Za-z0-9])").unwrap())
-        .replace_all(&result, "$1 $2")
-        .to_string();
+    let result = replace_all_owned(
+        result,
+        DETACHED_ITALIC_RE.get_or_init(|| regex_lite::Regex::new(r"\*([^*\n]+) \*").unwrap()),
+        "*$1*",
+    );
+    let result = replace_all_owned(
+        result,
+        CODE_LINKED_WORD_RE
+            .get_or_init(|| regex_lite::Regex::new(r"(`[^`\n]+`)([A-Za-z0-9])").unwrap()),
+        "$1 $2",
+    );
     let result = result.trim_end().to_string();
-    let result = QUOTED_FENCED_LANG_RE
-        .get_or_init(|| regex_lite::Regex::new(r"(?m)^> ``` +([A-Za-z])").unwrap())
-        .replace_all(&result, "> ```$1")
-        .to_string();
-    let result = HN_LISTING_RE
-        .get_or_init(|| {
+    let result = replace_all_owned(
+        result,
+        QUOTED_FENCED_LANG_RE
+            .get_or_init(|| regex_lite::Regex::new(r"(?m)^> ``` +([A-Za-z])").unwrap()),
+        "> ```$1",
+    );
+    let result = replace_all_owned(
+        result,
+        HN_LISTING_RE.get_or_init(|| {
             regex_lite::Regex::new(r"(?m)^(\d+\. .+)\n\n((?:\d+) points · by .+)$").unwrap()
-        })
-        .replace_all(&result, "$1  \n\t$2")
-        .to_string();
+        }),
+        "$1  \n\t$2",
+    );
     let lines: Vec<&str> = result.lines().collect();
     let mut normalized = Vec::new();
     for (index, line) in lines.iter().enumerate() {
@@ -845,18 +865,21 @@ fn postprocess_markdown(md: &str) -> String {
         );
     }
     let result = normalized.join("\n");
-    let result = BACKTICK_SPACE_RE
-        .get_or_init(|| regex_lite::Regex::new(r"` +([^`\n]+)`").unwrap())
-        .replace_all(&result, "`$1`")
-        .to_string();
-    let result = BOLD_NUM_RE
-        .get_or_init(|| regex_lite::Regex::new(r"(?m)(\d)\*\*\s*([A-Za-z_])").unwrap())
-        .replace_all(&result, "$1 ** $2")
-        .to_string();
-    let result = BACKTICK_WORD_RE
-        .get_or_init(|| regex_lite::Regex::new(r"`([^`\n]+)`([A-Za-z])").unwrap())
-        .replace_all(&result, "`$1` $2")
-        .to_string();
+    let result = replace_all_owned(
+        result,
+        BACKTICK_SPACE_RE.get_or_init(|| regex_lite::Regex::new(r"` +([^`\n]+)`").unwrap()),
+        "`$1`",
+    );
+    let result = replace_all_owned(
+        result,
+        BOLD_NUM_RE.get_or_init(|| regex_lite::Regex::new(r"(?m)(\d)\*\*\s*([A-Za-z_])").unwrap()),
+        "$1 ** $2",
+    );
+    let result = replace_all_owned(
+        result,
+        BACKTICK_WORD_RE.get_or_init(|| regex_lite::Regex::new(r"`([^`\n]+)`([A-Za-z])").unwrap()),
+        "`$1` $2",
+    );
     let result = result
         .lines()
         .map(|line| {
@@ -883,19 +906,17 @@ fn postprocess_markdown(md: &str) -> String {
         .to_string();
     let table_code_re =
         TABLE_CODE_RE.get_or_init(|| regex_lite::Regex::new(r"\| ```([^`\n]+)``` \|").unwrap());
-    let result = table_code_re
-        .replace_all(&result, |caps: &regex_lite::Captures| {
-            let value = caps[1]
-                .trim()
-                .replace("/*implementation-defined*/", "/* implementation-defined */")
-                .replace("implementation-defined*/", "implementation-defined */");
-            format!("| ``` {value} ``` |")
-        })
-        .to_string();
+    let result = replace_all_owned(result, table_code_re, |caps: &regex_lite::Captures| {
+        let value = caps[1]
+            .trim()
+            .replace("/*implementation-defined*/", "/* implementation-defined */")
+            .replace("implementation-defined*/", "implementation-defined */");
+        format!("| ``` {value} ``` |")
+    });
     let result = DASH_SEPARATOR_RE
         .get_or_init(|| regex_lite::Regex::new(r"(?m)^--$").unwrap())
         .replace_all(&result, r"\--")
-        .to_string();
+        .into_owned();
     let result = normalize_strong_spacing_outside_code(&result);
     let result = normalize_inline_code_spacing_outside_code(&result);
     normalize_footnote_spacing_outside_code(&result)
