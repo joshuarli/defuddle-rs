@@ -77,7 +77,7 @@ pub(crate) fn simplify_heading_children(doc: &mut Document, content_id: NodeId) 
                 if !doc.is_element(child) {
                     continue;
                 }
-                let class = doc.get_attr(child, "class").unwrap_or("").to_lowercase();
+                let class = doc.get_attr(child, "class").unwrap_or("");
                 // Remove buttons, empty anchors (# links), permalink elements
                 if doc.tag_name_is(child, "button") {
                     doc.remove(child);
@@ -87,10 +87,19 @@ pub(crate) fn simplify_heading_children(doc: &mut Document, content_id: NodeId) 
                     let is_hash_link = href.starts_with('#');
                     if is_hash_link
                         || is_edit_link
-                        || class.contains("permalink")
-                        || class.contains("anchor-link")
-                        || class.contains("heading-anchor")
-                        || class.contains("headerlink")
+                        || crate::content_utils::contains_ascii_case_insensitive(class, "permalink")
+                        || crate::content_utils::contains_ascii_case_insensitive(
+                            class,
+                            "anchor-link",
+                        )
+                        || crate::content_utils::contains_ascii_case_insensitive(
+                            class,
+                            "heading-anchor",
+                        )
+                        || crate::content_utils::contains_ascii_case_insensitive(
+                            class,
+                            "headerlink",
+                        )
                     {
                         let text = doc.text_content(child).trim().to_string();
                         if is_edit_link

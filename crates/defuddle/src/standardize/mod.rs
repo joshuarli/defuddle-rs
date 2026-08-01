@@ -1,6 +1,5 @@
 use crate::dom::{Document, NodeId};
 use crate::extraction_selectors::ALLOWED_ATTRIBUTES;
-use rustc_hash::FxHashSet;
 
 mod callouts;
 mod elements;
@@ -113,13 +112,14 @@ pub(crate) fn standardize_extractor_output(doc: &mut Document, content_id: NodeI
 }
 
 fn strip_unwanted_attributes(doc: &mut Document, content_id: NodeId) {
-    let allowed: FxHashSet<&str> = ALLOWED_ATTRIBUTES.iter().copied().collect();
     let all_els = doc.query_selector_all_in_subtree(content_id, "*");
     for id in all_els {
         let names = doc.attr_names(id);
         for name in names {
-            let lower = name.to_lowercase();
-            if !allowed.contains(lower.as_str()) && lower != "class" && lower != "id" {
+            let allowed = ALLOWED_ATTRIBUTES
+                .iter()
+                .any(|attribute| name.eq_ignore_ascii_case(attribute));
+            if !allowed && !name.eq_ignore_ascii_case("class") && !name.eq_ignore_ascii_case("id") {
                 doc.remove_attr(id, &name);
             }
         }
@@ -127,7 +127,6 @@ fn strip_unwanted_attributes(doc: &mut Document, content_id: NodeId) {
 }
 
 fn strip_extractor_attributes(doc: &mut Document, content_id: NodeId, debug: bool) {
-    let allowed: FxHashSet<&str> = ALLOWED_ATTRIBUTES.iter().copied().collect();
     let mut elements = doc.query_selector_all_in_subtree(content_id, "*");
     if doc.is_element(content_id) {
         elements.insert(0, content_id);
@@ -135,18 +134,17 @@ fn strip_extractor_attributes(doc: &mut Document, content_id: NodeId, debug: boo
 
     for id in elements {
         for name in doc.attr_names(id) {
-            let lower = name.to_lowercase();
             let value = doc.get_attr(id, &name).unwrap_or_default();
 
-            if lower == "id"
+            if name.eq_ignore_ascii_case("id")
                 && (value.starts_with("fnref:") || value.starts_with("fn:") || value == "footnotes")
             {
                 continue;
             }
-            if lower == "data-defuddle" {
+            if name.eq_ignore_ascii_case("data-defuddle") {
                 continue;
             }
-            if lower == "class" {
+            if name.eq_ignore_ascii_case("class") {
                 if debug {
                     continue;
                 }
@@ -167,10 +165,19 @@ fn strip_extractor_attributes(doc: &mut Document, content_id: NodeId, debug: boo
                 }
                 continue;
             }
-            if debug && (lower.starts_with("data-") || lower == "class" || lower == "id") {
+            if debug
+                && (name
+                    .get(..5)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("data-"))
+                    || name.eq_ignore_ascii_case("class")
+                    || name.eq_ignore_ascii_case("id"))
+            {
                 continue;
             }
-            if !allowed.contains(lower.as_str()) {
+            let allowed = ALLOWED_ATTRIBUTES
+                .iter()
+                .any(|attribute| name.eq_ignore_ascii_case(attribute));
+            if !allowed {
                 doc.remove_attr(id, &name);
             }
         }
@@ -195,7 +202,10 @@ fn unwrap_special_links(doc: &mut Document, content_id: NodeId) {
     let all_links = doc.query_selector_all_in_subtree(content_id, "a");
     for &id in &all_links {
         if let Some(href) = doc.get_attr(id, "href")
-            && href.trim().to_lowercase().starts_with("javascript:")
+            && href
+                .trim()
+                .get(..11)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("javascript:"))
         {
             doc.unwrap(id);
         }

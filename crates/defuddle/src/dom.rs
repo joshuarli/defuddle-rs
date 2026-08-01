@@ -1044,14 +1044,9 @@ impl Document {
             return false;
         }
         if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_contains {
-            let aval_lower = if case_insensitive {
-                aval.to_lowercase()
-            } else {
-                String::new()
-            };
             if !attr_match(attrs, aname, |val| {
                 if case_insensitive {
-                    val.to_lowercase().contains(&aval_lower)
+                    crate::content_utils::contains_ascii_case_insensitive(val, aval)
                 } else {
                     val.contains(aval.as_str())
                 }
@@ -1060,14 +1055,9 @@ impl Document {
             }
         }
         if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_starts {
-            let aval_lower = if case_insensitive {
-                aval.to_lowercase()
-            } else {
-                String::new()
-            };
             if !attr_match(attrs, aname, |val| {
                 if case_insensitive {
-                    val.to_lowercase().starts_with(&aval_lower)
+                    starts_ascii_case_insensitive(val, aval)
                 } else {
                     val.starts_with(aval.as_str())
                 }
@@ -1076,14 +1066,9 @@ impl Document {
             }
         }
         if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_ends {
-            let aval_lower = if case_insensitive {
-                aval.to_lowercase()
-            } else {
-                String::new()
-            };
             if !attr_match(attrs, aname, |val| {
                 if case_insensitive {
-                    val.to_lowercase().ends_with(&aval_lower)
+                    ends_ascii_case_insensitive(val, aval)
                 } else {
                     val.ends_with(aval.as_str())
                 }
@@ -1093,11 +1078,11 @@ impl Document {
         }
         if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_word
             && !attr_match(attrs, aname, |val| {
-                let words: Vec<&str> = val.split_whitespace().collect();
                 if case_insensitive {
-                    words.iter().any(|w| w.eq_ignore_ascii_case(aval))
+                    val.split_whitespace()
+                        .any(|word| word.eq_ignore_ascii_case(aval))
                 } else {
-                    words.contains(&aval.as_str())
+                    val.split_whitespace().any(|word| word == aval)
                 }
             })
         {
@@ -1252,6 +1237,18 @@ fn eq_ignore_case(a: &str, b: &str) -> bool {
         && a.chars()
             .zip(b.chars())
             .all(|(ac, bc)| ac.eq_ignore_ascii_case(&bc))
+}
+
+fn starts_ascii_case_insensitive(value: &str, prefix: &str) -> bool {
+    value
+        .get(..prefix.len())
+        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(prefix))
+}
+
+fn ends_ascii_case_insensitive(value: &str, suffix: &str) -> bool {
+    value
+        .get(value.len().saturating_sub(suffix.len())..)
+        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(suffix))
 }
 
 fn attr_match<F: FnMut(&str) -> bool>(

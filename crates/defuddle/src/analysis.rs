@@ -48,8 +48,91 @@ pub(crate) struct AnalysisNode {
     pub dom_id: NodeId,
     pub parent: Option<usize>,
     pub depth: usize,
-    pub tag: String,
+    pub tag: TagKind,
     pub facts: AnalysisFacts,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TagKind {
+    Document,
+    P,
+    A,
+    Ul,
+    Ol,
+    Img,
+    Table,
+    Div,
+    Section,
+    Aside,
+    Article,
+    H1,
+    H2,
+    H3,
+    H4,
+    Other,
+}
+
+impl TagKind {
+    fn from_name(name: &str) -> Self {
+        if name.eq_ignore_ascii_case("#document") {
+            Self::Document
+        } else if name.eq_ignore_ascii_case("p") {
+            Self::P
+        } else if name.eq_ignore_ascii_case("a") {
+            Self::A
+        } else if name.eq_ignore_ascii_case("ul") {
+            Self::Ul
+        } else if name.eq_ignore_ascii_case("ol") {
+            Self::Ol
+        } else if name.eq_ignore_ascii_case("img") {
+            Self::Img
+        } else if name.eq_ignore_ascii_case("table") {
+            Self::Table
+        } else if name.eq_ignore_ascii_case("div") {
+            Self::Div
+        } else if name.eq_ignore_ascii_case("section") {
+            Self::Section
+        } else if name.eq_ignore_ascii_case("aside") {
+            Self::Aside
+        } else if name.eq_ignore_ascii_case("article") {
+            Self::Article
+        } else if name.eq_ignore_ascii_case("h1") {
+            Self::H1
+        } else if name.eq_ignore_ascii_case("h2") {
+            Self::H2
+        } else if name.eq_ignore_ascii_case("h3") {
+            Self::H3
+        } else if name.eq_ignore_ascii_case("h4") {
+            Self::H4
+        } else {
+            Self::Other
+        }
+    }
+
+    fn matches(self, name: &str) -> bool {
+        self == Self::from_name(name)
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Document => "#document",
+            Self::P => "p",
+            Self::A => "a",
+            Self::Ul => "ul",
+            Self::Ol => "ol",
+            Self::Img => "img",
+            Self::Table => "table",
+            Self::Div => "div",
+            Self::Section => "section",
+            Self::Aside => "aside",
+            Self::Article => "article",
+            Self::H1 => "h1",
+            Self::H2 => "h2",
+            Self::H3 => "h3",
+            Self::H4 => "h4",
+            Self::Other => "",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -91,7 +174,7 @@ impl AnalysisSnapshot {
     pub(crate) fn select_tag(&self, tag: &str) -> Vec<NodeId> {
         self.nodes
             .iter()
-            .filter(|node| node.tag.eq_ignore_ascii_case(tag))
+            .filter(|node| node.tag.matches(tag))
             .map(|node| node.dom_id)
             .collect()
     }
@@ -111,7 +194,7 @@ impl AnalysisSnapshot {
             .lookup
             .get(&node)
             .and_then(|&index| self.nodes.get(index))
-            .is_some_and(|current| current.tag.eq_ignore_ascii_case(tag));
+            .is_some_and(|current| current.tag.matches(tag));
         Some(total.saturating_sub(usize::from(self_count)))
     }
 
@@ -138,7 +221,7 @@ impl AnalysisSnapshot {
             dom_id: node,
             parent,
             depth,
-            tag: doc.tag_name(node).to_owned(),
+            tag: TagKind::from_name(doc.tag_name(node)),
             facts: AnalysisFacts::default(),
         });
 
@@ -152,30 +235,29 @@ impl AnalysisSnapshot {
             facts.merge(&self.nodes[child_index].facts);
         }
 
-        let tag = self.nodes[index].tag.as_str();
-        if tag.eq_ignore_ascii_case("p") {
-            facts.paragraph_count += 1;
-        } else if tag.eq_ignore_ascii_case("a") {
-            facts.link_count += 1;
-            facts.link_text_bytes += facts.text_bytes;
-        } else if tag.eq_ignore_ascii_case("ul") {
-            facts.unordered_list_count += 1;
-        } else if tag.eq_ignore_ascii_case("ol") {
-            facts.ordered_list_count += 1;
-        } else if tag.eq_ignore_ascii_case("img") {
-            facts.image_count += 1;
-            if doc
-                .get_attr(node, "alt")
-                .is_some_and(|alt| !alt.trim().is_empty())
-                && doc.closest(node, "a").is_some_and(|anchor| {
-                    doc.get_attr(anchor, "href")
-                        .is_some_and(|href| href.contains("/@"))
-                })
-            {
-                facts.has_author_image_link = true;
+        match self.nodes[index].tag {
+            TagKind::P => facts.paragraph_count += 1,
+            TagKind::A => {
+                facts.link_count += 1;
+                facts.link_text_bytes += facts.text_bytes;
             }
-        } else if tag.eq_ignore_ascii_case("table") {
-            facts.table_count += 1;
+            TagKind::Ul => facts.unordered_list_count += 1,
+            TagKind::Ol => facts.ordered_list_count += 1,
+            TagKind::Img => {
+                facts.image_count += 1;
+                if doc
+                    .get_attr(node, "alt")
+                    .is_some_and(|alt| !alt.trim().is_empty())
+                    && doc.closest(node, "a").is_some_and(|anchor| {
+                        doc.get_attr(anchor, "href")
+                            .is_some_and(|href| href.contains("/@"))
+                    })
+                {
+                    facts.has_author_image_link = true;
+                }
+            }
+            TagKind::Table => facts.table_count += 1,
+            _ => {}
         }
 
         facts.has_gated_content = contains_ascii_case_insensitive(

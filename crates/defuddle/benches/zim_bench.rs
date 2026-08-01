@@ -90,11 +90,31 @@ fn load_corpus() -> ZimCorpus {
 }
 
 fn options_for(page: &ZimPage) -> DefuddleOptions {
-    DefuddleOptions {
+    let mut options = DefuddleOptions {
         url: Some(page.url.clone()),
         separate_markdown: true,
         ..Default::default()
+    };
+    match env::var_os("DEFUDDLE_ZIM_VARIANT").as_deref() {
+        Some(value) if value == "no-selector-removal" => {
+            options.remove_exact_selectors = Some(false);
+            options.remove_partial_selectors = Some(false);
+        }
+        Some(value) if value == "no-exact-selectors" => {
+            options.remove_exact_selectors = Some(false);
+        }
+        Some(value) if value == "no-partial-selectors" => {
+            options.remove_partial_selectors = Some(false);
+        }
+        Some(value) if value == "no-scoring" => options.remove_low_scoring = Some(false),
+        Some(value) if value == "no-content-patterns" => {
+            options.remove_content_patterns = Some(false);
+        }
+        Some(value) if value == "no-standardize" => options.standardize = Some(false),
+        Some(value) if value == "html-only" => options.separate_markdown = false,
+        _ => {}
     }
+    options
 }
 
 fn report_phase_breakdown(corpus: &ZimCorpus) {

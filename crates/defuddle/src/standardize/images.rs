@@ -175,11 +175,11 @@ pub(crate) fn remove_base64_placeholder_images(doc: &mut Document, content_id: N
         if src.len() > 10_000 {
             continue;
         }
-        let alt = doc.get_attr(id, "alt").unwrap_or("").to_lowercase();
+        let alt = doc.get_attr(id, "alt").unwrap_or("");
         if src.starts_with("data:image/png")
             && alt.len() > 20
-            && !alt.contains("placeholder")
-            && !alt.contains("unresolvable")
+            && !crate::content_utils::contains_ascii_case_insensitive(alt, "placeholder")
+            && !crate::content_utils::contains_ascii_case_insensitive(alt, "unresolvable")
         {
             continue;
         }
@@ -283,8 +283,11 @@ pub(crate) fn lightbox_image_dedup(doc: &mut Document, content_id: NodeId) {
 }
 
 pub(crate) fn is_generic_alt(alt: &str) -> bool {
-    let a = alt.trim().to_lowercase();
-    a.is_empty() || a == "image" || a == "picture" || a == "photo"
+    let trimmed = alt.trim();
+    trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("image")
+        || trimmed.eq_ignore_ascii_case("picture")
+        || trimmed.eq_ignore_ascii_case("photo")
 }
 
 const MIN_DIMENSION: f64 = 33.0;

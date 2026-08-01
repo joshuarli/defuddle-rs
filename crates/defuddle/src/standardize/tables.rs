@@ -53,8 +53,11 @@ pub(crate) fn unwrap_layout_tables(doc: &mut Document, content_id: NodeId) {
             .collect();
         if cell_children.len() == 1 {
             let child = cell_children[0];
-            let child_tag = doc.tag_name(child).to_lowercase();
-            if BLOCK_LEVEL_ELEMENTS.contains(&child_tag.as_str()) {
+            let child_tag = doc.tag_name(child);
+            if BLOCK_LEVEL_ELEMENTS
+                .iter()
+                .any(|tag| child_tag.eq_ignore_ascii_case(tag))
+            {
                 doc.replace_with_node(table_id, child);
             }
         } else if cell_children.len() > 1 {

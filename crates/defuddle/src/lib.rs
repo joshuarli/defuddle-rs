@@ -203,6 +203,8 @@ struct GenericPipelineConfig<'a> {
     remove_hidden: bool,
     remove_iframes: bool,
     remove_small_images: bool,
+    remove_low_scoring: bool,
+    remove_content_patterns: bool,
     do_standardize: bool,
     separate_markdown: bool,
     content_selector: Option<&'a str>,
@@ -345,6 +347,8 @@ fn parse_html_internal(
         remove_hidden,
         remove_iframes,
         remove_small_images,
+        remove_low_scoring: defuddle_options.remove_low_scoring.unwrap_or(true),
+        remove_content_patterns: defuddle_options.remove_content_patterns.unwrap_or(true),
         do_standardize,
         separate_markdown,
         content_selector,
@@ -470,6 +474,11 @@ fn parse_internal(
             .unwrap_or(true),
         remove_iframes: context.defuddle_options.remove_iframes,
         remove_small_images: context.defuddle_options.remove_small_images.unwrap_or(true),
+        remove_low_scoring: context.defuddle_options.remove_low_scoring.unwrap_or(true),
+        remove_content_patterns: context
+            .defuddle_options
+            .remove_content_patterns
+            .unwrap_or(true),
         do_standardize: context.defuddle_options.standardize.unwrap_or(true),
         separate_markdown: context.defuddle_options.separate_markdown,
         content_selector: context.defuddle_options.content_selector.as_deref(),
@@ -586,14 +595,16 @@ fn parse_internal_once(
 
     if let Some(content) = content_id {
         // Remove low-scoring blocks based on link density
-        if !overrides.as_ref().is_some_and(|o| o.skip_scoring) {
+        if config.remove_low_scoring && !overrides.as_ref().is_some_and(|o| o.skip_scoring) {
             diagnostics.measure("generic scoring", || {
                 pipeline::score_and_remove(&mut doc, content)
             });
         }
 
         // Remove common boilerplate patterns
-        if !overrides.as_ref().is_some_and(|o| o.skip_content_patterns) {
+        if config.remove_content_patterns
+            && !overrides.as_ref().is_some_and(|o| o.skip_content_patterns)
+        {
             diagnostics.measure("content patterns", || {
                 pipeline::remove_content_patterns(&mut doc, content)
             });

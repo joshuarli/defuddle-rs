@@ -1,4 +1,3 @@
-use crate::analysis::AnalysisSnapshot;
 use crate::content_utils::count_words;
 use crate::dom::{Document, NodeId};
 use crate::extraction_selectors::{ENTRY_POINT_ELEMENTS, EXACT_SELECTORS, PARTIAL_SELECTORS};
@@ -51,6 +50,15 @@ pub(crate) fn is_simple_redirect_document(doc: &Document) -> bool {
         && !doc.text_content(anchor).trim().is_empty()
         && doc.text_content(body).trim() == doc.text_content(anchor).trim()
 }
+
+const PARTIAL_DATA_ATTRIBUTES: &[&str] = &[
+    "data-component",
+    "data-test",
+    "data-testid",
+    "data-test-id",
+    "data-qa",
+    "data-cy",
+];
 
 #[derive(Debug, Clone)]
 pub(crate) struct PhaseTiming {
@@ -260,12 +268,12 @@ fn remove_by_selector_impl(
         let test_attrs = [
             "class",
             "id",
-            "data-component",
-            "data-test",
-            "data-testid",
-            "data-test-id",
-            "data-qa",
-            "data-cy",
+            PARTIAL_DATA_ATTRIBUTES[0],
+            PARTIAL_DATA_ATTRIBUTES[1],
+            PARTIAL_DATA_ATTRIBUTES[2],
+            PARTIAL_DATA_ATTRIBUTES[3],
+            PARTIAL_DATA_ATTRIBUTES[4],
+            PARTIAL_DATA_ATTRIBUTES[5],
         ];
 
         let mut elements = Vec::new();
@@ -282,77 +290,38 @@ fn remove_by_selector_impl(
                 continue;
             }
 
-            let class_val = doc.get_attr(id, "class").unwrap_or("").to_lowercase();
-
-            let mut attr_values = class_val.clone();
-            if !doc.tag_name_is_any(id, &["h1", "h2", "h3", "h4", "h5", "h6"]) {
-                for attr_name in &[
-                    "data-component",
-                    "data-test",
-                    "data-testid",
-                    "data-test-id",
-                    "data-qa",
-                    "data-cy",
-                ] {
-                    if let Some(v) = doc.get_attr(id, attr_name) {
-                        attr_values.push(' ');
-                        attr_values.push_str(&v.to_lowercase());
-                    }
-                }
-            }
-
-            let id_str = if doc.tag_name_is_any(id, &["h1", "h2", "h3", "h4", "h5", "h6"]) {
-                String::new()
+            let class_val = doc.get_attr(id, "class").unwrap_or("");
+            let is_heading = doc.tag_name_is_any(id, &["h1", "h2", "h3", "h4", "h5", "h6"]);
+            let id_val = if is_heading {
+                ""
             } else {
-                doc.get_attr(id, "id").unwrap_or("").to_lowercase()
+                doc.get_attr(id, "id").unwrap_or("")
             };
+            let has_attribute_value = !class_val.is_empty()
+                || (!is_heading
+                    && PARTIAL_DATA_ATTRIBUTES.iter().any(|&name| {
+                        doc.get_attr(id, name)
+                            .is_some_and(|value| !value.is_empty())
+                    }));
 
-            if attr_values.is_empty() && id_str.is_empty() {
+            if !has_attribute_value && id_val.is_empty() {
                 continue;
             }
 
             let mut matched = false;
             for pat in partial_selector_patterns() {
-                if attr_values.contains(pat) {
-                    // `logo` is common inside unrelated names such as
-                    // `a-content--logo-end`; match it only at a token edge.
-                    // Hyphen-prefixed/suffixed patterns use the same boundary
-                    // rule to avoid removing similarly named content blocks.
-                    if pat == "logo" {
-                        if is_token_edge_match(&attr_values, &pat) {
-                            matched = true;
-                            break;
-                        }
-                    } else if pat.starts_with('-') || pat.ends_with('-') {
-                        if is_word_boundary_match(&attr_values, &pat) {
-                            matched = true;
-                            break;
-                        }
-                    } else {
-                        matched = true;
-                        break;
-                    }
+                if partial_attribute_matches(doc, id, class_val, !is_heading, pat) {
+                    matched = true;
+                    break;
                 }
-                if !id_str.is_empty() {
-                    let has_delimiter = id_str.contains([' ', '_', '-', ':', '.']);
+                if !id_val.is_empty() {
+                    let has_delimiter = id_val.contains([' ', '_', '-', ':', '.']);
                     if has_delimiter {
-                        if id_str.contains(pat) {
-                            if pat == "logo" {
-                                if is_token_edge_match(&id_str, &pat) {
-                                    matched = true;
-                                    break;
-                                }
-                            } else if pat.starts_with('-') || pat.ends_with('-') {
-                                if is_word_boundary_match(&id_str, &pat) {
-                                    matched = true;
-                                    break;
-                                }
-                            } else {
-                                matched = true;
-                                break;
-                            }
+                        if partial_pattern_matches(id_val, pat) {
+                            matched = true;
+                            break;
                         }
-                    } else if id_str == pat.as_str() {
+                    } else if id_val.eq_ignore_ascii_case(pat) {
                         matched = true;
                         break;
                     }
@@ -360,10 +329,16 @@ fn remove_by_selector_impl(
             }
 
             if matched {
-                if attr_values.contains("reference-accessdate") {
+                if partial_attribute_contains(
+                    doc,
+                    id,
+                    class_val,
+                    !is_heading,
+                    "reference-accessdate",
+                ) {
                     continue;
                 }
-                if attr_values.contains("author-bio") && {
+                if partial_attribute_contains(doc, id, class_val, !is_heading, "author-bio") && {
                     let mut ancestor = doc.parent(id);
                     let mut inside_article = false;
                     while let Some(current) = ancestor {
@@ -377,7 +352,7 @@ fn remove_by_selector_impl(
                 } {
                     continue;
                 }
-                if attr_values.contains("sidebar-content")
+                if partial_attribute_contains(doc, id, class_val, !is_heading, "sidebar-content")
                     && crate::content_utils::count_words(&doc.text_content(id)) >= 80
                     && doc.has_selector_in_subtree(id, "p")
                 {
@@ -396,8 +371,52 @@ fn remove_by_selector_impl(
 }
 
 /// Check whether a pattern with leading/trailing hyphens matches at CSS class boundaries.
+fn partial_attribute_matches(
+    doc: &Document,
+    node: NodeId,
+    class_value: &str,
+    include_data: bool,
+    pattern: &str,
+) -> bool {
+    partial_pattern_matches(class_value, pattern)
+        || (include_data
+            && PARTIAL_DATA_ATTRIBUTES.iter().any(|&name| {
+                doc.get_attr(node, name)
+                    .is_some_and(|value| partial_pattern_matches(value, pattern))
+            }))
+}
+
+fn partial_attribute_contains(
+    doc: &Document,
+    node: NodeId,
+    class_value: &str,
+    include_data: bool,
+    needle: &str,
+) -> bool {
+    crate::content_utils::contains_ascii_case_insensitive(class_value, needle)
+        || (include_data
+            && PARTIAL_DATA_ATTRIBUTES.iter().any(|&name| {
+                doc.get_attr(node, name).is_some_and(|value| {
+                    crate::content_utils::contains_ascii_case_insensitive(value, needle)
+                })
+            }))
+}
+
+fn partial_pattern_matches(haystack: &str, pattern: &str) -> bool {
+    if !crate::content_utils::contains_ascii_case_insensitive(haystack, pattern) {
+        return false;
+    }
+    if pattern == "logo" {
+        return is_token_edge_match(haystack, pattern);
+    }
+    if pattern.starts_with('-') || pattern.ends_with('-') {
+        return is_word_boundary_match(haystack, pattern);
+    }
+    true
+}
+
 fn is_word_boundary_match(haystack: &str, pattern: &str) -> bool {
-    if let Some(pos) = haystack.find(pattern) {
+    if let Some(pos) = find_ascii_case_insensitive(haystack, pattern) {
         let after_pos = pos + pattern.len();
         // Character after match must be non-alphabetic or end of string
         if after_pos < haystack.len() {
@@ -413,7 +432,7 @@ fn is_word_boundary_match(haystack: &str, pattern: &str) -> bool {
 
 fn is_token_edge_match(haystack: &str, pattern: &str) -> bool {
     let mut offset = 0;
-    while let Some(relative_pos) = haystack[offset..].find(pattern) {
+    while let Some(relative_pos) = find_ascii_case_insensitive(&haystack[offset..], pattern) {
         let pos = offset + relative_pos;
         let end = pos + pattern.len();
         let before_is_word_or_hyphen = pos > 0
@@ -433,6 +452,13 @@ fn is_token_edge_match(haystack: &str, pattern: &str) -> bool {
         offset = end;
     }
     false
+}
+
+fn find_ascii_case_insensitive(haystack: &str, pattern: &str) -> Option<usize> {
+    haystack
+        .as_bytes()
+        .windows(pattern.len())
+        .position(|window| window.eq_ignore_ascii_case(pattern.as_bytes()))
 }
 pub fn remove_hidden_elements(doc: &mut Document) {
     let all_elements = doc.query_selector_all("*");
@@ -513,13 +539,10 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
     for _ in 0..3 {
         let mut to_remove = Vec::new();
         let mut text = String::new();
-        let snapshot = AnalysisSnapshot::from_subtree(doc, content_id);
-        let mut overlay = snapshot.overlay();
         let mut all = Vec::new();
         for tag in ["div", "section", "aside", "article"] {
             all.extend(
-                snapshot
-                    .select_tag(tag)
+                doc.query_selector_all_in_subtree(content_id, tag)
                     .into_iter()
                     .filter(|&id| id != content_id),
             );
@@ -568,7 +591,6 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
             }
             let score = scoring::score_non_content_block_with_text(doc, id, &text);
             if score < -10.0 {
-                overlay.remove(id);
                 to_remove.push(id);
             }
         }
@@ -576,7 +598,9 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
         if to_remove.is_empty() {
             break;
         }
-        overlay.apply_to(doc);
+        for id in to_remove {
+            doc.remove(id);
+        }
     }
 }
 

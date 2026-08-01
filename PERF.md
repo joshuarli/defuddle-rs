@@ -40,6 +40,10 @@ Set `DEFUDDLE_ZIM_PHASES=1` to run one unbenchmarked pass and print aggregate
 wall time, total and average phase time, invocation counts, phase shares, and
 retry counts across the whole corpus.
 
+For controlled phase isolation, set `DEFUDDLE_ZIM_VARIANT` to one of
+`no-selector-removal`, `no-exact-selectors`, `no-partial-selectors`,
+`no-scoring`, `no-content-patterns`, `no-standardize`, or `html-only`.
+
 The fixture harness also includes 50 deterministic article pages selected from
 the substantial ZIM payloads under
 `tests/upstream/defuddle/fixtures/wikipedia-zim--*.html`, with matching Markdown
@@ -211,6 +215,13 @@ effect and behavior change remain easy to bisect.
   carrying the partial-cleanup attributes directly instead of constructing and
   matching eight presence selectors. The ZIM phase report reduced selector
   removal from 9.10 s to 8.75 s, with unchanged fixture output.
+- `Allocation-free scoring and standardization paths` (working tree): remove
+  the unused production scoring snapshot/overlay allocation, store analysis
+  tags as compact kinds, and avoid temporary lowercase strings in partial
+  selectors, exact-selector attribute matching, and standardization. One-sample
+  ZIM validation moved cumulative allocation from 9.18 GiB / 44.3M allocations
+  to 9.00 GiB / 42.9M allocations; the full fixture parity gate remained
+  clean.
 
 The before/after end-to-end comparison for this architecture milestone is
 intentionally flat: the snapshot and overlay are profile-gated while the

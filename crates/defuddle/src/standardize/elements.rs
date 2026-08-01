@@ -3,7 +3,13 @@ use crate::extraction_selectors::{
     ALLOWED_EMPTY_ELEMENTS, BLOCK_ELEMENTS, BLOCK_LEVEL_ELEMENTS, INLINE_ELEMENTS,
     PRESERVE_ELEMENTS,
 };
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
+
+fn tag_in(tag: &str, candidates: &[&str]) -> bool {
+    candidates
+        .iter()
+        .any(|candidate| tag.eq_ignore_ascii_case(candidate))
+}
 
 /// Preserve author-declared preformatted code when it is represented as a
 /// standalone `<code style="white-space: pre">` element.
@@ -94,7 +100,6 @@ pub(crate) fn remove_obsolete_elements(doc: &mut Document, content_id: NodeId) {
 /// Remove empty elements (no text, no children, not in ALLOWED_EMPTY_ELEMENTS)
 
 pub(crate) fn remove_empty_elements(doc: &mut Document, content_id: NodeId) {
-    let allowed_empty: FxHashSet<&str> = ALLOWED_EMPTY_ELEMENTS.iter().copied().collect();
     loop {
         let mut removed = false;
         let all = doc.query_selector_all_in_subtree(content_id, "*");
@@ -102,8 +107,9 @@ pub(crate) fn remove_empty_elements(doc: &mut Document, content_id: NodeId) {
             if id == content_id {
                 continue;
             }
-            let tag = doc.tag_name(id).to_lowercase();
-            if allowed_empty.contains(tag.as_str()) {
+            let tag = doc.tag_name(id);
+            let is_table = tag.eq_ignore_ascii_case("table");
+            if tag_in(tag, ALLOWED_EMPTY_ELEMENTS) {
                 continue;
             }
             if doc.has_selector_in_subtree(id, "h1,h2,h3,h4,h5,h6") {
@@ -117,7 +123,7 @@ pub(crate) fn remove_empty_elements(doc: &mut Document, content_id: NodeId) {
                 removed = true;
             }
             // Remove empty tables (no visible text content in any cell)
-            if tag == "table" {
+            if is_table {
                 let text = doc.text_content(id).trim().to_string();
                 if text.is_empty() {
                     doc.remove(id);
@@ -184,18 +190,12 @@ pub(crate) fn remove_orphaned_dividers(doc: &mut Document, content_id: NodeId) {
 }
 
 pub(crate) fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
-    let block_set: FxHashSet<&str> = BLOCK_ELEMENTS.iter().copied().collect();
-    let block_level: FxHashSet<&str> = BLOCK_LEVEL_ELEMENTS.iter().copied().collect();
-    let preserve: FxHashSet<&str> = PRESERVE_ELEMENTS.iter().copied().collect();
-    let inline: FxHashSet<&str> = INLINE_ELEMENTS.iter().copied().collect();
-
     let has_inline_content = |doc: &Document, id: NodeId| -> bool {
         for &child in doc.children(id) {
             if doc.is_text(child) && !doc.text_content(child).trim().is_empty() {
                 return true;
             }
-            if doc.is_element(child) && inline.contains(doc.tag_name(child).to_lowercase().as_str())
-            {
+            if doc.is_element(child) && tag_in(doc.tag_name(child), INLINE_ELEMENTS) {
                 return true;
             }
         }
@@ -203,8 +203,8 @@ pub(crate) fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
     };
 
     let should_keep = |doc: &Document, id: NodeId| -> bool {
-        let tag = doc.tag_name(id).to_lowercase();
-        if doc.is_svg_element(id) || preserve.contains(tag.as_str()) {
+        let tag = doc.tag_name(id);
+        if doc.is_svg_element(id) || tag_in(tag, PRESERVE_ELEMENTS) {
             return true;
         }
         if doc.get_attr(id, "id") == Some("footnotes") {
@@ -222,14 +222,13 @@ pub(crate) fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
             return true;
         }
         if let Some(class) = doc.get_attr(id, "class") {
-            let l = class.to_lowercase();
-            if l.contains("article")
-                || l.contains("main")
-                || l.contains("content")
-                || l.contains("footnote")
-                || l.contains("reference")
-                || l.contains("bibliography")
-                || l.contains("callout-")
+            if crate::content_utils::contains_ascii_case_insensitive(class, "article")
+                || crate::content_utils::contains_ascii_case_insensitive(class, "main")
+                || crate::content_utils::contains_ascii_case_insensitive(class, "content")
+                || crate::content_utils::contains_ascii_case_insensitive(class, "footnote")
+                || crate::content_utils::contains_ascii_case_insensitive(class, "reference")
+                || crate::content_utils::contains_ascii_case_insensitive(class, "bibliography")
+                || crate::content_utils::contains_ascii_case_insensitive(class, "callout-")
             {
                 return true;
             }
@@ -244,7 +243,7 @@ pub(crate) fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
         for tag in BLOCK_ELEMENTS {
             for id in doc.query_selector_all_in_subtree(content_id, tag) {
                 if id != content_id
-                    && block_set.contains(doc.tag_name(id).to_lowercase().as_str())
+                    && tag_in(doc.tag_name(id), BLOCK_ELEMENTS)
                     && !should_keep(doc, id)
                 {
                     candidates.push(id);
@@ -265,8 +264,9 @@ pub(crate) fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
                 continue;
             }
             if el_children.len() == 1 {
-                let ct = doc.tag_name(el_children[0]).to_lowercase();
-                if block_level.contains(ct.as_str()) && !should_keep(doc, el_children[0]) {
+                if tag_in(doc.tag_name(el_children[0]), BLOCK_LEVEL_ELEMENTS)
+                    && !should_keep(doc, el_children[0])
+                {
                     doc.unwrap(id);
                     changed = true;
                     continue;
@@ -274,7 +274,7 @@ pub(crate) fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
             }
             if el_children
                 .iter()
-                .all(|&c| block_level.contains(doc.tag_name(c).to_lowercase().as_str()))
+                .all(|&c| tag_in(doc.tag_name(c), BLOCK_LEVEL_ELEMENTS))
             {
                 doc.unwrap(id);
                 changed = true;
@@ -289,7 +289,6 @@ pub(crate) fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
 /// Normalize <br> tags: remove standalone brs between blocks, collapse consecutive brs,
 
 pub(crate) fn strip_extra_br_elements(doc: &mut Document, content_id: NodeId) {
-    let block_tags: FxHashSet<&str> = BLOCK_ELEMENTS.iter().copied().collect();
     let brs = doc.query_selector_all_in_subtree(content_id, "br");
     let mut groups: FxHashMap<NodeId, Vec<NodeId>> = FxHashMap::default();
     for &id in &brs {
@@ -317,31 +316,20 @@ pub(crate) fn strip_extra_br_elements(doc: &mut Document, content_id: NodeId) {
         }
 
         // Remove standalone <br>s between block-level siblings
-        let parent_tag = if pid == content_id {
-            String::new()
-        } else {
-            doc.tag_name(pid).to_lowercase()
-        };
         // Only strip brs between blocks when parent is a block container (div, article, section, etc.)
         // or the content root
-        if parent_tag.is_empty()
-            || parent_tag == "div"
-            || parent_tag == "article"
-            || parent_tag == "section"
-            || parent_tag == "main"
-            || block_tags.contains(parent_tag.as_str())
-        {
+        if pid == content_id || tag_in(doc.tag_name(pid), BLOCK_ELEMENTS) {
             for &br_id in &group {
                 if let Some(pos) = siblings.iter().position(|&s| s == br_id) {
                     let before_is_block = pos > 0
                         && siblings[..pos].iter().any(|&s| {
                             doc.is_element(s)
-                                && block_tags.contains(doc.tag_name(s).to_lowercase().as_str())
+                                && tag_in(doc.tag_name(s), BLOCK_ELEMENTS)
                                 && !doc.text_content(s).trim().is_empty()
                         });
                     let after_is_block = siblings[pos + 1..].iter().any(|&s| {
                         doc.is_element(s)
-                            && block_tags.contains(doc.tag_name(s).to_lowercase().as_str())
+                            && tag_in(doc.tag_name(s), BLOCK_ELEMENTS)
                             && !doc.text_content(s).trim().is_empty()
                     });
                     if before_is_block && after_is_block {
@@ -446,15 +434,12 @@ pub(crate) fn remove_empty_text_nodes(doc: &mut Document, node: NodeId) {
 }
 
 pub(crate) fn replace_custom_elements(doc: &mut Document, content_id: NodeId) {
-    let inline_set: FxHashSet<&str> = INLINE_ELEMENTS.iter().copied().collect();
     let custom: Vec<NodeId> = doc
         .query_selector_all_in_subtree(content_id, "*")
         .into_iter()
         .filter(|&id| {
             let name = doc.tag_name(id);
-            name.contains('-')
-                && !inline_set.contains(name.to_lowercase().as_str())
-                && !doc.is_svg_element(id)
+            name.contains('-') && !tag_in(name, INLINE_ELEMENTS) && !doc.is_svg_element(id)
         })
         .collect();
     for id in custom.iter().rev() {
@@ -463,10 +448,7 @@ pub(crate) fn replace_custom_elements(doc: &mut Document, content_id: NodeId) {
 }
 
 pub(crate) fn convert_data_as_spans(doc: &mut Document, content_id: NodeId) {
-    let allowed: FxHashSet<&str> = ["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote"]
-        .iter()
-        .copied()
-        .collect();
+    let allowed = ["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote"];
     let spans = doc
         .query_selector_all_in_subtree(content_id, "*")
         .into_iter()
@@ -476,7 +458,7 @@ pub(crate) fn convert_data_as_spans(doc: &mut Document, content_id: NodeId) {
         .collect::<Vec<_>>();
     for id in spans {
         let target = doc.get_attr(id, "data-as").unwrap_or("").to_lowercase();
-        if !target.is_empty() && allowed.contains(target.as_str()) {
+        if !target.is_empty() && tag_in(&target, &allowed) {
             doc.set_tag_name(id, &target);
         }
     }
@@ -485,11 +467,11 @@ pub(crate) fn convert_data_as_spans(doc: &mut Document, content_id: NodeId) {
 pub(crate) fn convert_block_spans(doc: &mut Document, content_id: NodeId) {
     let spans = doc.query_selector_all_in_subtree(content_id, "span");
     for id in spans {
-        let class = doc.get_attr(id, "class").unwrap_or("").to_lowercase();
-        let style = doc.get_attr(id, "style").unwrap_or("").to_lowercase();
-        let is_block = class.contains("block")
-            || style.contains("display:block")
-            || style.contains("display: block");
+        let class = doc.get_attr(id, "class").unwrap_or("");
+        let style = doc.get_attr(id, "style").unwrap_or("");
+        let is_block = crate::content_utils::contains_ascii_case_insensitive(class, "block")
+            || crate::content_utils::contains_ascii_case_insensitive(style, "display:block")
+            || crate::content_utils::contains_ascii_case_insensitive(style, "display: block");
         if is_block && !doc.text_content(id).trim().is_empty() {
             doc.set_tag_name(id, "p");
         }
