@@ -518,18 +518,44 @@ impl Document {
         }
     }
 
-    pub(crate) fn query_selector_union_into(&self, selectors: &[&str], results: &mut Vec<NodeId>) {
+    pub(crate) fn query_selector_union_optimized_into(
+        &self,
+        selectors: &[&str],
+        results: &mut Vec<NodeId>,
+    ) {
         results.clear();
         let parsed = selectors
             .iter()
             .map(|selector| self.parsed_selector(selector))
             .collect::<Vec<_>>();
+        let mut wildcard: Vec<&[SimpleSelector]> = Vec::new();
+        let mut by_tag: FxHashMap<String, Vec<&[SimpleSelector]>> = FxHashMap::default();
+        for selector in &parsed {
+            for parts in selector.iter() {
+                if let Some(tag) = parts.last().and_then(|part| part.tag.as_ref()) {
+                    by_tag
+                        .entry(tag.to_ascii_lowercase())
+                        .or_default()
+                        .push(parts);
+                } else {
+                    wildcard.push(parts);
+                }
+            }
+        }
         for id in self.live_node_ids() {
-            if parsed.iter().any(|selector| {
-                selector
-                    .iter()
-                    .any(|parts| self.matches_selector_chain(id, parts))
-            }) {
+            let NodeKind::Element { name, .. } = &self.node(id).kind else {
+                continue;
+            };
+            let tag_candidates = by_tag
+                .get(name)
+                .into_iter()
+                .flat_map(|parts| parts.iter().copied());
+            if wildcard
+                .iter()
+                .copied()
+                .chain(tag_candidates)
+                .any(|parts| self.matches_selector_chain(id, parts))
+            {
                 results.push(id);
             }
         }
