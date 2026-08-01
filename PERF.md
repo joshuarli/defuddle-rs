@@ -184,6 +184,11 @@ effect and behavior change remain easy to bisect.
   storage reduced HTML allocations by roughly 2–4% and improved Substack HTML
   by about 2.5%, but made Substack and raw Markdown roughly 3–5% slower. The
   experiment was reverted under the no-regression rule.
+- A document-wide simple-tag index was tested to bypass repeated scans for
+  selectors such as `p`, `a`, and `article`. The first implementation failed
+  fixture parity across 49 active fixtures because tag renames and DOM
+  mutations invalidated the index. It was reverted immediately; any future
+  index must be mutation-aware and preserve document-order semantics.
 - PGO is deliberately deferred. The end-to-end fixture suite is shaped so the
   same `bench` binary can later drive PGO, but no profile-generation or
   profile-use flags should be inferred from the current workflow.
