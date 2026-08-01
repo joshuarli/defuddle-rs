@@ -524,29 +524,20 @@ impl Document {
     ) {
         results.clear();
         for parts in self.parsed_selector(selector).iter() {
-            results.extend(
-                self.live_node_ids().filter(|&id| {
-                    self.contains(root, id) && self.matches_selector_chain(id, parts)
-                }),
-            );
+            self.collect_matching_subtree(root, parts, results);
         }
     }
 
     pub fn has_selector_in_subtree(&self, root: NodeId, selector: &str) -> bool {
-        self.parsed_selector(selector).iter().any(|parts| {
-            self.live_node_ids()
-                .any(|id| self.contains(root, id) && self.matches_selector_chain(id, parts))
-        })
+        self.parsed_selector(selector)
+            .iter()
+            .any(|parts| self.subtree_has_match(root, parts))
     }
 
     pub fn count_selector_in_subtree(&self, root: NodeId, selector: &str) -> usize {
         self.parsed_selector(selector)
             .iter()
-            .map(|parts| {
-                self.live_node_ids()
-                    .filter(|&id| self.contains(root, id) && self.matches_selector_chain(id, parts))
-                    .count()
-            })
+            .map(|parts| self.subtree_match_count(root, parts))
             .sum()
     }
 
@@ -844,6 +835,50 @@ impl Document {
         (0..self.nodes.len())
             .map(NodeId)
             .filter(|&id| !self.node(id).removed)
+    }
+
+    fn collect_matching_subtree(
+        &self,
+        node: NodeId,
+        selector: &[SimpleSelector],
+        results: &mut Vec<NodeId>,
+    ) {
+        if self.node(node).removed {
+            return;
+        }
+        if self.matches_selector_chain(node, selector) {
+            results.push(node);
+        }
+        for &child in &self.node(node).children {
+            self.collect_matching_subtree(child, selector, results);
+        }
+    }
+
+    fn subtree_has_match(&self, node: NodeId, selector: &[SimpleSelector]) -> bool {
+        if self.node(node).removed {
+            return false;
+        }
+        if self.matches_selector_chain(node, selector) {
+            return true;
+        }
+        self.node(node)
+            .children
+            .iter()
+            .any(|&child| self.subtree_has_match(child, selector))
+    }
+
+    fn subtree_match_count(&self, node: NodeId, selector: &[SimpleSelector]) -> usize {
+        if self.node(node).removed {
+            return 0;
+        }
+        let own_match = usize::from(self.matches_selector_chain(node, selector));
+        own_match
+            + self
+                .node(node)
+                .children
+                .iter()
+                .map(|&child| self.subtree_match_count(child, selector))
+                .sum::<usize>()
     }
 
     fn mark_removed(&mut self, node: NodeId) {
