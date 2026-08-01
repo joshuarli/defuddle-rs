@@ -172,6 +172,11 @@ effect and behavior change remain easy to bisect.
   flat to slightly worse (Substack body 2.47 ms to 2.49 ms; Wikipedia
   17.33 ms to 17.49 ms), so the cache was discarded rather than retaining a
   neutral abstraction.
+- A second `BlockFeatures` implementation collected each scoring candidate's
+  text during the same DFS, removing the follow-up `text_content()` scans. It
+  preserved fixture output but increased Wikipedia cumulative allocation from
+  about 6.75 MB to 7.0 MB and left Substack timing flat, so retaining the text
+  buffers was not worth the complexity.
 - Adding `outer_html_into()` / `inner_html_into()` and using them at the main
   serialization and footnote sibling-assembly sites did not change peak live
   allocation. `wikipedia_footnotes_markdown` moved from about 3.77 ms to
