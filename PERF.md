@@ -165,6 +165,14 @@ effect and behavior change remain easy to bisect.
   extraction behavior. On the 612-node Substack body fixture, snapshot
   construction measured about 1.0 ms per build across ten test iterations;
   overlay construction was below the displayed timer precision.
+- `Route scoring through snapshot overlay`: `pipeline::score_and_remove()` now
+  enumerates generic block candidates from the immutable snapshot and records
+  removals in a mutation overlay before applying them at the end of each
+  scoring round. The mutable DOM remains the scoring oracle, preserving the
+  existing decision order and fixture output. Against the pre-routing
+  100-sample reference, Substack HTML moved from 2.42 ms to 2.39 ms,
+  Wikipedia HTML from 17.3 ms to 17.2 ms, and GitHub Markdown from 4.13 ms to
+  4.05 ms; the remaining workloads stayed within normal variance.
 
 The before/after end-to-end comparison for this architecture milestone is
 intentionally flat: the snapshot and overlay are profile-gated while the

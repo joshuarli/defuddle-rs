@@ -1,3 +1,4 @@
+use crate::analysis::AnalysisSnapshot;
 use crate::content_utils::count_words;
 use crate::dom::{Document, NodeId};
 use crate::extraction_selectors::{ENTRY_POINT_ELEMENTS, EXACT_SELECTORS, PARTIAL_SELECTORS};
@@ -435,11 +436,17 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
     for _ in 0..3 {
         let mut to_remove = Vec::new();
         let mut text = String::new();
-        let all: Vec<NodeId> = doc
-            .query_selector_all_in_subtree(content_id, "div,section,aside,article")
-            .into_iter()
-            .filter(|&id| id != content_id)
-            .collect();
+        let snapshot = AnalysisSnapshot::from_subtree(doc, content_id);
+        let mut overlay = snapshot.overlay();
+        let mut all = Vec::new();
+        for tag in ["div", "section", "aside", "article"] {
+            all.extend(
+                snapshot
+                    .select_tag(tag)
+                    .into_iter()
+                    .filter(|&id| id != content_id),
+            );
+        }
 
         for id in all {
             if doc.tag_name_is_any(id, &["pre", "code", "blockquote", "figure"]) {
@@ -484,6 +491,7 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
             }
             let score = scoring::score_non_content_block_with_text(doc, id, &text);
             if score < -10.0 {
+                overlay.remove(id);
                 to_remove.push(id);
             }
         }
@@ -491,9 +499,7 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
         if to_remove.is_empty() {
             break;
         }
-        for id in to_remove {
-            doc.remove(id);
-        }
+        overlay.apply_to(doc);
     }
 }
 
