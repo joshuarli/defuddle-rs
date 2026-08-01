@@ -166,6 +166,12 @@ effect and behavior change remain easy to bisect.
   flat to slightly worse (Substack body 2.47 ms to 2.49 ms; Wikipedia
   17.33 ms to 17.49 ms), so the cache was discarded rather than retaining a
   neutral abstraction.
+- Adding `outer_html_into()` / `inner_html_into()` and using them at the main
+  serialization and footnote sibling-assembly sites did not change peak live
+  allocation. `wikipedia_footnotes_markdown` moved from about 3.77 ms to
+  3.81 ms at 200 samples with the same 787 KB peak, so the API-only buffer
+  reuse experiment was discarded; meaningful reuse needs a larger ownership
+  or lifetime change.
 - PGO is deliberately deferred. The end-to-end fixture suite is shaped so the
   same `bench` binary can later drive PGO, but no profile-generation or
   profile-use flags should be inferred from the current workflow.
