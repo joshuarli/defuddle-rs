@@ -34,6 +34,15 @@ Divan accepts a positional name filter, so a focused run looks like:
 cargo bench -p defuddle --bench bench -- substack_raw_markdown --sample-count 100
 ```
 
+For phase-level Markdown timing, set `DEFUDDLE_PROFILE=1`. This prints the
+existing parse phases plus `markdown preprocess`, `markdown convert`, and
+`markdown postprocess` without changing normal output:
+
+```bash
+DEFUDDLE_PROFILE=1 cargo run --release -p defuddle-cli -- --markdown \
+  --url https://example.com/article input.html > /tmp/article.md
+```
+
 Compare medians across several runs rather than relying on a single fastest or
 slowest sample. A change that is not clearly outside normal run-to-run noise
 should not be kept merely because one run improved.
@@ -61,22 +70,23 @@ cross-machine performance guarantee.
 
 | Workload | Median | Peak live allocation |
 | --- | ---: | ---: |
-| `substack_body_html` | 2.45 ms | 520 KB |
-| `substack_body_markdown` | 54.4 ms | 1.59 MB |
-| `substack_raw_html` | 4.70 ms | 1.01 MB |
-| `substack_raw_markdown` | 57.3 ms | 1.65 MB |
-| `wikipedia_html` | 20.3 ms | 1.01 MB |
-| `wikipedia_markdown` | 37.5 ms | 1.40 MB |
-| `github_issue_markdown` | 6.69 ms | 532 KB |
-| `hackernews_comments_markdown` | 2.14 ms | 124 KB |
+| `substack_body_html` | 2.44 ms | 520 KB |
+| `substack_body_markdown` | 41.8 ms | 1.59 MB |
+| `substack_raw_html` | 4.67 ms | 1.01 MB |
+| `substack_raw_markdown` | 44.5 ms | 1.65 MB |
+| `wikipedia_html` | 17.5 ms | 1.01 MB |
+| `wikipedia_markdown` | 34.6 ms | 1.40 MB |
+| `github_issue_markdown` | 6.59 ms | 532 KB |
+| `hackernews_comments_markdown` | 1.76 ms | 124 KB |
 
-The dominant remaining wall-time path is Markdown conversion, especially
-`markdown::html_to_markdown()` and its `postprocess_markdown()` cleanup around
-the `htmd` conversion. Generic extraction is dominated by repeated DOM
-selection and cleanup passes; direct subtree traversal now removes the most
-expensive whole-document containment scan. Peak memory is highest when a large
-source DOM and a generated extractor DOM overlap, or when Markdown conversion
-adds its parser and intermediate strings.
+The remaining dominant wall-time path is Markdown postprocessing. A release
+profile of the Substack body fixture measured approximately 8.2 ms in
+`markdown preprocess`, 0.9 ms in `markdown convert`, and 43.0 ms in
+`markdown postprocess` before the latest optimization. Generic extraction is
+dominated by repeated DOM selection and cleanup passes; direct subtree
+traversal and batched cleanup selectors now remove the most expensive repeated
+scans. Peak memory is highest when Markdown conversion adds its parser and
+intermediate strings.
 
 ## Optimization log
 
@@ -102,6 +112,18 @@ effect and behavior change remain easy to bisect.
   `parse_internal()` because it used exactly the same removal configuration as
   the preceding retry. This saves a parse for short pages without changing the
   selected result.
+- `563ee40 Instrument Markdown conversion phases`: add opt-in
+  `DEFUDDLE_PROFILE=1` timing for Markdown serialization, preprocessing,
+  conversion, and postprocessing.
+- `d8f27f6 Skip Markdown spacing scans for plain text`: avoid the 29-regex
+  inline-spacing pass for lines that contain none of the syntax characters its
+  expressions can match. On the Substack body fixture, postprocessing fell
+  from about 43.0 ms to 29.6 ms in release mode.
+- `15460e2 Batch selector cleanup scans`: match exact cleanup selectors as a
+  union, collect partial-cleanup candidates in one traversal, and cache the
+  lowercased partial-selector patterns. On `wikipedia_html`, this reduced the
+  median from about 20.2 ms to 17.5 ms and cumulative allocation from about
+  7.88 MB / 138k allocations to 6.74 MB / 34k allocations.
 
 ## Experiments not retained
 
@@ -112,7 +134,9 @@ effect and behavior change remain easy to bisect.
   speculative refactor. Profiling identifies it as a hotspot, but a rewrite
   needs output-equivalence coverage and a clear improvement beyond noise before
   adding that complexity.
+- Preserving the input `String` when an inline-spacing regex had no match was
+  measured at roughly 43.0 ms versus 42.6 ms for release postprocessing. That
+  result was within noise, so the helper change was discarded.
 - PGO is deliberately deferred. The end-to-end fixture suite is shaped so the
   same `bench` binary can later drive PGO, but no profile-generation or
   profile-use flags should be inferred from the current workflow.
-
