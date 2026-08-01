@@ -103,33 +103,43 @@ static DATE_CHECK_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static NEWSLETTER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static SOCIAL_COUNTER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static LIKES_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+static PARTIAL_SELECTOR_PATTERNS: OnceLock<Vec<String>> = OnceLock::new();
+
+fn partial_selector_patterns() -> &'static [String] {
+    PARTIAL_SELECTOR_PATTERNS.get_or_init(|| {
+        PARTIAL_SELECTORS
+            .iter()
+            .map(|pattern| pattern.to_lowercase())
+            .collect()
+    })
+}
 
 pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial: bool) {
     let mut matches = Vec::new();
     if remove_exact {
         // Remove dangerous elements and clutter
-        for selector in EXACT_SELECTORS {
-            // Multiple :not() and :has() compound selectors are not fully
-            // supported yet. Skip the few that need compound negation.
-            if selector.contains(":not(") && selector.matches(":not(").count() > 1 {
+        let selectors = EXACT_SELECTORS
+            .iter()
+            .copied()
+            .filter(|selector| {
+                // Multiple :not() and :has() compound selectors are not fully
+                // supported yet. Skip the few that need compound negation.
+                !selector.contains(":not(") || selector.matches(":not(").count() <= 1
+            })
+            .filter(|selector| !selector.contains(":has("))
+            .collect::<Vec<_>>();
+        doc.query_selector_union_into(&selectors, &mut matches);
+        for &id in &matches {
+            if doc.tag_name(id).is_empty() {
                 continue;
             }
-            if selector.contains(":has(") {
+            if doc.tag_name_is_any(id, &["pre", "code"]) {
                 continue;
             }
-            doc.query_selector_all_into(selector, &mut matches);
-            for &id in &matches {
-                if doc.tag_name(id).is_empty() {
-                    continue;
-                }
-                if doc.tag_name_is_any(id, &["pre", "code"]) {
-                    continue;
-                }
-                if doc.has_closest(id, &["pre", "code"]) {
-                    continue;
-                }
-                doc.remove(id);
+            if doc.has_closest(id, &["pre", "code"]) {
+                continue;
             }
+            doc.remove(id);
         }
 
         // Manual handling for multi-:not()/:has() compound selectors
@@ -172,12 +182,13 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
             "data-cy",
         ];
 
+        let attribute_selectors = test_attrs.map(|attr| format!("[{attr}]"));
+        let attribute_selectors = attribute_selectors
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
         let mut elements = Vec::new();
-        for attr in test_attrs {
-            let selector = format!("[{attr}]");
-            doc.query_selector_all_into(&selector, &mut matches);
-            elements.extend(matches.iter().copied());
-        }
+        doc.query_selector_union_into(&attribute_selectors, &mut elements);
 
         let mut seen = FxHashSet::default();
         let mut to_remove = Vec::new();
@@ -225,9 +236,8 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
             }
 
             let mut matched = false;
-            for pattern in PARTIAL_SELECTORS {
-                let pat = pattern.to_lowercase();
-                if attr_values.contains(&pat) {
+            for pat in partial_selector_patterns() {
+                if attr_values.contains(pat) {
                     // `logo` is common inside unrelated names such as
                     // `a-content--logo-end`; match it only at a token edge.
                     // Hyphen-prefixed/suffixed patterns use the same boundary
@@ -250,7 +260,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
                 if !id_str.is_empty() {
                     let has_delimiter = id_str.contains([' ', '_', '-', ':', '.']);
                     if has_delimiter {
-                        if id_str.contains(&pat) {
+                        if id_str.contains(pat) {
                             if pat == "logo" {
                                 if is_token_edge_match(&id_str, &pat) {
                                     matched = true;
@@ -266,7 +276,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
                                 break;
                             }
                         }
-                    } else if id_str == pat {
+                    } else if id_str == pat.as_str() {
                         matched = true;
                         break;
                     }

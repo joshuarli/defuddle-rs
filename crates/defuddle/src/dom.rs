@@ -511,6 +511,23 @@ impl Document {
         }
     }
 
+    pub(crate) fn query_selector_union_into(&self, selectors: &[&str], results: &mut Vec<NodeId>) {
+        results.clear();
+        let parsed = selectors
+            .iter()
+            .map(|selector| self.parsed_selector(selector))
+            .collect::<Vec<_>>();
+        for id in self.live_node_ids() {
+            if parsed.iter().any(|selector| {
+                selector
+                    .iter()
+                    .any(|parts| self.matches_selector_chain(id, parts))
+            }) {
+                results.push(id);
+            }
+        }
+    }
+
     /// Like query_selector_all but only searches within a subtree.
     pub fn query_selector_all_in_subtree(&self, root: NodeId, selector: &str) -> Vec<NodeId> {
         let mut results: Vec<NodeId> = Vec::new();
