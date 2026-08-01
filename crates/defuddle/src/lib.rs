@@ -413,12 +413,20 @@ fn parse_internal(mut context: pipeline::ExtractionContext<'_>) -> DefuddleResul
 
     if word_count < 200 {
         config.remove_partial = false;
-        let retry_parsed_page = parse_internal_once(
-            Document::parse(config.source_html),
-            &config,
-            &mut context.diagnostics,
-        );
+        context.diagnostics.retry_count += 1;
+        let (retry_parsed_page, retry_nanos) = pipeline::timed(|| {
+            parse_internal_once(
+                Document::parse(config.source_html),
+                &config,
+                &mut context.diagnostics,
+            )
+        });
+        context.diagnostics.retry_nanos += retry_nanos;
         let retry_word_count = pipeline::count_html_words(&retry_parsed_page.content);
+        context
+            .diagnostics
+            .retry_word_counts
+            .push((word_count, retry_word_count));
         if retry_word_count > word_count {
             parsed_page = retry_parsed_page;
             word_count = retry_word_count;
@@ -427,12 +435,20 @@ fn parse_internal(mut context: pipeline::ExtractionContext<'_>) -> DefuddleResul
 
     if word_count < 50 {
         config.remove_hidden = false;
-        let retry_parsed_page = parse_internal_once(
-            Document::parse(config.source_html),
-            &config,
-            &mut context.diagnostics,
-        );
+        context.diagnostics.retry_count += 1;
+        let (retry_parsed_page, retry_nanos) = pipeline::timed(|| {
+            parse_internal_once(
+                Document::parse(config.source_html),
+                &config,
+                &mut context.diagnostics,
+            )
+        });
+        context.diagnostics.retry_nanos += retry_nanos;
         let retry_word_count = pipeline::count_html_words(&retry_parsed_page.content);
+        context
+            .diagnostics
+            .retry_word_counts
+            .push((word_count, retry_word_count));
         if retry_word_count > word_count {
             parsed_page = retry_parsed_page;
         }
@@ -451,7 +467,9 @@ fn parse_internal_once(
     diagnostics: &mut pipeline::Diagnostics,
 ) -> DefuddleResult {
     // Find main content first
-    let main_content = pipeline::extract_content(&mut doc, config.content_selector, config.debug);
+    let main_content = diagnostics.measure("main content", || {
+        pipeline::extract_content(&mut doc, config.content_selector, config.debug)
+    });
     let body_ids = doc.query_selector_all("body");
     let content_id = main_content.or_else(|| body_ids.first().copied());
     let overrides = overrides::lookup_page_overrides(&config.metadata.title);
@@ -468,66 +486,95 @@ fn parse_internal_once(
 
     // Convert Bootstrap alerts and Hugo admonitions to callout format
     // BEFORE remove_by_selector strips .alert elements
-    standardize::convert_alert_elements(&mut doc);
+    diagnostics.measure("callout conversion", || {
+        standardize::convert_alert_elements(&mut doc)
+    });
 
     // Then apply removals
     if (config.remove_exact || config.remove_partial)
         && !overrides.as_ref().is_some_and(|o| o.skip_remove_selectors)
     {
-        pipeline::remove_by_selector(&mut doc, config.remove_exact, config.remove_partial);
+        diagnostics.measure("selector removal", || {
+            if let Some(content) = content_id {
+                pipeline::remove_by_selector_protected(
+                    &mut doc,
+                    config.remove_exact,
+                    config.remove_partial,
+                    content,
+                );
+            } else {
+                pipeline::remove_by_selector(&mut doc, config.remove_exact, config.remove_partial);
+            }
+        });
     }
 
     if config.remove_hidden && !overrides.as_ref().is_some_and(|o| o.skip_hidden_removal) {
-        pipeline::remove_hidden_elements(&mut doc);
+        diagnostics.measure("hidden removal", || {
+            pipeline::remove_hidden_elements(&mut doc)
+        });
     }
 
     if let Some(content) = content_id {
         // Remove low-scoring blocks based on link density
         if !overrides.as_ref().is_some_and(|o| o.skip_scoring) {
-            pipeline::score_and_remove(&mut doc, content);
+            diagnostics.measure("generic scoring", || {
+                pipeline::score_and_remove(&mut doc, content)
+            });
         }
 
         // Remove common boilerplate patterns
         if !overrides.as_ref().is_some_and(|o| o.skip_content_patterns) {
-            pipeline::remove_content_patterns(&mut doc, content);
+            diagnostics.measure("content patterns", || {
+                pipeline::remove_content_patterns(&mut doc, content)
+            });
         }
 
         // Run page-specific DOM hook (e.g. lazy profile span removal)
         if let Some(ref ov) = overrides
             && let Some(hook) = ov.dom_hook
         {
-            hook(&mut doc, content);
+            diagnostics.measure("page hook", || hook(&mut doc, content));
         }
 
         // Remove metadata blocks adjacent to the first heading
         if !overrides.as_ref().is_some_and(|o| o.skip_metadata_blocks) {
-            pipeline::remove_metadata_blocks(&mut doc, content);
+            diagnostics.measure("metadata blocks", || {
+                pipeline::remove_metadata_blocks(&mut doc, content)
+            });
         }
-        pipeline::remove_author_sibling(&mut doc, content, &config.metadata.author);
+        diagnostics.measure("author sibling", || {
+            pipeline::remove_author_sibling(&mut doc, content, &config.metadata.author)
+        });
 
         if config.remove_small_images {
-            standardize::remove_small_images(&mut doc, content);
+            diagnostics.measure("small images", || {
+                standardize::remove_small_images(&mut doc, content)
+            });
         }
 
         // Resolve relative URLs before standardization
-        standardize::resolve_urls(&mut doc, content, config.page_url);
+        diagnostics.measure("resolve urls", || {
+            standardize::resolve_urls(&mut doc, content, config.page_url)
+        });
 
         if config.do_standardize {
-            standardize::standardize_content(
-                &mut doc,
-                content,
-                &config.metadata.title,
-                overrides.as_ref(),
-            );
-            standardize::resolve_urls(&mut doc, content, config.page_url);
+            diagnostics.measure("standardize", || {
+                standardize::standardize_content(
+                    &mut doc,
+                    content,
+                    &config.metadata.title,
+                    overrides.as_ref(),
+                );
+                standardize::resolve_urls(&mut doc, content, config.page_url);
+            });
         }
 
         if config.remove_iframes {
-            sanitize::remove_iframes(&mut doc);
+            diagnostics.measure("iframe removal", || sanitize::remove_iframes(&mut doc));
         }
-        sanitize::strip_unsafe_elements(&mut doc);
+        diagnostics.measure("sanitize", || sanitize::strip_unsafe_elements(&mut doc));
 
-        let mut extracted_html = doc.outer_html(content);
+        let mut extracted_html = diagnostics.measure("html serialize", || doc.outer_html(content));
         if let Some(ref ov) = overrides
             && let Some(post) = ov.custom_html_postprocess
         {

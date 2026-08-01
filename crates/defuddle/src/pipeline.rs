@@ -11,6 +11,9 @@ use crate::{DefuddleOptions, MetaTag, Metadata};
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Diagnostics {
     pub phases: Vec<PhaseTiming>,
+    pub retry_count: usize,
+    pub retry_nanos: u128,
+    pub retry_word_counts: Vec<(usize, usize)>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +46,14 @@ impl Diagnostics {
             return;
         }
         eprintln!("defuddle profile:");
+        eprintln!(
+            "  retries                    {} ({:.3} ms)",
+            self.retry_count,
+            self.retry_nanos as f64 / 1_000_000.0
+        );
+        for (index, (before, after)) in self.retry_word_counts.iter().enumerate() {
+            eprintln!("  retry {index} words              {before} -> {after}");
+        }
         for phase in &self.phases {
             eprintln!(
                 "  {:<24} {:>8.3} ms",
@@ -116,6 +127,30 @@ fn partial_selector_patterns() -> &'static [String] {
 }
 
 pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial: bool) {
+    remove_by_selector_impl(doc, remove_exact, remove_partial, None);
+}
+
+pub(crate) fn remove_by_selector_protected(
+    doc: &mut Document,
+    remove_exact: bool,
+    remove_partial: bool,
+    protected: NodeId,
+) {
+    let mut protected_nodes = FxHashSet::default();
+    let mut current = Some(protected);
+    while let Some(node) = current {
+        protected_nodes.insert(node);
+        current = doc.parent(node);
+    }
+    remove_by_selector_impl(doc, remove_exact, remove_partial, Some(&protected_nodes));
+}
+
+fn remove_by_selector_impl(
+    doc: &mut Document,
+    remove_exact: bool,
+    remove_partial: bool,
+    protected: Option<&FxHashSet<NodeId>>,
+) {
     let mut matches = Vec::new();
     if remove_exact {
         // Remove dangerous elements and clutter
@@ -129,8 +164,11 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
             })
             .filter(|selector| !selector.contains(":has("))
             .collect::<Vec<_>>();
-        doc.query_selector_union_into(&selectors, &mut matches);
+        doc.query_selector_union_optimized_into(&selectors, &mut matches);
         for &id in &matches {
+            if protected.is_some_and(|protected| protected.contains(&id)) {
+                continue;
+            }
             if doc.tag_name(id).is_empty() {
                 continue;
             }
@@ -147,25 +185,35 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
         // Remove all scripts.
         doc.query_selector_all_into("script", &mut matches);
         for &id in &matches {
-            doc.remove(id);
+            if !protected.is_some_and(|protected| protected.contains(&id)) {
+                doc.remove(id);
+            }
         }
         // Remove iframes without src or with empty src
         doc.query_selector_all_into("iframe", &mut matches);
         for &id in &matches {
-            if doc.get_attr(id, "src").is_none_or(|s| s.is_empty()) {
+            if !protected.is_some_and(|protected| protected.contains(&id))
+                && doc.get_attr(id, "src").is_none_or(|s| s.is_empty())
+            {
                 doc.remove(id);
             }
         }
         // Remove video/audio without src and without <source> children
         doc.query_selector_all_into("video", &mut matches);
         for &id in &matches {
-            if doc.get_attr(id, "src").is_none() && !doc.has_selector_in_subtree(id, "source") {
+            if !protected.is_some_and(|protected| protected.contains(&id))
+                && doc.get_attr(id, "src").is_none()
+                && !doc.has_selector_in_subtree(id, "source")
+            {
                 doc.remove(id);
             }
         }
         doc.query_selector_all_into("audio", &mut matches);
         for &id in &matches {
-            if doc.get_attr(id, "src").is_none() && !doc.has_selector_in_subtree(id, "source") {
+            if !protected.is_some_and(|protected| protected.contains(&id))
+                && doc.get_attr(id, "src").is_none()
+                && !doc.has_selector_in_subtree(id, "source")
+            {
                 doc.remove(id);
             }
         }
@@ -189,7 +237,7 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
             .map(String::as_str)
             .collect::<Vec<_>>();
         let mut elements = Vec::new();
-        doc.query_selector_union_into(&attribute_selectors, &mut elements);
+        doc.query_selector_union_optimized_into(&attribute_selectors, &mut elements);
 
         let mut seen = FxHashSet::default();
         let mut to_remove = Vec::new();
@@ -313,7 +361,9 @@ pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial
         }
 
         for id in to_remove {
-            doc.remove(id);
+            if !protected.is_some_and(|protected| protected.contains(&id)) {
+                doc.remove(id);
+            }
         }
     }
 }
