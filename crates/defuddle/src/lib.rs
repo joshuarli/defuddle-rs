@@ -413,15 +413,6 @@ fn parse_internal(mut context: pipeline::ExtractionContext<'_>) -> DefuddleResul
         let retry_word_count = pipeline::count_html_words(&retry_parsed_page.content);
         if retry_word_count > word_count {
             parsed_page = retry_parsed_page;
-            word_count = retry_word_count;
-        }
-    }
-
-    if word_count < 50 {
-        let retry_parsed_page = parse_internal_once(Document::parse(config.source_html), &config);
-        let retry_word_count = pipeline::count_html_words(&retry_parsed_page.content);
-        if retry_word_count > word_count {
-            parsed_page = retry_parsed_page;
         }
     }
 
