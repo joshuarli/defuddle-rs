@@ -36,6 +36,7 @@ fn parse_selector(selector: &str) -> ParsedSelector {
 pub struct Document {
     nodes: Vec<Node>,
     root: NodeId,
+    mutation_generation: u64,
     selector_cache: RefCell<FxHashMap<String, Arc<ParsedSelector>>>,
 }
 
@@ -44,6 +45,7 @@ impl Clone for Document {
         Self {
             nodes: self.nodes.clone(),
             root: self.root,
+            mutation_generation: self.mutation_generation,
             selector_cache: RefCell::new(FxHashMap::default()),
         }
     }
@@ -59,6 +61,7 @@ impl Document {
                 removed: false,
             }],
             root: NodeId(0),
+            mutation_generation: 0,
             selector_cache: RefCell::new(FxHashMap::default()),
         }
     }
@@ -119,6 +122,7 @@ impl ParseSink {
         let mut document = Document {
             nodes: Vec::new(),
             root: NodeId(0),
+            mutation_generation: 0,
             selector_cache: RefCell::new(FxHashMap::default()),
         };
         let root = document.push_node(NodeKind::Document, None);
@@ -386,6 +390,14 @@ impl Document {
         self.root
     }
 
+    pub(crate) fn mutation_generation(&self) -> u64 {
+        self.mutation_generation
+    }
+
+    fn mark_mutated(&mut self) {
+        self.mutation_generation = self.mutation_generation.wrapping_add(1);
+    }
+
     pub fn parent(&self, node: NodeId) -> Option<NodeId> {
         self.node(node).parent
     }
@@ -407,6 +419,7 @@ impl Document {
         }
         self.node_mut(child).parent = Some(parent);
         self.node_mut(parent).children.push(child);
+        self.mark_mutated();
     }
 
     pub fn append_text(&mut self, parent: NodeId, text: &str) {
@@ -417,9 +430,11 @@ impl Document {
             && let NodeKind::Text(last_text) = &mut self.node_mut(last).kind
         {
             last_text.push_str(text);
+            self.mark_mutated();
             return;
         }
         let child = self.push_node(NodeKind::Text(text.to_string()), Some(parent));
+        self.mark_mutated();
         debug_assert_eq!(self.node(parent).children.last(), Some(&child));
     }
 
@@ -440,6 +455,7 @@ impl Document {
             Some(parent),
         );
         debug_assert_eq!(self.parent(node), Some(parent));
+        self.mark_mutated();
         node
     }
 
@@ -449,7 +465,9 @@ impl Document {
         source_id: NodeId,
         parent: NodeId,
     ) -> NodeId {
-        self.clone_subtree_from(source, source_id, Some(parent))
+        let node = self.clone_subtree_from(source, source_id, Some(parent));
+        self.mark_mutated();
+        node
     }
 
     pub(crate) fn clone_subtree(source: &Document, source_id: NodeId) -> (Self, NodeId) {
@@ -651,15 +669,21 @@ impl Document {
                 .find(|(attr_name, _)| attr_name.eq_ignore_ascii_case(name))
             {
                 *existing = value.to_string();
+                self.mark_mutated();
             } else {
                 attrs.push((name.to_string(), value.to_string()));
+                self.mark_mutated();
             }
         }
     }
 
     pub fn remove_attr(&mut self, node: NodeId, name: &str) {
         if let NodeKind::Element { attrs, .. } = &mut self.node_mut(node).kind {
+            let old_len = attrs.len();
             attrs.retain(|(attr_name, _)| !attr_name.eq_ignore_ascii_case(name));
+            if attrs.len() != old_len {
+                self.mark_mutated();
+            }
         }
     }
 
@@ -674,22 +698,20 @@ impl Document {
     /// Set the tag name of an element.
     pub fn set_tag_name(&mut self, node: NodeId, new_name: &str) {
         if let NodeKind::Element { name, .. } = &mut self.node_mut(node).kind {
-            *name = new_name.to_string();
+            if name != new_name {
+                *name = new_name.to_string();
+                self.mark_mutated();
+            }
         }
     }
 
     /// Set the text content of a text node.
     pub fn set_text(&mut self, node: NodeId, text: &str) {
         if let NodeKind::Text(content) = &mut self.node_mut(node).kind {
-            *content = text.to_string();
-        }
-    }
-
-    /// Get mutable text content of a text node.
-    pub fn text_content_mut(&mut self, node: NodeId) -> Option<&mut String> {
-        match &mut self.node_mut(node).kind {
-            NodeKind::Text(content) => Some(content),
-            _ => None,
+            if content != text {
+                *content = text.to_string();
+                self.mark_mutated();
+            }
         }
     }
 
@@ -727,6 +749,7 @@ impl Document {
                 .retain(|&child| child != node);
         }
         self.mark_removed(node);
+        self.mark_mutated();
     }
 
     pub fn unwrap(&mut self, node: NodeId) {
@@ -757,6 +780,7 @@ impl Document {
         }
         self.node_mut(node).children.clear();
         self.mark_removed(node);
+        self.mark_mutated();
     }
 
     pub fn append_html(&mut self, parent: NodeId, html: &str) {
@@ -765,6 +789,7 @@ impl Document {
         for child in fragment_children {
             self.clone_subtree_from(&fragment, child, Some(parent));
         }
+        self.mark_mutated();
     }
 
     pub fn replace_with_html(&mut self, node: NodeId, html: &str) {
@@ -799,6 +824,7 @@ impl Document {
                 .splice(position..=position, new_children);
         }
         self.mark_removed(node);
+        self.mark_mutated();
     }
 
     pub fn outer_html(&self, node: NodeId) -> String {
@@ -1141,6 +1167,7 @@ impl Document {
         }
         self.node_mut(target).children.clear();
         self.mark_removed(target);
+        self.mark_mutated();
     }
 
     fn serialize_node(&self, node: NodeId, out: &mut String) {

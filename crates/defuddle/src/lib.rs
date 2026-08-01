@@ -44,8 +44,6 @@
 //! - Evaluate live browser CSS/layout
 //! - Access shadow DOM from extension isolated worlds
 //! - Support async/streaming extraction (future work)
-// The snapshot is profile-gated until its parity contract is stable enough to
-// replace the mutable-DOM oracle in extraction phases.
 #[allow(dead_code)]
 mod analysis;
 mod embeds;
@@ -470,15 +468,27 @@ fn parse_internal_once(
     // BEFORE remove_by_selector strips .alert elements
     standardize::convert_alert_elements(&mut doc);
 
-    // Then apply removals
+    // Then apply removals. Adjacent generic phases share a snapshot so their
+    // immutable facts are built once, while each group still applies at the
+    // same semantic boundary as the mutable-DOM pipeline.
     if (config.remove_exact || config.remove_partial)
         && !overrides.as_ref().is_some_and(|o| o.skip_remove_selectors)
     {
-        pipeline::remove_by_selector(&mut doc, config.remove_exact, config.remove_partial);
-    }
-
-    if config.remove_hidden && !overrides.as_ref().is_some_and(|o| o.skip_hidden_removal) {
-        pipeline::remove_hidden_elements(&mut doc);
+        let mut overlay = analysis::MutationOverlay::empty(&doc);
+        pipeline::remove_by_selector_in_overlay(
+            &mut doc,
+            &mut overlay,
+            config.remove_exact,
+            config.remove_partial,
+        );
+        if config.remove_hidden && !overrides.as_ref().is_some_and(|o| o.skip_hidden_removal) {
+            pipeline::remove_hidden_elements_in_overlay(&mut doc, &mut overlay);
+        }
+        overlay.apply_to(&mut doc);
+    } else if config.remove_hidden && !overrides.as_ref().is_some_and(|o| o.skip_hidden_removal) {
+        let mut overlay = analysis::MutationOverlay::empty(&doc);
+        pipeline::remove_hidden_elements_in_overlay(&mut doc, &mut overlay);
+        overlay.apply_to(&mut doc);
     }
 
     if let Some(content) = content_id {
@@ -487,23 +497,46 @@ fn parse_internal_once(
             pipeline::score_and_remove(&mut doc, content);
         }
 
-        // Remove common boilerplate patterns
-        if !overrides.as_ref().is_some_and(|o| o.skip_content_patterns) {
-            pipeline::remove_content_patterns(&mut doc, content);
-        }
+        let has_dom_hook = overrides
+            .as_ref()
+            .is_some_and(|override_| override_.dom_hook.is_some());
+        if !has_dom_hook {
+            let snapshot = analysis::AnalysisSnapshot::from_subtree_topology(&doc, content);
+            let mut overlay = snapshot.overlay();
+            if !overrides.as_ref().is_some_and(|o| o.skip_content_patterns) {
+                pipeline::remove_content_patterns_in_overlay(&mut doc, &mut overlay, content);
+            }
+            if !overrides.as_ref().is_some_and(|o| o.skip_metadata_blocks) {
+                pipeline::remove_metadata_blocks_in_overlay(&mut doc, &mut overlay, content);
+            }
+            pipeline::remove_author_sibling_in_overlay(
+                &mut doc,
+                &mut overlay,
+                content,
+                &config.metadata.author,
+            );
+            overlay.apply_to(&mut doc);
+        } else {
+            // Run page-specific DOM hook (e.g. lazy profile span removal)
+            if let Some(ref ov) = overrides
+                && let Some(hook) = ov.dom_hook
+            {
+                hook(&mut doc, content);
+            }
 
-        // Run page-specific DOM hook (e.g. lazy profile span removal)
-        if let Some(ref ov) = overrides
-            && let Some(hook) = ov.dom_hook
-        {
-            hook(&mut doc, content);
+            let snapshot = analysis::AnalysisSnapshot::from_subtree(&doc, content);
+            let mut overlay = snapshot.overlay();
+            if !overrides.as_ref().is_some_and(|o| o.skip_metadata_blocks) {
+                pipeline::remove_metadata_blocks_in_overlay(&mut doc, &mut overlay, content);
+            }
+            pipeline::remove_author_sibling_in_overlay(
+                &mut doc,
+                &mut overlay,
+                content,
+                &config.metadata.author,
+            );
+            overlay.apply_to(&mut doc);
         }
-
-        // Remove metadata blocks adjacent to the first heading
-        if !overrides.as_ref().is_some_and(|o| o.skip_metadata_blocks) {
-            pipeline::remove_metadata_blocks(&mut doc, content);
-        }
-        pipeline::remove_author_sibling(&mut doc, content, &config.metadata.author);
 
         if config.remove_small_images {
             standardize::remove_small_images(&mut doc, content);
