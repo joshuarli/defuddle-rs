@@ -23,6 +23,28 @@ fn parse_html_profiled_reports_pipeline_phases() {
     );
 }
 
+#[test]
+fn simple_redirect_documents_skip_retries_without_changing_output() {
+    let html = r#"<html><head><title>Coenzymes and cofactors</title><meta http-equiv="refresh" content="0;URL='./Enzyme#Cofactors_and_coenzymes'"></head><body><a href="./Enzyme#Cofactors_and_coenzymes">Coenzymes and cofactors</a></body></html>"#;
+    let (result, profile) = defuddle::parse_html_profiled(
+        html,
+        defuddle::DefuddleOptions {
+            separate_markdown: true,
+            url: Some("https://en.wikipedia.org/wiki/Coenzymes_and_cofactors".into()),
+            ..Default::default()
+        },
+    )
+    .expect("redirect parse succeeds");
+
+    assert_eq!(profile.retry_count, 0);
+    assert_eq!(
+        result.content_markdown.as_deref(),
+        Some(
+            "[Coenzymes and cofactors](https:/en.wikipedia.org/wiki/https:/en.wikipedia.org/wiki/Enzyme#Cofactors_and_coenzymes)"
+        )
+    );
+}
+
 /// Direct tests of the standalone markdown conversion function,
 /// mirroring tests/markdown.test.ts
 mod markdown_conversion {

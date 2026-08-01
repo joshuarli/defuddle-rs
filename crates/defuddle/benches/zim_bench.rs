@@ -28,6 +28,15 @@ struct PhaseAggregate {
     elapsed_nanos: u128,
 }
 
+#[derive(Default)]
+struct RetryAggregate {
+    calls: usize,
+    improved: usize,
+    before_words: usize,
+    after_words: usize,
+    before_under_50: usize,
+}
+
 fn load_corpus() -> ZimCorpus {
     let path = env::var_os("DEFUDDLE_ZIM").unwrap_or_else(|| DEFAULT_ZIM_PATH.into());
     let zim = Zim::new(&path).unwrap_or_else(|error| {
@@ -94,6 +103,7 @@ fn report_phase_breakdown(corpus: &ZimCorpus) {
     let mut total_phase_nanos = 0;
     let mut retries = 0;
     let mut retry_paths = [0usize; 3];
+    let mut retry_aggregates = [RetryAggregate::default(), RetryAggregate::default()];
     let mut markdown_bytes = 0;
 
     for page in &corpus.pages {
@@ -102,6 +112,16 @@ fn report_phase_breakdown(corpus: &ZimCorpus) {
         markdown_bytes += result.content_markdown.as_deref().map_or(0, str::len);
         retries += profile.retry_count;
         retry_paths[profile.retry_word_counts.len().min(2)] += 1;
+        for (index, &(before, after)) in profile.retry_word_counts.iter().enumerate() {
+            let Some(aggregate) = retry_aggregates.get_mut(index) else {
+                continue;
+            };
+            aggregate.calls += 1;
+            aggregate.improved += usize::from(after > before);
+            aggregate.before_words += before;
+            aggregate.after_words += after;
+            aggregate.before_under_50 += usize::from(before < 50);
+        }
         total_phase_nanos += add_profile(&mut phases, &profile);
     }
 
@@ -122,6 +142,20 @@ fn report_phase_breakdown(corpus: &ZimCorpus) {
         "retry paths: {} without retry, {} with one retry, {} with two retries",
         retry_paths[0], retry_paths[1], retry_paths[2]
     );
+    for (index, aggregate) in retry_aggregates.iter().enumerate() {
+        if aggregate.calls == 0 {
+            continue;
+        }
+        println!(
+            "retry {}: {} calls, {} improved, {} began below 50 words, {:.1} -> {:.1} average words",
+            index + 1,
+            aggregate.calls,
+            aggregate.improved,
+            aggregate.before_under_50,
+            aggregate.before_words as f64 / aggregate.calls as f64,
+            aggregate.after_words as f64 / aggregate.calls as f64
+        );
+    }
     println!("phase                        total ms   avg/page ms   calls   share");
     for (name, aggregate) in phases {
         let share = aggregate.elapsed_nanos as f64 / total_phase_nanos as f64 * 100.0;

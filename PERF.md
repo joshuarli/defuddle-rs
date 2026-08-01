@@ -201,6 +201,16 @@ effect and behavior change remain easy to bisect.
   100-sample reference, Substack HTML moved from 2.42 ms to 2.39 ms,
   Wikipedia HTML from 17.3 ms to 17.2 ms, and GitHub Markdown from 4.13 ms to
   4.05 ms; the remaining workloads stayed within normal variance.
+- `Simple redirect retry guard` (working tree): detect static documents with
+  one refresh meta tag and one body anchor, preserving the first-pass output
+  while skipping retries that cannot add article content. On the ZIM corpus,
+  this reduced retries from 2,425 to 1 and cumulative allocation from 12.78 GB
+  to 9.24 GB in one-sample validation; the 218-fixture parity gate remained
+  clean.
+- `Direct partial-selector attribute scan` (working tree): collect elements
+  carrying the partial-cleanup attributes directly instead of constructing and
+  matching eight presence selectors. The ZIM phase report reduced selector
+  removal from 9.10 s to 8.75 s, with unchanged fixture output.
 
 The before/after end-to-end comparison for this architecture milestone is
 intentionally flat: the snapshot and overlay are profile-gated while the

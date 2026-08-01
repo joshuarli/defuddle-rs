@@ -16,6 +16,42 @@ pub(crate) struct Diagnostics {
     pub retry_word_counts: Vec<(usize, usize)>,
 }
 
+/// Detect the static redirect documents emitted by some archives and
+/// scrapers. These documents contain one refresh meta tag and one body anchor
+/// with no article content, so retrying extraction cannot produce more content.
+pub(crate) fn is_simple_redirect_document(doc: &Document) -> bool {
+    let refresh_meta_count = doc
+        .query_selector_all("meta")
+        .into_iter()
+        .filter(|&node| {
+            doc.get_attr(node, "http-equiv")
+                .is_some_and(|value| value.eq_ignore_ascii_case("refresh"))
+        })
+        .count();
+    if refresh_meta_count != 1 {
+        return false;
+    }
+
+    let bodies = doc.query_selector_all("body");
+    let anchors = doc.query_selector_all("a");
+    let (Some(&body), Some(&anchor)) = (bodies.first(), anchors.first()) else {
+        return false;
+    };
+    if bodies.len() != 1 || anchors.len() != 1 {
+        return false;
+    }
+
+    let element_children = doc
+        .children(body)
+        .iter()
+        .copied()
+        .filter(|&node| doc.is_element(node))
+        .collect::<Vec<_>>();
+    element_children == vec![anchor]
+        && !doc.text_content(anchor).trim().is_empty()
+        && doc.text_content(body).trim() == doc.text_content(anchor).trim()
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct PhaseTiming {
     pub name: &'static str,
@@ -90,6 +126,7 @@ pub(crate) struct ExtractionContext<'a> {
     pub page_url: &'a str,
     pub defuddle_options: &'a DefuddleOptions,
     pub diagnostics: Diagnostics,
+    pub is_simple_redirect: bool,
 }
 
 pub(crate) struct ExtractedContent {
@@ -231,22 +268,12 @@ fn remove_by_selector_impl(
             "data-cy",
         ];
 
-        let attribute_selectors = test_attrs.map(|attr| format!("[{attr}]"));
-        let attribute_selectors = attribute_selectors
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
         let mut elements = Vec::new();
-        doc.query_selector_union_optimized_into(&attribute_selectors, &mut elements);
+        doc.element_ids_with_any_attribute_into(&test_attrs, &mut elements);
 
-        let mut seen = FxHashSet::default();
         let mut to_remove = Vec::new();
 
         for id in elements {
-            if !seen.insert(id) {
-                continue;
-            }
-
             if doc.tag_name_is_any(id, &["pre", "code"]) {
                 continue;
             }
@@ -1767,8 +1794,16 @@ fn remove_card_grid_blocks(doc: &mut Document, content_id: NodeId) {
 
 #[cfg(test)]
 mod tests {
-    use super::{remove_by_selector, remove_content_patterns};
+    use super::{is_simple_redirect_document, remove_by_selector, remove_content_patterns};
     use crate::dom::Document;
+
+    #[test]
+    fn detects_simple_redirect_documents() {
+        let doc = Document::parse(
+            r#"<html><head><title>Coenzymes and cofactors</title><meta http-equiv="refresh" content="0;URL='./Enzyme#Cofactors_and_coenzymes'"></head><body><a href="./Enzyme#Cofactors_and_coenzymes">Coenzymes and cofactors</a></body></html>"#,
+        );
+        assert!(is_simple_redirect_document(&doc));
+    }
 
     #[test]
     fn partial_selectors_match_logo_at_token_edges() {

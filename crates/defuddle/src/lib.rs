@@ -259,6 +259,7 @@ fn parse_html_internal(
 ) -> Result<(DefuddleResult, pipeline::Diagnostics), DefuddleError> {
     let mut diagnostics = pipeline::Diagnostics::default();
     let mut doc = diagnostics.measure("parsing", || Document::parse(source_html));
+    let is_simple_redirect = pipeline::is_simple_redirect_document(&doc);
     let prune_registry = prune::build_registry();
     diagnostics.measure("prune", || prune_registry.run(&mut doc));
 
@@ -302,6 +303,7 @@ fn parse_html_internal(
         page_url,
         defuddle_options: &defuddle_options,
         diagnostics,
+        is_simple_redirect,
     };
 
     if let Some((name, adapter)) =
@@ -358,6 +360,7 @@ fn parse_html_internal(
         page_url: config.page_url,
         defuddle_options: &defuddle_options,
         diagnostics: context.diagnostics,
+        is_simple_redirect: context.is_simple_redirect,
     });
     Ok((parsed_page, diagnostics))
 }
@@ -478,7 +481,7 @@ fn parse_internal(
 
     let mut word_count = pipeline::count_html_words(&parsed_page.content);
 
-    if word_count < 200 {
+    if word_count < 200 && !context.is_simple_redirect {
         config.remove_partial = false;
         context.diagnostics.retry_count += 1;
         let (retry_parsed_page, retry_nanos) = pipeline::timed(|| {
@@ -500,7 +503,7 @@ fn parse_internal(
         }
     }
 
-    if word_count < 50 {
+    if word_count < 50 && !context.is_simple_redirect {
         config.remove_hidden = false;
         context.diagnostics.retry_count += 1;
         let (retry_parsed_page, retry_nanos) = pipeline::timed(|| {

@@ -434,6 +434,7 @@ mod tests {
             page_url: "https://news.ycombinator.com/news",
             defuddle_options: &options,
             diagnostics: Default::default(),
+            is_simple_redirect: false,
         };
 
         let extraction = adapter().extract(&mut context);

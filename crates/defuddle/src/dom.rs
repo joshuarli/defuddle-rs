@@ -561,6 +561,25 @@ impl Document {
         }
     }
 
+    pub(crate) fn element_ids_with_any_attribute_into(
+        &self,
+        attributes: &[&str],
+        results: &mut Vec<NodeId>,
+    ) {
+        results.clear();
+        for id in self.live_node_ids() {
+            if !self.is_element(id) {
+                continue;
+            }
+            if attributes
+                .iter()
+                .any(|&attribute| self.get_attr(id, attribute).is_some())
+            {
+                results.push(id);
+            }
+        }
+    }
+
     /// Like query_selector_all but only searches within a subtree.
     pub fn query_selector_all_in_subtree(&self, root: NodeId, selector: &str) -> Vec<NodeId> {
         let mut results: Vec<NodeId> = Vec::new();
