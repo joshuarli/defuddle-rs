@@ -1,5 +1,28 @@
 use defuddle::markdown::html_to_markdown;
 
+#[test]
+fn parse_html_profiled_reports_pipeline_phases() {
+    let html = "<article><h1>Profiled article</h1><p>This paragraph contains enough text to exercise the extraction and Markdown pipeline.</p></article>";
+    let (result, profile) = defuddle::parse_html_profiled(
+        html,
+        defuddle::DefuddleOptions {
+            separate_markdown: true,
+            ..Default::default()
+        },
+    )
+    .expect("profiled parse succeeds");
+
+    assert!(result.content_markdown.is_some());
+    assert!(profile.total_nanos() > 0);
+    assert!(profile.phases.iter().any(|phase| phase.name == "parsing"));
+    assert!(
+        profile
+            .phases
+            .iter()
+            .any(|phase| phase.name == "markdown convert")
+    );
+}
+
 /// Direct tests of the standalone markdown conversion function,
 /// mirroring tests/markdown.test.ts
 mod markdown_conversion {

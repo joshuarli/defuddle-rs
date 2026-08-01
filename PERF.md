@@ -19,6 +19,27 @@ The entry point is the `bench` target in `Makefile`, which runs
 covers HTML and Markdown output for local Substack captures and vendored
 upstream Wikipedia, GitHub, Hacker News, and footnote fixtures.
 
+The opt-in `zim_bench` workload processes every HTML payload in a local ZIM
+archive and converts it to Markdown. The archive is opened, enumerated, and
+copied into owned HTML strings before Divan starts timing, so ZIM lookup,
+cluster decompression, and archive I/O are excluded from the end-to-end
+Defuddle measurement:
+
+```bash
+make bench-zim
+DEFUDDLE_ZIM=/path/to/archive.zim cargo bench -p defuddle --bench zim_bench
+DEFUDDLE_ZIM_PHASES=1 make bench-zim
+```
+
+The workload currently uses `wikipedia_en_100_nopic_2026-07.zim`, which has
+1,314 HTML payloads totaling about 62.7 MiB. It reports the number of loaded
+pages during setup and times only repeated `parse_html()` calls with
+`separate_markdown: true`. Keep the archive outside the repository; the
+default path is convenient for a local copy and is not a checked-in fixture.
+Set `DEFUDDLE_ZIM_PHASES=1` to run one unbenchmarked pass and print aggregate
+wall time, total and average phase time, invocation counts, phase shares, and
+retry counts across the whole corpus.
+
 For repeatable comparisons, keep the source revision, Rust toolchain, machine,
 allocator, and benchmark options constant. Capture both revisions with the
 same sample count, for example:

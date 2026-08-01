@@ -136,6 +136,33 @@ pub struct DefuddleResult {
     pub variables: Option<Object>,
 }
 
+/// Timing data collected from one `parse_html()` pipeline execution.
+///
+/// Phase timings are measured by the same internal diagnostics used by the
+/// optional `DEFUDDLE_PROFILE` report. The profiled entry point exposes them
+/// to callers that need structured aggregation without parsing stderr.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ParseProfile {
+    pub phases: Vec<ParsePhaseTiming>,
+    pub retry_count: usize,
+    pub retry_nanos: u128,
+    pub retry_word_counts: Vec<(usize, usize)>,
+}
+
+impl ParseProfile {
+    /// Sum of the named phase timings, including phases from retries.
+    pub fn total_nanos(&self) -> u128 {
+        self.phases.iter().map(|phase| phase.elapsed_nanos).sum()
+    }
+}
+
+/// Timing for one named extraction phase.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsePhaseTiming {
+    pub name: &'static str,
+    pub elapsed_nanos: u128,
+}
+
 impl Default for DefuddleResult {
     fn default() -> Self {
         Self {
@@ -193,6 +220,43 @@ pub fn parse_html(
     source_html: &str,
     defuddle_options: DefuddleOptions,
 ) -> Result<DefuddleResult, DefuddleError> {
+    parse_html_internal(source_html, defuddle_options).map(|(result, _)| result)
+}
+
+/// Parse HTML and return structured timings for every measured pipeline phase.
+///
+/// The returned timings are collected during the same work as `parse_html()`;
+/// ZIM readers, HTTP servers, and other input adapters are outside this API.
+/// Use this entry point for diagnostics and aggregation, not for normal
+/// extraction when the profile is not needed.
+pub fn parse_html_profiled(
+    source_html: &str,
+    defuddle_options: DefuddleOptions,
+) -> Result<(DefuddleResult, ParseProfile), DefuddleError> {
+    parse_html_internal(source_html, defuddle_options).map(|(result, diagnostics)| {
+        (
+            result,
+            ParseProfile {
+                phases: diagnostics
+                    .phases
+                    .into_iter()
+                    .map(|phase| ParsePhaseTiming {
+                        name: phase.name,
+                        elapsed_nanos: phase.elapsed_nanos,
+                    })
+                    .collect(),
+                retry_count: diagnostics.retry_count,
+                retry_nanos: diagnostics.retry_nanos,
+                retry_word_counts: diagnostics.retry_word_counts,
+            },
+        )
+    })
+}
+
+fn parse_html_internal(
+    source_html: &str,
+    defuddle_options: DefuddleOptions,
+) -> Result<(DefuddleResult, pipeline::Diagnostics), DefuddleError> {
     let mut diagnostics = pipeline::Diagnostics::default();
     let mut doc = diagnostics.measure("parsing", || Document::parse(source_html));
     let prune_registry = prune::build_registry();
@@ -265,7 +329,7 @@ pub fn parse_html(
         if defuddle_options.profile {
             parsed_page.parse_time = context.diagnostics.total_nanos() as u64 / 1_000_000;
         }
-        return Ok(parsed_page);
+        return Ok((parsed_page, context.diagnostics));
     }
 
     let config = GenericPipelineConfig {
@@ -285,7 +349,7 @@ pub fn parse_html(
         debug,
         profile: defuddle_options.profile,
     };
-    Ok(parse_internal(pipeline::ExtractionContext {
+    let (parsed_page, diagnostics) = parse_internal(pipeline::ExtractionContext {
         source_html,
         doc: context.doc,
         metadata: config.metadata,
@@ -294,7 +358,8 @@ pub fn parse_html(
         page_url: config.page_url,
         defuddle_options: &defuddle_options,
         diagnostics: context.diagnostics,
-    }))
+    });
+    Ok((parsed_page, diagnostics))
 }
 
 fn site_result(
@@ -379,7 +444,9 @@ fn site_result(
 /// original HTML — this is simpler than cloning a mutated `Document` and
 /// re-running only the affected pipeline steps, and re-parsing is cheap enough
 /// for the short HTML documents that reach this path.
-fn parse_internal(mut context: pipeline::ExtractionContext<'_>) -> DefuddleResult {
+fn parse_internal(
+    mut context: pipeline::ExtractionContext<'_>,
+) -> (DefuddleResult, pipeline::Diagnostics) {
     let mut config = GenericPipelineConfig {
         source_html: context.source_html,
         metadata: context.metadata,
@@ -458,7 +525,7 @@ fn parse_internal(mut context: pipeline::ExtractionContext<'_>) -> DefuddleResul
         parsed_page.parse_time = context.diagnostics.total_nanos() as u64 / 1_000_000;
     }
     context.diagnostics.report_if_requested();
-    parsed_page
+    (parsed_page, context.diagnostics)
 }
 
 fn parse_internal_once(
