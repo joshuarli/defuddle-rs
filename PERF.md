@@ -202,6 +202,11 @@ effect and behavior change remain easy to bisect.
   index must be mutation-aware and preserve document-order semantics. A second
   version updated the index on tag renames, but still failed 19 fixtures due to
   ordering/DOM mutation interactions and was also reverted.
+- A mutation-safe metadata-only tag index was then rebuilt after pruning and
+  invalidated before extraction mutations. It passed the fixture gate but was
+  noise-level on Wikipedia (about 17.24 ms versus 17.33 ms) and slightly
+  slower on raw Substack HTML, so the rebuild/invalidation machinery was also
+  discarded.
 - PGO is deliberately deferred. The end-to-end fixture suite is shaped so the
   same `bench` binary can later drive PGO, but no profile-generation or
   profile-use flags should be inferred from the current workflow.
