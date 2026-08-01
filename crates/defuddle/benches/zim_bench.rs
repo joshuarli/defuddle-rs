@@ -1,6 +1,10 @@
 //! Full-archive HTML-to-Markdown workload for the local Wikipedia ZIM snapshot.
 
-use std::{collections::BTreeMap, env, time::Instant};
+use std::{
+    collections::BTreeMap,
+    env,
+    time::{Duration, Instant},
+};
 
 use defuddle::{DefuddleOptions, ParseProfile, parse_html, parse_html_profiled};
 use divan::{AllocProfiler, Bencher, black_box};
@@ -110,11 +114,21 @@ fn configured_batch_bytes() -> usize {
         .max(1)
 }
 
+fn configured_progress_interval() -> Duration {
+    Duration::from_secs(
+        env::var("DEFUDDLE_ZIM_PROGRESS_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(10),
+    )
+}
+
 fn load_next_batch<I>(
     zim: &Zim,
     entries: &mut I,
     batch_size: usize,
     batch_bytes: usize,
+    scanned_entries: &mut u64,
 ) -> Option<ZimCorpus>
 where
     I: Iterator<Item = zim::Result<DirectoryEntry>>,
@@ -126,6 +140,7 @@ where
         let Some(item) = entries.next() else {
             break;
         };
+        *scanned_entries += 1;
         let entry = item.expect("ZIM directory entry is readable");
         let is_html = matches!(
             &entry.mime_type,
@@ -332,16 +347,34 @@ fn run_streaming_throughput() {
     });
     let batch_size = configured_batch_size();
     let batch_bytes = configured_batch_bytes();
+    let progress_interval = configured_progress_interval();
     let workers = benchmark_workers();
     let processor = PageProcessor::new(workers);
     let mut entries = zim.iterate_by_urls();
+    let total_entries = u64::from(zim.header.article_count);
+    let mut scanned_entries = 0;
     let mut total_pages = 0;
     let mut total_markdown_bytes = 0;
     let mut total_parse_nanos = 0;
     let mut batches = 0;
     let mut peak_batch_html_bytes = 0;
+    let mut last_progress = overall_started;
 
-    while let Some(batch) = load_next_batch(&zim, &mut entries, batch_size, batch_bytes) {
+    eprintln!(
+        "streaming start: {} directory entries, {} workers, {} pages/batch, {:.1} MiB/batch",
+        total_entries,
+        workers,
+        batch_size,
+        batch_bytes as f64 / 1_048_576.0
+    );
+
+    while let Some(batch) = load_next_batch(
+        &zim,
+        &mut entries,
+        batch_size,
+        batch_bytes,
+        &mut scanned_entries,
+    ) {
         peak_batch_html_bytes = peak_batch_html_bytes.max(batch.html_bytes);
         let started = Instant::now();
         let (pages, markdown_bytes) = processor.process(&batch);
@@ -349,13 +382,51 @@ fn run_streaming_throughput() {
         total_pages += pages;
         total_markdown_bytes += markdown_bytes;
         batches += 1;
+
+        if last_progress.elapsed() >= progress_interval {
+            report_streaming_progress(
+                scanned_entries,
+                total_entries,
+                total_pages,
+                batches,
+                overall_started.elapsed(),
+            );
+            last_progress = Instant::now();
+        }
     }
+
+    report_streaming_progress(
+        scanned_entries,
+        total_entries,
+        total_pages,
+        batches,
+        overall_started.elapsed(),
+    );
 
     println!(
         "streaming throughput: {total_pages} pages, {total_markdown_bytes} Markdown bytes, {workers} workers, {batches} batches, {:.3} ms parser time, {:.3} ms total wall, {:.2} MiB peak batch HTML",
         nanos_to_ms(total_parse_nanos),
         nanos_to_ms(overall_started.elapsed().as_nanos()),
         peak_batch_html_bytes as f64 / 1_048_576.0
+    );
+}
+
+fn report_streaming_progress(
+    scanned_entries: u64,
+    total_entries: u64,
+    html_pages: usize,
+    batches: usize,
+    elapsed: Duration,
+) {
+    let elapsed_secs = elapsed.as_secs_f64();
+    let entries_per_second = scanned_entries as f64 / elapsed_secs.max(0.001);
+    let remaining_entries = total_entries.saturating_sub(scanned_entries);
+    let eta_secs = remaining_entries as f64 / entries_per_second.max(0.001);
+    eprintln!(
+        "progress: {scanned_entries}/{total_entries} entries ({:.1}%), {html_pages} HTML pages, {batches} batches, {:.0} entries/s, ETA {:.1} min",
+        scanned_entries as f64 / total_entries.max(1) as f64 * 100.0,
+        entries_per_second,
+        eta_secs / 60.0
     );
 }
 
