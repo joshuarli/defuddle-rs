@@ -65,6 +65,7 @@ mod prune;
 pub mod sanitize;
 mod schema;
 mod scoring;
+mod shadow_dom;
 mod standardize;
 
 use miniserde::json::{Array, Object, Value};
@@ -255,12 +256,20 @@ pub fn parse_html_profiled(
     })
 }
 
+/// Parse source HTML and apply structural normalization that must happen
+/// identically on every parse of the same page, including scoring retries.
+fn parse_source_html(source_html: &str) -> Document {
+    let mut doc = Document::parse(source_html);
+    shadow_dom::flatten_declarative_shadow_roots(&mut doc);
+    doc
+}
+
 fn parse_html_internal(
     source_html: &str,
     defuddle_options: DefuddleOptions,
 ) -> Result<(DefuddleResult, pipeline::Diagnostics), DefuddleError> {
     let mut diagnostics = pipeline::Diagnostics::default();
-    let mut doc = diagnostics.measure("parsing", || Document::parse(source_html));
+    let mut doc = diagnostics.measure("parsing", || parse_source_html(source_html));
     let is_simple_redirect = pipeline::is_simple_redirect_document(&doc);
     let prune_registry = prune::build_registry();
     diagnostics.measure("prune", || prune_registry.run(&mut doc));
@@ -495,7 +504,7 @@ fn parse_internal(
         context.diagnostics.retry_count += 1;
         let (retry_parsed_page, retry_nanos) = pipeline::timed(|| {
             parse_internal_once(
-                Document::parse(config.source_html),
+                parse_source_html(config.source_html),
                 &config,
                 &mut context.diagnostics,
             )
@@ -517,7 +526,7 @@ fn parse_internal(
         context.diagnostics.retry_count += 1;
         let (retry_parsed_page, retry_nanos) = pipeline::timed(|| {
             parse_internal_once(
-                Document::parse(config.source_html),
+                parse_source_html(config.source_html),
                 &config,
                 &mut context.diagnostics,
             )

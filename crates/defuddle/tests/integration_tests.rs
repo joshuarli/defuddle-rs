@@ -395,6 +395,48 @@ fn content_selector_falls_back_to_auto_detection() {
     );
 }
 
+// Declarative shadow DOM (`<template shadowrootmode>`) is static HTML markup
+// a browser attaches during parsing. This crate has no browser attaching it,
+// so the content must be hoisted into the light DOM to be extracted at all,
+// and any payload inside it must still go through normal sanitization.
+#[test]
+fn declarative_shadow_dom_content_is_hoisted_and_sanitized() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Declarative shadow DOM</title></head>
+<body>
+<article>
+<h1>Declarative shadow DOM</h1>
+<p>Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+<div>
+<template shadowrootmode="open">
+<p>Shadow body text worth keeping.</p>
+<img src="x" onerror="alert(1)">
+<script>alert(2)</script>
+<a href="javascript:alert(3)">z</a>
+</template>
+</div>
+<p>Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+</article>
+</body>
+</html>"#;
+
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com/dsd".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(result.content.contains("Shadow body text worth keeping."));
+    assert!(!result.content.contains("<template"));
+    assert!(!result.content.contains("onerror"));
+    assert!(!result.content.to_lowercase().contains("<script"));
+    assert!(!result.content.contains("javascript:"));
+}
+
 #[test]
 fn remove_low_scoring_false_produces_more_content() {
     let html = r#"<!DOCTYPE html>
