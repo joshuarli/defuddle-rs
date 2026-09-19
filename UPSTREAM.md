@@ -6,9 +6,10 @@ supported extraction behavior; the Rust repository owns its synchronous,
 static-HTML implementation and public API.
 
 The vendored fixture snapshot is recorded in `tests/upstream/SNAPSHOT.md`. It
-is based on `6c39f0959a2f566469a93a190b50e4b34bcf52c4`; the recent resync work
-compared that snapshot with upstream
-`6de16345bbc822e69397bd6a126861bad9ff469f`. Fixture changes must be reviewed
+is based on `6c39f0959a2f566469a93a190b50e4b34bcf52c4`. Source-level resync
+work has reviewed upstream through `d4c4bad0dc96ca31b2383328e38061cc1490db47`
+(the prior resync covered through
+`6de16345bbc822e69397bd6a126861bad9ff469f`). Fixture changes must be reviewed
 separately from source changes: do not update golden output merely because
 upstream output changed.
 
@@ -185,6 +186,45 @@ assumes browser-DOM semantics or broader runtime capabilities.
 The practical conclusion is that the codebase has not deviated badly in
 conceptual structure. The transition cost is predictable if a port starts by
 locating the phase boundary and checking DOM, selector, and runtime assumptions.
+
+## Scope gaps found during the 6de1634 to d4c4bad resync
+
+Four upstream commits in this range were ported: SVG SMIL sanitization,
+schema.org text fallback sanitization, declarative shadow DOM flattening, and
+`<template>` sanitization hardening (GHSA-3cr7-rgx8-76c3). The rest of the
+range was CI/docs/website-only, out of scope by the existing site-extractor
+and fetch boundaries (C2 wiki, YouTube caption language, CLI fetch-failure
+exit), already excluded by `tests/upstream-exceptions.toml` (arXiv LaTeXML
+equation-table-to-MathML flattening), a linkedom-runtime-only bug with no
+Rust equivalent code path (uppercase heading `tagName` round-trip and its
+fixture correction), or already correct by construction (the `htmd` crate
+already grows code-fence length past embedded backticks; `metadata.rs`
+already takes an explicit `page_url` instead of reading `doc.location`).
+
+One gap is real but out of scope for a resync-sized change: upstream's
+`removeEmptyLines` in `standardize.ts` inserts a space between adjacent
+inline elements when text was likely joined by removing a wrapping span,
+skipping footnote references, `sub`/`sup`/`code`, and text already ending or
+starting with punctuation, a closing/opening quote, or a dash. The Rust port
+never carried this general pass — `standardize/whitespace.rs::move_inline_whitespace`
+covers only a narrower set of cases (leading/trailing whitespace inside
+`code`/`em`/`strong`/`a`/`mark`/`s`/`del`, plus `code`-then-alphanumeric
+spacing). Upstream commits dda0e9f and 78bdabc are refinements to the pass
+Rust doesn't have; porting them without first building the base pass would
+be incomplete. The one upstream fixture this touches
+(`footnotes--maggieappleton.com-xanadu-patterns`) is already excepted for an
+unrelated reason. Treat adding the general pass as its own deliberate
+feature decision, not a resync patch.
+
+Similarly, `content-boundary.ts` (`isAboveContentStart`, the `isNodeBefore`
+document-order helper) and several rules inside `removeByContentPattern`
+(`isLabeledMetadata`, the "article metadata header block" removal, the
+breadcrumb-link document-order check) were not found in `pipeline.rs`'s
+`remove_content_patterns` in their upstream form — that function was
+restructured during porting rather than transliterated. Upstream commit
+a212ac4 patches exactly these un-ported rules plus a `doc.location`
+fallback that can't exist in this port's explicit-`page_url` design; none of
+it has a current target.
 
 ## Resync record template
 
