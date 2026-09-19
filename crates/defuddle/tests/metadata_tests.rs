@@ -152,6 +152,66 @@ fn metadata_extraction_schema_org() {
 }
 
 #[test]
+fn schema_text_fallback_sanitizes_dangerous_markup() {
+    // schema.org "text" is attacker-controlled page markup, not trusted HTML.
+    // When it is long enough to replace a too-short extraction, it must be
+    // sanitized before conversion to Markdown, same as any other extractor output.
+    // `<` and `>` are JSON unicode-escaped so the embedded markup doesn't
+    // prematurely close the surrounding `<script type="application/ld+json">`
+    // tag during HTML tokenization.
+    let dangerous_markup =
+        r#"<script>alert(1)</script><img src=\"data:text/html,<script>alert(1)</script>\">"#
+            .replace('<', "\\u003c")
+            .replace('>', "\\u003e");
+    let schema_text_json = "Real article body ".repeat(20) + &dangerous_markup;
+    let html = format!(
+        r#"
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Schema Fallback Test</title>
+        <script type="application/ld+json">
+        {{
+            "@context": "https://schema.org",
+            "@type": "Article",
+            "headline": "Schema Fallback Test",
+            "text": "{schema_text_json}"
+        }}
+        </script>
+    </head>
+    <body>
+        <p>short</p>
+    </body>
+    </html>
+    "#
+    );
+
+    let result = parse_html(
+        &html,
+        DefuddleOptions {
+            url: Some("https://example.com/schema-fallback".to_string()),
+            separate_markdown: true,
+            ..<DefuddleOptions as Default>::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    let markdown = result.content_markdown.expect("markdown produced");
+    assert!(
+        markdown.contains("Real article body"),
+        "schema text should be used as fallback content"
+    );
+    assert!(
+        !markdown.contains("data:text/html"),
+        "dangerous data: URL from schema text must be sanitized"
+    );
+    assert!(
+        !markdown.contains("alert(1)"),
+        "script content from schema text must be sanitized"
+    );
+}
+
+#[test]
 fn metadata_language_extraction() {
     let html = r#"
     <!DOCTYPE html>

@@ -702,7 +702,8 @@ fn parse_internal_once(
                 {
                     let schema_words = text.split_whitespace().count();
                     if (schema_words as f64) > (word_count as f64) * 1.5 {
-                        best_md = Some(markdown::html_to_markdown(text));
+                        let safe_text = sanitize::sanitize_html_fragment(text);
+                        best_md = Some(markdown::html_to_markdown(&safe_text));
                         break;
                     }
                 }

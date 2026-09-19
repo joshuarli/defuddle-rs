@@ -16,6 +16,22 @@ fn is_dangerous_url_with_inline_image(url: &str, allow_inline_image: bool) -> bo
     lower.starts_with("data:") && !(allow_inline_image && lower.starts_with("data:image/"))
 }
 
+/// Sanitize a raw HTML fragment that did not come from the parsed page DOM
+/// (e.g. schema.org text used as a content fallback), returning safe inner HTML.
+pub fn sanitize_html_fragment(html: &str) -> String {
+    if html.is_empty() {
+        return String::new();
+    }
+    let mut doc = crate::dom::Document::parse(html);
+    strip_unsafe_elements(&mut doc);
+    let body = doc
+        .query_selector_all("body")
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| doc.root());
+    doc.inner_html(body)
+}
+
 /// Remove dangerous elements and attributes from the document.
 pub fn strip_unsafe_elements(doc: &mut crate::dom::Document) {
     let dangerous_selectors = [
