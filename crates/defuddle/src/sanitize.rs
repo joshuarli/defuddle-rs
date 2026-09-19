@@ -44,6 +44,16 @@ pub fn strip_unsafe_elements(doc: &mut crate::dom::Document) {
         "base",
         "frame",
         "frameset",
+        // A browser's template.content is an inert DocumentFragment that
+        // querySelectorAll cannot see, letting dangerous descendants evade
+        // upstream's traversal (GHSA-3cr7-rgx8-76c3). This port's DOM has no
+        // such fragment: template children are ordinary tree nodes already
+        // reached by the selectors above. Removing the wrapper itself still
+        // matches upstream's output and avoids leaking inert template markup.
+        // Declarative shadow root templates are unwrapped by
+        // shadow_dom::flatten_declarative_shadow_roots before this runs, so
+        // only non-shadow-root templates reach this selector.
+        "template",
         // SVG SMIL animation elements can mutate sanitized URL attributes
         // (e.g. animate an href back to a javascript: URL) after sanitization runs.
         "animate",
@@ -207,6 +217,32 @@ mod tests {
         assert!(!html.contains("<base"), "base should be removed");
         assert!(!html.contains("<frame"), "frame should be removed");
         assert!(!html.contains("<frameset"), "frameset should be removed");
+        assert!(html.contains("Safe content"), "safe content should remain");
+    }
+
+    #[test]
+    fn test_strip_template_elements() {
+        // GHSA-3cr7-rgx8-76c3: template payloads, including ones nested in
+        // foreign (SVG) content, must not survive sanitization.
+        let mut doc = Document::parse(
+            r#"
+            <!DOCTYPE html>
+            <html>
+            <body>
+                <template><img src="x" onerror="alert(1)"><script>alert(2)</script></template>
+                <svg><template><img src="y" onerror="alert(3)"></template></svg>
+                <p>Safe content</p>
+            </body>
+            </html>
+            "#,
+        );
+
+        strip_unsafe_elements(&mut doc);
+
+        let html = doc.outer_html(doc.root());
+        assert!(!html.contains("<template"), "template should be removed");
+        assert!(!html.contains("onerror"), "onerror should be removed");
+        assert!(!html.contains("<script"), "script should be removed");
         assert!(html.contains("Safe content"), "safe content should remain");
     }
 

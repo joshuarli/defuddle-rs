@@ -437,6 +437,49 @@ fn declarative_shadow_dom_content_is_hoisted_and_sanitized() {
     assert!(!result.content.contains("javascript:"));
 }
 
+// A content_selector can name an unsafe element directly, making it the
+// serialization root rather than a descendant reached by normal traversal.
+#[test]
+fn content_selector_naming_unsafe_element_yields_empty_content() {
+    let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Unsafe root</title></head>
+<body>
+    <script id="payload">alert(1)</script>
+    <template id="tpl"><img src="x" onerror="alert(2)"></template>
+    <article><p>Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore.</p></article>
+</body>
+</html>"#;
+
+    let script_root = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            content_selector: Some("#payload".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+    assert_eq!(
+        script_root.content, "",
+        "a <script> named directly by content_selector must not be serialized"
+    );
+
+    let template_root = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com".into()),
+            content_selector: Some("#tpl".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+    assert_eq!(
+        template_root.content, "",
+        "a <template> named directly by content_selector must not be serialized"
+    );
+}
+
 #[test]
 fn remove_low_scoring_false_produces_more_content() {
     let html = r#"<!DOCTYPE html>
