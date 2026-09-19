@@ -19,7 +19,23 @@ fn is_dangerous_url_with_inline_image(url: &str, allow_inline_image: bool) -> bo
 /// Remove dangerous elements and attributes from the document.
 pub fn strip_unsafe_elements(doc: &mut crate::dom::Document) {
     let dangerous_selectors = [
-        "script", "style", "noscript", "object", "embed", "applet", "base", "frame", "frameset",
+        "script",
+        "style",
+        "noscript",
+        "object",
+        "embed",
+        "applet",
+        "base",
+        "frame",
+        "frameset",
+        // SVG SMIL animation elements can mutate sanitized URL attributes
+        // (e.g. animate an href back to a javascript: URL) after sanitization runs.
+        "animate",
+        "set",
+        "animatemotion",
+        "animatetransform",
+        "animatecolor",
+        "discard",
     ];
 
     for selector in &dangerous_selectors {
@@ -175,6 +191,38 @@ mod tests {
         assert!(!html.contains("<base"), "base should be removed");
         assert!(!html.contains("<frame"), "frame should be removed");
         assert!(!html.contains("<frameset"), "frameset should be removed");
+        assert!(html.contains("Safe content"), "safe content should remain");
+    }
+
+    #[test]
+    fn test_strip_svg_smil_elements() {
+        let mut doc = Document::parse(
+            r#"
+            <!DOCTYPE html>
+            <html>
+            <body>
+                <svg>
+                    <a href="https://safe.com">
+                        <animate attributeName="href" to="javascript:alert(1)" />
+                        <set attributeName="href" to="javascript:alert(1)" />
+                        <animateMotion />
+                        <animateTransform />
+                        <animateColor />
+                        <discard />
+                    </a>
+                </svg>
+                <p>Safe content</p>
+            </body>
+            </html>
+            "#,
+        );
+
+        strip_unsafe_elements(&mut doc);
+
+        let html = doc.outer_html(doc.root());
+        assert!(!html.contains("<animate"), "animate should be removed");
+        assert!(!html.contains("<set"), "set should be removed");
+        assert!(!html.contains("<discard"), "discard should be removed");
         assert!(html.contains("Safe content"), "safe content should remain");
     }
 
