@@ -562,7 +562,7 @@ fn strips_event_handlers() {
 <article>
 <h1>Title</h1>
 <p>Content.</p>
-<img src="x.jpg" onerror="alert('xss')" onclick="steal()">
+<img src="x.jpg" onerror="alert('xss')" onclick="steal()" onpointerenter="steal()">
 </article>
 </body>
 </html>"#;
@@ -583,6 +583,10 @@ fn strips_event_handlers() {
     assert!(
         !result.content.contains("onclick"),
         "onclick should be stripped"
+    );
+    assert!(
+        !result.content.contains("onpointerenter"),
+        "unlisted event handlers should be stripped"
     );
 }
 

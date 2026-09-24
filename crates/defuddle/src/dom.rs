@@ -708,6 +708,18 @@ impl Document {
         }
     }
 
+    /// Remove every `on*` attribute without copying the element's attribute names.
+    /// Sanitization must cover handlers added by browsers after this crate's known list.
+    pub(crate) fn remove_event_handler_attrs(&mut self, node: NodeId) {
+        if let NodeKind::Element { attrs, .. } = &mut self.node_mut(node).kind {
+            attrs.retain(|(name, _)| {
+                !name
+                    .get(..2)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("on"))
+            });
+        }
+    }
+
     /// Get all attribute names on an element.
     pub fn attr_names(&self, node: NodeId) -> Vec<String> {
         match &self.node(node).kind {

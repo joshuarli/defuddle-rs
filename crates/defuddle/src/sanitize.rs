@@ -94,69 +94,7 @@ pub fn strip_unsafe_elements(doc: &mut crate::dom::Document) {
             doc.remove_attr(id, "srcdoc");
         }
 
-        let event_handlers = [
-            "onclick",
-            "ondblclick",
-            "onmousedown",
-            "onmouseup",
-            "onmouseover",
-            "onmousemove",
-            "onmouseout",
-            "onkeypress",
-            "onkeydown",
-            "onkeyup",
-            "onload",
-            "onerror",
-            "onfocus",
-            "onblur",
-            "onsubmit",
-            "onreset",
-            "onchange",
-            "onselect",
-            "oninput",
-            "onabort",
-            "oncanplay",
-            "oncanplaythrough",
-            "ondurationchange",
-            "onemptied",
-            "onended",
-            "onloadeddata",
-            "onloadedmetadata",
-            "onloadstart",
-            "onpause",
-            "onplay",
-            "onplaying",
-            "onprogress",
-            "onratechange",
-            "onseeked",
-            "onseeking",
-            "onstalled",
-            "onsuspend",
-            "ontimeupdate",
-            "onvolumechange",
-            "onwaiting",
-            "onwheel",
-            "onscroll",
-            "onresize",
-            "ontoggle",
-            "oncopy",
-            "oncut",
-            "onpaste",
-            "ondrag",
-            "ondragend",
-            "ondragenter",
-            "ondragleave",
-            "ondragover",
-            "ondragstart",
-            "ondrop",
-            "oncontextmenu",
-        ];
-
-        for event in &event_handlers {
-            if doc.get_attr(id, event).is_some() {
-                doc.remove_attr(id, event);
-            }
-        }
+        doc.remove_event_handler_attrs(id);
     }
 }
 
@@ -319,5 +257,19 @@ mod tests {
         assert!(!html.contains("onclick"), "onclick should be removed");
         assert!(html.contains("https://safe.com"), "safe URLs should remain");
         assert!(html.contains("Safe link"), "safe link text should remain");
+    }
+
+    #[test]
+    fn strips_unlisted_event_handler_attributes() {
+        let mut doc = Document::parse(
+            r#"<div onpointerenter="alert(1)" onanimationstart="alert(2)" data-note="safe">Content</div>"#,
+        );
+
+        strip_unsafe_elements(&mut doc);
+
+        let html = doc.outer_html(doc.root());
+        assert!(!html.contains("onpointerenter"));
+        assert!(!html.contains("onanimationstart"));
+        assert!(html.contains("data-note=\"safe\""));
     }
 }

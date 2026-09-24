@@ -7,9 +7,9 @@ static-HTML implementation and public API.
 
 The vendored fixture snapshot is recorded in `tests/upstream/SNAPSHOT.md`. It
 is based on `6c39f0959a2f566469a93a190b50e4b34bcf52c4`. Source-level resync
-work has reviewed upstream through `d4c4bad0dc96ca31b2383328e38061cc1490db47`
+work has reviewed upstream through `49d14ecc4089696565c2479b2f57db72be199adc`
 (the prior resync covered through
-`6de16345bbc822e69397bd6a126861bad9ff469f`). Fixture changes must be reviewed
+`d4c4bad0dc96ca31b2383328e38061cc1490db47`). Fixture changes must be reviewed
 separately from source changes: do not update golden output merely because
 upstream output changed.
 
@@ -225,6 +225,27 @@ restructured during porting rather than transliterated. Upstream commit
 a212ac4 patches exactly these un-ported rules plus a `doc.location`
 fallback that can't exist in this port's explicit-`page_url` design; none of
 it has a current target.
+
+## Resync from d4c4bad to 49d14ec
+
+Upstream commit `49d14ec Update agents file` moved repository guidance from
+`CLAUDE.md` to `AGENTS.md`. It changed no `src/`, `tests/`, fixtures, or expected
+output, so the vendored fixture snapshot remains pinned to `6c39f09`.
+
+The new security guidance made an existing sanitizer mismatch explicit:
+upstream `Defuddle._stripUnsafeElements()` removes every attribute whose name
+starts with `on`, while Rust `sanitize::strip_unsafe_elements()` had a fixed
+handler list. The Rust DOM now removes all such attributes through
+`dom::Document::remove_event_handler_attrs()` without copying attribute names.
+The focused `sanitize::tests::strips_unlisted_event_handler_attributes` test
+failed before the change and passes afterward; `strips_event_handlers` also
+covers the public `parse_html()` result. `AGENTS.md` now records the
+corresponding Rust output-boundary rule. The rest of the upstream commit is
+guidance for its browser, Node, CLI, and Worker runtimes rather than a Rust
+source change. The complete fixture harness passed. One five-sample
+`rustybench` pass on the fixed 50-page corpus measured 12.04 seconds with
+unchanged allocation counters, compared with the saved 12.43-second baseline;
+one pass is only a regression check, not evidence of a repeatable speedup.
 
 ## Resync record template
 

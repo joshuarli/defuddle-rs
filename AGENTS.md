@@ -106,6 +106,7 @@ There are no YouTube transcript or Bilibili adapters. Those require external fet
 
 ## Design boundaries
 
+- Keep sanitization active for both generic and site-adapter output regardless of extraction options. `sanitize::strip_unsafe_elements()` removes dangerous URL schemes, iframe `srcdoc`, and every `on*` event attribute; `sanitize::sanitize_html_fragment()` handles HTML introduced from outside the parsed page DOM. Build generated markup with `extractors::dom_builder::Builder` or escape page-derived values with `content_utils::escape_html()` before inserting them into HTML. Cover new extractors with poisoned-attribute tests.
 - Keep the DOM adapter because extraction requires whole-tree mutation, subtree comparison, and serialization.
 - Keep site-specific extraction separate from generic cleanup. A new website should normally be an extractor, not another branch in `pipeline.rs`, `standardize/`, or `markdown.rs`.
 - Keep callouts, footnotes, and embeds as explicit boundaries. Add format-specific behavior to those modules when it is shared across sites.
