@@ -3,7 +3,7 @@
 use std::{collections::BTreeMap, env, fs, time::Instant};
 
 use defuddle::{DefuddleOptions, ParseProfile, parse_html, parse_html_profiled};
-use divan::{AllocProfiler, Bencher, black_box};
+use rustybench::{AllocProfiler, Bencher, black_box};
 use rayon::prelude::*;
 use walkdir::WalkDir;
 
@@ -264,7 +264,7 @@ fn report_phases(corpus: &HtmlCorpus) {
     }
 }
 
-#[divan::bench]
+#[rustybench::bench]
 fn html_directory_markdown(bencher: Bencher) {
     let corpus = load_corpus();
     let processor = PageProcessor::new(benchmark_workers());
@@ -279,5 +279,5 @@ fn main() {
         report_phases(&load_corpus());
         return;
     }
-    divan::main();
+    rustybench::main();
 }

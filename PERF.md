@@ -1,14 +1,14 @@
 # Performance
 
 Defuddle performance work is measured through the public `parse_html()` path
-over an extracted Wikipedia HTML directory. The benchmark binary uses Divan and the
+over an extracted Wikipedia HTML directory. The benchmark binary uses `rustybench` and the
 system allocator wrapped by `AllocProfiler`; it is intentionally useful as a
 future PGO workload, but PGO is not currently part of the build or release
 workflow.
 
 ## Core workflow
 
-Run the complete benchmark set with:
+Run the directory benchmark with:
 
 ```bash
 make bench
@@ -18,7 +18,7 @@ The `extract-zim-html` target runs `crates/defuddle/benches/zim_extract.rs`.
 It indexes HTML entries by cluster, decompresses each cluster once, writes the
 HTML files in parallel, and emits `manifest.tsv` for URL preservation. The
 `bench` target runs `crates/defuddle/benches/zim_bench.rs`; it requires the
-resulting directory and loads all HTML before Divan starts timing:
+resulting directory and loads all HTML before `rustybench` starts timing:
 
 ```bash
 DEFUDDLE_ZIM=/path/to/archive.zim \
@@ -54,19 +54,42 @@ goldens under `tests/upstream/defuddle/expected/wikipedia-zim--*.md`. These
 fixtures are intended as an accuracy gate before optimizing the full-corpus
 workload; the archive itself remains an external benchmark input.
 
-For repeatable comparisons, keep the source revision, Rust toolchain, machine,
-allocator, and benchmark options constant. Capture both revisions with the
-same sample count, for example:
+When the ZIM archive is unavailable, build the fixed 50-page corpus from those
+fixtures. The preparation script copies the HTML and writes a URL manifest in
+the same layout expected by `zim_bench`:
 
 ```bash
-cargo bench -p defuddle --bench zim_bench -- --sample-count 100 \
-  > /tmp/defuddle-bench.txt
+python3 benchmarks/prepare_wikipedia_fixtures.py /tmp/defuddle-wikipedia-50
+DEFUDDLE_HTML_DIR=/tmp/defuddle-wikipedia-50 make bench
 ```
 
-Divan accepts a positional name filter, so a focused run looks like:
+Use a new empty output directory for each preparation. This smaller corpus is
+the local baseline below; it is not interchangeable with the 1,314-page ZIM
+corpus.
+
+For repeatable comparisons, keep the source revision, Rust toolchain, machine,
+allocator, corpus, worker count, and benchmark options constant. Capture both
+revisions with the same sample count. The local `../rustybench` checkout is the
+benchmark runner and a path development dependency; keep its revision constant
+too. For a quick single run:
 
 ```bash
-cargo bench -p defuddle --bench zim_bench -- html_directory_markdown --sample-count 100
+DEFUDDLE_HTML_DIR=/path/to/extracted-html \
+  cargo bench -p defuddle --bench zim_bench -- \
+  --sample-count 5 --sample-size 1
+```
+
+To save a repeatable JSON baseline, use the `rustybench baseline` command. It
+warms up once and records three measured runs by default:
+
+```bash
+DEFUDDLE_HTML_DIR=/path/to/extracted-html \
+  cargo run --manifest-path ../rustybench/Cargo.toml -- baseline \
+  --root . --baseline benchmarks/candidate.json \
+  --sample-count 5 --sample-size 1 -- \
+  cargo bench -p defuddle --bench zim_bench
+cargo run --manifest-path ../rustybench/Cargo.toml -- \
+  diff benchmarks/m1-wikipedia-50-2026-09-23.json benchmarks/candidate.json
 ```
 
 For phase-level Markdown timing, set `DEFUDDLE_PROFILE=1`. This prints the
@@ -98,24 +121,72 @@ fixture identity, document dimensions, or incidental markup fingerprints.
 
 ## Reading allocation output
 
-Divan reports two useful allocation views for each timed operation:
+`rustybench` reports two useful allocation views for each timed operation:
 
-- `max alloc` is the high-water mark of live allocations during one operation.
+- `max_alloc_bytes` is the high-water mark of live allocations during one operation.
   It is a peak live-allocation measurement, not process RSS.
-- `alloc` is cumulative allocation count and bytes over the operation. It
-  includes allocations that have already been freed and is useful for finding
-  churn.
+- `alloc_count` and `alloc_bytes` are cumulative allocations over the operation.
+  They include allocations that have already been freed and are useful for
+  finding churn.
 
-The separate `dealloc` and `grow` rows help explain allocator behavior. Use
-`/usr/bin/time -l` or a platform profiler when process RSS or the total process
-footprint is needed; those measurements include the runtime and benchmark
-harness.
+Use `/usr/bin/time -l` or a platform profiler when process RSS or the total
+process footprint is needed; those measurements include the runtime and
+benchmark harness.
 
-## Current reference results
+## Current local baseline and goals
 
-These are representative medians from the optimized tree, with 100 Divan
-samples on the development machine. They are a reference point, not a
-cross-machine performance guarantee.
+The saved baseline is
+[`benchmarks/m1-wikipedia-50-2026-09-23.json`](benchmarks/m1-wikipedia-50-2026-09-23.json).
+It was captured on 2026-09-23 from core source revision `e854032` after
+switching the benchmark harness to `rustybench` revision `56a0611`. The host
+was an Apple M1 with 8 GiB RAM, macOS 27.0, and
+`rustc 1.100.0-nightly (574ff7d98 2026-09-14)`. The fixed corpus contains 50
+vendored Wikipedia pages, 34,877,998 HTML bytes, and 7,607,903 Markdown
+output bytes. `DEFUDDLE_THREADS` was unset, so parsing used one worker.
+
+The baseline command used one warmup, three measured runs, five samples per
+run, and one complete 50-page pass per sample:
+
+```bash
+DEFUDDLE_HTML_DIR=/path/to/prepared-wikipedia-50 \
+  cargo run --manifest-path ../rustybench/Cargo.toml -- baseline \
+  --root . --baseline benchmarks/m1-wikipedia-50-2026-09-23.json \
+  --warmup 1 --runs 3 --sample-count 5 --sample-size 1 -- \
+  cargo bench -p defuddle --bench zim_bench
+```
+
+| Metric per 50-page pass | Baseline | Goal |
+| --- | ---: | ---: |
+| Median wall time | 12.43 s | **≤ 9.31 s** (at least 25% lower) |
+| Cumulative allocated bytes | 3,989,210,858 | **≤ 3,191,368,686** (at least 20% lower) |
+| Cumulative allocation count | 21,553,106 | **≤ 22,630,761** (at most 5% higher) |
+| Peak live allocated bytes | 16,270,796 | **≤ 17,084,335** (at most 5% higher) |
+
+The three run medians were 12.20, 12.62, and 12.43 seconds. Treat an apparent
+gain within this run-to-run spread as inconclusive and repeat the measurement.
+The stretch goal is **≤ 8.70 seconds** for the same pass, about 30% below this
+baseline. The primary wall-time and allocation-byte goals must both be met;
+the stretch goal is additional.
+
+The opt-in phase pass on this corpus measured 12.48 seconds wall time and no
+retries. Its largest measured phases were selector removal (5.66 seconds,
+46.9% of phase time), generic scoring (1.74 seconds, 14.4%), standardization
+(1.53 seconds, 12.7%), and content patterns (1.32 seconds, 11.0%). Phase
+timings are diagnostic and are not interchangeable with the benchmark median.
+
+To claim the goals, rebuild the same 50-page corpus, use the same `rustybench`
+revision and sample settings, and save a new JSON result. Compare its median,
+allocation bytes, and peak live allocation to the saved baseline. Run the
+fixture harness and `cargo test --workspace` to establish unchanged extraction
+behavior. When a full ZIM corpus is available, capture a separate baseline and
+confirm that the optimization helps there too before treating it as a broad
+throughput win. Do not substitute a full-corpus result for this 50-page goal.
+
+## Historical fixture benchmark results
+
+These are older representative medians from the former Divan fixture suite,
+with 100 samples on the development machine. They are historical context, not
+the baseline or goal for the current directory benchmark.
 
 | Workload | Median | Peak live allocation |
 | --- | ---: | ---: |

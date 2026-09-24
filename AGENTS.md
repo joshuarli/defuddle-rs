@@ -126,7 +126,7 @@ cargo test -- --nocapture
 
 The fixture harness compares the vendored upstream snapshot against expected output and validates the exception manifest. Do not silently update golden output: determine whether a mismatch is a regression, an intentional API difference, or a fixture that is outside the supported scope.
 
-Performance benchmarks live in `crates/defuddle/benches/bench.rs` and run through the single `make bench` entrypoint. The Divan workloads use representative local and upstream fixtures, and the same bench binary can be used to collect PGO profiles. New pipeline or adapter work should include representative end-to-end measurements, not only microbenchmarks.
+Performance benchmarks live in `crates/defuddle/benches/zim_bench.rs` and run through the `make bench` entrypoint. The `rustybench` workload uses an extracted Wikipedia HTML directory; `PERF.md` documents the reproducible 50-page fixture corpus and local baseline. The same bench binary can be used to collect PGO profiles. New pipeline or adapter work should include representative end-to-end measurements, not only microbenchmarks.
 
 To inspect one fixture while debugging:
 
