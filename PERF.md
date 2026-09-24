@@ -182,6 +182,36 @@ behavior. When a full ZIM corpus is available, capture a separate baseline and
 confirm that the optimization helps there too before treating it as a broad
 throughput win. Do not substitute a full-corpus result for this 50-page goal.
 
+## 2026-09-23 goal result
+
+The goal is met on the fixed 50-page corpus. The matching one-warmup,
+three-measured-run result is saved in
+[`benchmarks/m1-wikipedia-50-goal-2026-09-23.json`](benchmarks/m1-wikipedia-50-goal-2026-09-23.json).
+The three run medians were 7.279, 7.278, and 7.290 seconds.
+
+| Metric per 50-page pass | Baseline | Result | Change |
+| --- | ---: | ---: | ---: |
+| Median wall time | 12.426 s | 7.279 s | **-41.42%** |
+| Cumulative allocated bytes | 3,989,210,858 | 2,907,093,403 | **-27.13%** |
+| Cumulative allocation count | 21,553,106 | 19,606,268 | -9.03% |
+| Peak live allocated bytes | 16,270,796 | 16,270,796 | unchanged |
+
+Two separate optimizations produced the result:
+
+- `cc99f80 Avoid selector parsing in code ancestor guard` checks ancestor tag
+  names directly during selector cleanup. A one-pass check after this change
+  measured 11.82 seconds and 2.91 GB allocated. The fixture harness passed.
+- `fee5c2f Index partial cleanup patterns by prefix` groups the 527 static
+  clutter patterns by their first two bytes and scans each attribute value
+  once. A differential test checks the indexed matcher against the old
+  substring, exact-ID, logo, and hyphen-boundary rules. The fixture harness
+  passed with unchanged expected output.
+
+The opt-in phase pass moved selector removal from 5.66 to 0.75 seconds across
+the same pages, with zero retries in both runs. The full-corpus ZIM archive was
+not available on this machine, so this result establishes the documented
+50-page goal rather than a full-corpus throughput claim.
+
 ## Historical fixture benchmark results
 
 These are older representative medians from the former Divan fixture suite,
