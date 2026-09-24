@@ -2,7 +2,7 @@ use crate::content_utils::count_words;
 use crate::dom::{Document, NodeId};
 use crate::extraction_selectors::{ENTRY_POINT_ELEMENTS, EXACT_SELECTORS, PARTIAL_SELECTORS};
 use crate::scoring;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::OnceLock;
 
 use crate::{DefuddleOptions, MetaTag, Metadata};
@@ -160,15 +160,76 @@ static DATE_CHECK_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static NEWSLETTER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static SOCIAL_COUNTER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static LIKES_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
-static PARTIAL_SELECTOR_PATTERNS: OnceLock<Vec<String>> = OnceLock::new();
+static PARTIAL_PATTERN_INDEX: OnceLock<PartialPatternIndex> = OnceLock::new();
 
-fn partial_selector_patterns() -> &'static [String] {
-    PARTIAL_SELECTOR_PATTERNS.get_or_init(|| {
-        PARTIAL_SELECTORS
+/// Group the static clutter patterns by their first two ASCII bytes so each
+/// attribute value is scanned once instead of once per pattern.
+struct PartialPatternIndex {
+    patterns: Vec<String>,
+    by_prefix: FxHashMap<u16, Vec<usize>>,
+}
+
+impl PartialPatternIndex {
+    fn new() -> Self {
+        let patterns = PARTIAL_SELECTORS
             .iter()
             .map(|pattern| pattern.to_lowercase())
-            .collect()
-    })
+            .collect::<Vec<_>>();
+        let mut by_prefix: FxHashMap<u16, Vec<usize>> = FxHashMap::default();
+        for (index, pattern) in patterns.iter().enumerate() {
+            let bytes = pattern.as_bytes();
+            let key = u16::from_le_bytes([bytes[0], bytes[1]]);
+            by_prefix.entry(key).or_default().push(index);
+        }
+        Self {
+            patterns,
+            by_prefix,
+        }
+    }
+
+    fn matches(&self, haystack: &str, exact: bool) -> bool {
+        let bytes = haystack.as_bytes();
+        for start in 0..bytes.len().saturating_sub(1) {
+            if exact && start != 0 {
+                break;
+            }
+            let key = u16::from_le_bytes([
+                bytes[start].to_ascii_lowercase(),
+                bytes[start + 1].to_ascii_lowercase(),
+            ]);
+            let Some(candidates) = self.by_prefix.get(&key) else {
+                continue;
+            };
+            for &index in candidates {
+                let pattern = &self.patterns[index];
+                let end = start + pattern.len();
+                if end > bytes.len()
+                    || !bytes[start..end].eq_ignore_ascii_case(pattern.as_bytes())
+                {
+                    continue;
+                }
+                if exact {
+                    if end == bytes.len() {
+                        return true;
+                    }
+                } else if pattern == "logo"
+                    || pattern.starts_with('-')
+                    || pattern.ends_with('-')
+                {
+                    if partial_pattern_matches(haystack, pattern) {
+                        return true;
+                    }
+                } else {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
+fn partial_pattern_index() -> &'static PartialPatternIndex {
+    PARTIAL_PATTERN_INDEX.get_or_init(PartialPatternIndex::new)
 }
 
 pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial: bool) {
@@ -314,25 +375,15 @@ fn remove_by_selector_impl(
                 continue;
             }
 
-            let mut matched = false;
-            for pat in partial_selector_patterns() {
-                if partial_attribute_matches(doc, id, class_val, !is_heading, pat) {
-                    matched = true;
-                    break;
-                }
-                if !id_val.is_empty() {
-                    let has_delimiter = id_val.contains([' ', '_', '-', ':', '.']);
-                    if has_delimiter {
-                        if partial_pattern_matches(id_val, pat) {
-                            matched = true;
-                            break;
-                        }
-                    } else if id_val.eq_ignore_ascii_case(pat) {
-                        matched = true;
-                        break;
-                    }
-                }
-            }
+            let index = partial_pattern_index();
+            let matched = index.matches(class_val, false)
+                || (!is_heading
+                    && PARTIAL_DATA_ATTRIBUTES.iter().any(|&name| {
+                        doc.get_attr(id, name)
+                            .is_some_and(|value| index.matches(value, false))
+                    }))
+                || (!id_val.is_empty()
+                    && index.matches(id_val, !id_val.contains([' ', '_', '-', ':', '.'])));
 
             if matched {
                 if partial_attribute_contains(
@@ -374,22 +425,6 @@ fn remove_by_selector_impl(
             }
         }
     }
-}
-
-/// Check whether a pattern with leading/trailing hyphens matches at CSS class boundaries.
-fn partial_attribute_matches(
-    doc: &Document,
-    node: NodeId,
-    class_value: &str,
-    include_data: bool,
-    pattern: &str,
-) -> bool {
-    partial_pattern_matches(class_value, pattern)
-        || (include_data
-            && PARTIAL_DATA_ATTRIBUTES.iter().any(|&name| {
-                doc.get_attr(node, name)
-                    .is_some_and(|value| partial_pattern_matches(value, pattern))
-            }))
 }
 
 fn partial_attribute_contains(
@@ -1824,8 +1859,39 @@ fn remove_card_grid_blocks(doc: &mut Document, content_id: NodeId) {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_simple_redirect_document, remove_by_selector, remove_content_patterns};
+    use super::{
+        is_simple_redirect_document, partial_pattern_index, partial_pattern_matches,
+        remove_by_selector, remove_content_patterns,
+    };
     use crate::dom::Document;
+
+    #[test]
+    fn partial_pattern_index_preserves_selector_matching() {
+        let index = partial_pattern_index();
+        let mut values = vec![
+            "unrelated".to_string(),
+            "catalogotype".to_string(),
+            "pre-logo-post".to_string(),
+            "prefix-BOOKMARK-suffix".to_string(),
+        ];
+        for pattern in &index.patterns {
+            values.push(pattern.to_ascii_uppercase());
+            values.push(format!("before-{pattern}-after"));
+        }
+
+        for value in values {
+            let legacy_partial = index
+                .patterns
+                .iter()
+                .any(|pattern| partial_pattern_matches(&value, pattern));
+            let legacy_exact = index
+                .patterns
+                .iter()
+                .any(|pattern| value.eq_ignore_ascii_case(pattern));
+            assert_eq!(index.matches(&value, false), legacy_partial, "{value}");
+            assert_eq!(index.matches(&value, true), legacy_exact, "{value}");
+        }
+    }
 
     #[test]
     fn detects_simple_redirect_documents() {
