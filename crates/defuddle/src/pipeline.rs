@@ -190,6 +190,19 @@ pub(crate) fn remove_by_selector_protected(
     remove_by_selector_impl(doc, remove_exact, remove_partial, Some(&protected_nodes));
 }
 
+/// Selector cleanup protects code and preformatted HTML, including descendants.
+/// The guard runs for every candidate, so inspect ancestor tags directly.
+fn is_inside_pre_or_code(doc: &Document, node: NodeId) -> bool {
+    let mut current = Some(node);
+    while let Some(id) = current {
+        if doc.tag_name_is_any(id, &["pre", "code"]) {
+            return true;
+        }
+        current = doc.parent(id);
+    }
+    false
+}
+
 fn remove_by_selector_impl(
     doc: &mut Document,
     remove_exact: bool,
@@ -217,10 +230,7 @@ fn remove_by_selector_impl(
             if doc.tag_name(id).is_empty() {
                 continue;
             }
-            if doc.tag_name_is_any(id, &["pre", "code"]) {
-                continue;
-            }
-            if doc.has_closest(id, &["pre", "code"]) {
+            if is_inside_pre_or_code(doc, id) {
                 continue;
             }
             doc.remove(id);
@@ -282,11 +292,7 @@ fn remove_by_selector_impl(
         let mut to_remove = Vec::new();
 
         for id in elements {
-            if doc.tag_name_is_any(id, &["pre", "code"]) {
-                continue;
-            }
-
-            if doc.has_closest(id, &["pre", "code"]) {
+            if is_inside_pre_or_code(doc, id) {
                 continue;
             }
 
