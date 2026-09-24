@@ -1,71 +1,43 @@
 # Performance
 
 Defuddle performance work is measured through the public `parse_html()` path
-over an extracted Wikipedia HTML directory. The benchmark binary uses `rustybench` and the
-system allocator wrapped by `AllocProfiler`; it is intentionally useful as a
-future PGO workload, but PGO is not currently part of the build or release
-workflow.
+over the fixed 50-page Wikipedia fixture corpus. The benchmark binary uses
+`rustybench` and the system allocator wrapped by `AllocProfiler`.
 
 ## Core workflow
 
-Run the directory benchmark with:
-
-```bash
-make bench
-```
-
-The `extract-zim-html` target runs `crates/defuddle/benches/zim_extract.rs`.
-It indexes HTML entries by cluster, decompresses each cluster once, writes the
-HTML files in parallel, and emits `manifest.tsv` for URL preservation. The
-`bench` target runs `crates/defuddle/benches/zim_bench.rs`; it requires the
-resulting directory and loads all HTML before `rustybench` starts timing:
-
-```bash
-DEFUDDLE_ZIM=/path/to/archive.zim \
-DEFUDDLE_HTML_DIR=/path/to/extracted-html \
-make extract-zim-html
-DEFUDDLE_HTML_DIR=/path/to/extracted-html make bench
-DEFUDDLE_HTML_DIR=/path/to/extracted-html DEFUDDLE_PHASES=1 make bench
-```
-
-The small reference archive produces 1,314 HTML files totaling about 64 MiB
-on disk. The directory benchmark times only repeated `parse_html()` calls with
-`separate_markdown: true`; ZIM access and extraction are deliberately outside
-the timed operation. Set `DEFUDDLE_PHASES=1` to run one unbenchmarked pass and
-print aggregate wall time, total and average phase time, invocation counts,
-phase shares, and retry counts across the extracted directory.
-
-For controlled phase isolation, set `DEFUDDLE_VARIANT` to one of
-`no-selector-removal`, `no-exact-selectors`, `no-partial-selectors`,
-`no-scoring`, `no-content-patterns`, `no-standardize`, or `html-only`.
-
-`DEFUDDLE_THREADS` controls the parser worker count. Use the directory
-benchmark for throughput comparisons; use the extractor's cluster progress
-output separately when measuring ZIM extraction.
-
-```bash
-DEFUDDLE_HTML_DIR=/path/to/extracted-html DEFUDDLE_THREADS=8 make bench
-```
-
-The fixture harness also includes 50 deterministic article pages selected from
-the substantial ZIM payloads under
-`tests/upstream/defuddle/fixtures/wikipedia-zim--*.html`, with matching Markdown
-goldens under `tests/upstream/defuddle/expected/wikipedia-zim--*.md`. These
-fixtures are intended as an accuracy gate before optimizing the full-corpus
-workload; the archive itself remains an external benchmark input.
-
-When the ZIM archive is unavailable, build the fixed 50-page corpus from those
-fixtures. The preparation script copies the HTML and writes a URL manifest in
-the same layout expected by `zim_bench`:
+Prepare the corpus in a new empty directory, then run the benchmark:
 
 ```bash
 python3 benchmarks/prepare_wikipedia_fixtures.py /tmp/defuddle-wikipedia-50
 DEFUDDLE_HTML_DIR=/tmp/defuddle-wikipedia-50 make bench
 ```
 
-Use a new empty output directory for each preparation. This smaller corpus is
-the local baseline below; it is not interchangeable with the 1,314-page ZIM
-corpus.
+The preparation script copies the 50 HTML fixtures from
+`tests/upstream/defuddle/fixtures/wikipedia-zim--*.html` and writes a URL
+manifest. Matching Markdown goldens live under
+`tests/upstream/defuddle/expected/wikipedia-zim--*.md`. The `bench` target
+runs `crates/defuddle/benches/zim_bench.rs`; it loads all HTML before timing
+repeated `parse_html()` calls with `separate_markdown: true`. This fixed corpus
+is the only performance acceptance workload.
+
+Set `DEFUDDLE_PHASES=1` to run one unbenchmarked pass and print phase timing,
+invocation counts, phase shares, and retry counts:
+
+```bash
+DEFUDDLE_HTML_DIR=/tmp/defuddle-wikipedia-50 DEFUDDLE_PHASES=1 make bench
+```
+
+For controlled phase isolation, set `DEFUDDLE_VARIANT` to one of
+`no-selector-removal`, `no-exact-selectors`, `no-partial-selectors`,
+`no-scoring`, `no-content-patterns`, `no-standardize`, or `html-only`.
+
+`DEFUDDLE_THREADS` controls the parser worker count. The goal below uses the
+default of one worker.
+
+```bash
+DEFUDDLE_HTML_DIR=/tmp/defuddle-wikipedia-50 DEFUDDLE_THREADS=8 make bench
+```
 
 For repeatable comparisons, keep the source revision, Rust toolchain, machine,
 allocator, corpus, worker count, and benchmark options constant. Capture both
@@ -74,7 +46,7 @@ benchmark runner and a path development dependency; keep its revision constant
 too. For a quick single run:
 
 ```bash
-DEFUDDLE_HTML_DIR=/path/to/extracted-html \
+DEFUDDLE_HTML_DIR=/tmp/defuddle-wikipedia-50 \
   cargo bench -p defuddle --bench zim_bench -- \
   --sample-count 5 --sample-size 1
 ```
@@ -83,13 +55,13 @@ To save a repeatable JSON baseline, use the `rustybench baseline` command. It
 warms up once and records three measured runs by default:
 
 ```bash
-DEFUDDLE_HTML_DIR=/path/to/extracted-html \
+DEFUDDLE_HTML_DIR=/tmp/defuddle-wikipedia-50 \
   cargo run --manifest-path ../rustybench/Cargo.toml -- baseline \
   --root . --baseline benchmarks/candidate.json \
   --sample-count 5 --sample-size 1 -- \
   cargo bench -p defuddle --bench zim_bench
 cargo run --manifest-path ../rustybench/Cargo.toml -- \
-  diff benchmarks/m1-wikipedia-50-2026-09-23.json benchmarks/candidate.json
+  diff benchmarks/m1-wikipedia-50-goal-2026-09-23.json benchmarks/candidate.json
 ```
 
 For phase-level Markdown timing, set `DEFUDDLE_PROFILE=1`. This prints the
@@ -133,7 +105,34 @@ Use `/usr/bin/time -l` or a platform profiler when process RSS or the total
 process footprint is needed; those measurements include the runtime and
 benchmark harness.
 
-## Current local baseline and goals
+## Current performance goals
+
+The starting point is the achieved result in
+[`benchmarks/m1-wikipedia-50-goal-2026-09-23.json`](benchmarks/m1-wikipedia-50-goal-2026-09-23.json)
+from `fee5c2f`. On this Apple M1, one complete 50-page pass had a 7.279-second
+median, 2,907,093,403 cumulative allocated bytes, 19,606,268 allocations,
+and 16,270,796 peak live allocated bytes. The saved result used one warmup,
+three measured runs, five samples per run, one iteration per sample, and one
+parser worker.
+
+The next goal is a further step change from that result. **All four limits must
+hold in the same matched three-run `rustybench` result:**
+
+| Metric per 50-page pass | Starting point | New goal |
+| --- | ---: | ---: |
+| Median wall time | 7.279 s | **≤ 3.50 s** (at least 51% lower) |
+| Cumulative allocated bytes | 2,907,093,403 | **≤ 1,750,000,000** (at least 39% lower) |
+| Cumulative allocation count | 19,606,268 | **≤ 13,000,000** (at least 33% lower) |
+| Peak live allocated bytes | 16,270,796 | **≤ 16,270,796** (no increase) |
+
+Rebuild the same 50-page corpus and hold the machine, Rust toolchain,
+`../rustybench` revision, allocator, worker count, and sample settings fixed.
+Save a candidate JSON result and compare it with the starting file above.
+Verify exact fixture output and run `cargo test --workspace` before claiming
+the goal. The 50-page corpus is the complete performance acceptance gate;
+there is no larger-corpus measurement requirement.
+
+## Initial baseline and completed goal
 
 The saved baseline is
 [`benchmarks/m1-wikipedia-50-2026-09-23.json`](benchmarks/m1-wikipedia-50-2026-09-23.json).
@@ -174,13 +173,8 @@ retries. Its largest measured phases were selector removal (5.66 seconds,
 (1.53 seconds, 12.7%), and content patterns (1.32 seconds, 11.0%). Phase
 timings are diagnostic and are not interchangeable with the benchmark median.
 
-To claim the goals, rebuild the same 50-page corpus, use the same `rustybench`
-revision and sample settings, and save a new JSON result. Compare its median,
-allocation bytes, and peak live allocation to the saved baseline. Run the
-fixture harness and `cargo test --workspace` to establish unchanged extraction
-behavior. When a full ZIM corpus is available, capture a separate baseline and
-confirm that the optimization helps there too before treating it as a broad
-throughput win. Do not substitute a full-corpus result for this 50-page goal.
+These thresholds are retained as the record of the completed first goal. The
+active goals are the tighter limits above.
 
 ## 2026-09-23 goal result
 
@@ -208,9 +202,7 @@ Two separate optimizations produced the result:
   passed with unchanged expected output.
 
 The opt-in phase pass moved selector removal from 5.66 to 0.75 seconds across
-the same pages, with zero retries in both runs. The full-corpus ZIM archive was
-not available on this machine, so this result establishes the documented
-50-page goal rather than a full-corpus throughput claim.
+the same pages, with zero retries in both runs.
 
 ## Historical fixture benchmark results
 
@@ -229,8 +221,9 @@ the baseline or goal for the current directory benchmark.
 | `github_issue_markdown` | 4.05 ms | 532 KB |
 | `hackernews_comments_markdown` | 702 µs | 124 KB |
 
-The remaining dominant wall-time path is Markdown postprocessing. A release
-profile of the Substack body fixture measured approximately 8.2 ms in
+At the time of those fixture measurements, Markdown postprocessing was the
+dominant wall-time path. A release profile of the Substack body fixture
+measured approximately 8.2 ms in
 `markdown preprocess`, 0.9 ms in `markdown convert`, and 43.0 ms in
 `markdown postprocess` before the latest optimization. Generic extraction is
 dominated by repeated DOM selection and cleanup passes; direct subtree
