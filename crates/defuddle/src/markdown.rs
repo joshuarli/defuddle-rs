@@ -546,8 +546,7 @@ fn preprocess_html_text_with_diagnostics(
     };
 
     // Handle callout blocks: convert to blockquote format
-    // The html-to-markdown-rs handler for div[data-callout] handles this
-    // in DOM order, which correctly processes nested divs.
+    // build_converter() handles callouts in DOM order, including nested divs.
     // No string-level regex needed.
 
     // Handle footnote inline references

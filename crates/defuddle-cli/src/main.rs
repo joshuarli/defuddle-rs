@@ -304,14 +304,16 @@ Usage: defuddle [OPTIONS] [SOURCE]
 
 SOURCE:
   <file>        Path to an HTML file
+                A SingleFile ZIP archive is also accepted
   -             Read HTML from stdin
   (omitted)     Read HTML from stdin if not a TTY
 
 Options:
   -m, --markdown, --md   Output Markdown instead of HTML
   -j, --json              Output JSON with metadata and content
-  -f, --frontmatter       Output YAML frontmatter + Markdown
-  -p, --property <name>   Output a single metadata property
+  -f, --frontmatter       Output metadata frontmatter; add --markdown for the body
+  -p, --property <name>   Output one value: title, author, description, domain,
+                          favicon, image, language, published, site, or content
   -o, --output <file>     Write output to file instead of stdout
   --url <url>             Set document URL for metadata resolution
   -l, --lang <code>       Preferred language (BCP 47 tag)

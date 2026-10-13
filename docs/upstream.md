@@ -1,59 +1,39 @@
-# Upstream synchronization guide
+# Upstream synchronization
 
 This repository is a behaviorally compatible Rust port of `../defuddle`, not a
 line-for-line translation. The TypeScript repository is the reference for
 supported extraction behavior; the Rust repository owns its synchronous,
 static-HTML implementation and public API.
 
-The vendored fixture snapshot is recorded in `tests/upstream/SNAPSHOT.md`. It
-is based on `6c39f0959a2f566469a93a190b50e4b34bcf52c4`. Source-level resync
-work has reviewed upstream through `49d14ecc4089696565c2479b2f57db72be199adc`
-(the prior resync covered through
-`d4c4bad0dc96ca31b2383328e38061cc1490db47`). Fixture changes must be reviewed
-separately from source changes: do not update golden output merely because
-upstream output changed.
+The vendored fixture snapshot in [`tests/upstream/SNAPSHOT.md`](../tests/upstream/SNAPSHOT.md)
+is based on `6c39f0959a2f566469a93a190b50e4b34bcf52c4`. The last recorded
+source resync covered upstream through `49d14ecc4089696565c2479b2f57db72be199adc`;
+the prior resync covered through `d4c4bad0dc96ca31b2383328e38061cc1490db47`.
+Review fixture changes separately from source changes; do not update golden
+output just because upstream output changed.
 
-## Architecture map
+## Upstream-to-Rust map
 
-The two implementations have the same broad phases, but different ownership
-and data types at each boundary.
+The [TypeScript source](https://github.com/kepano/defuddle) can be checked out
+as a sibling at `../defuddle`. This map gives the Rust owner for each shared
+behavior; the Rust links resolve inside this repository.
 
-| Upstream Defuddle | Rust port | Porting note |
+| Upstream area | Rust owner | Porting note |
 | --- | --- | --- |
-| `src/defuddle.ts::Defuddle.parse()` and `parseInternal()` | `crates/defuddle/src/lib.rs::parse_html()`, `parse_internal()`, and `parse_internal_once()` | The Rust entry point is a free function. It owns parsing, metadata, adapter dispatch, retry policy, and result assembly. |
-| `DefuddleOptions` and `DefuddleResponse` in `src/types.ts` | `DefuddleOptions` and `DefuddleResult` in `crates/defuddle/src/lib.rs` | Compare fields before porting an option. Browser, fetch, and async options do not automatically belong in the Rust API. |
-| Browser or Linkedom `Document` and `Element` | `crates/defuddle/src/dom.rs::Document` plus `dom::NodeId` | The Rust DOM is a mutable flat node store. Every mutation, subtree query, and serialization step works through node IDs. |
-| Derived read-only document facts and mutation state | `crates/defuddle/src/analysis.rs::AnalysisSnapshot` and `analysis::MutationOverlay` | The Rust pipeline builds an immutable subtree snapshot with topology, tag membership, text totals, descendant counts, and structural flags. `pipeline::score_and_remove()` uses snapshot candidate enumeration plus checkpointable overlay removals while the mutable DOM remains the scoring oracle. |
-| `src/extractor-registry.ts::ExtractorRegistry` | `crates/defuddle/src/extractors/mod.rs::find_site_adapter()` and `adapter_names()` | Rust adapters are selected by a domain gate followed by `SiteAdapter::matches()`. Keep priority explicit in the candidate array. |
-| `BaseExtractor` in `src/extractors/_base.ts` | `extractors::SiteAdapter`, `HtmlExtraction`, and `SiteExtraction` | Rust has no shared extractor constructor. An adapter receives `ExtractionContext` and returns DOM-backed output. |
-| `ExtractorResult.content` HTML | `pipeline::ExtractedContent` with a `Document` and root `NodeId` | Use `site_extraction_from_html()` when an adapter naturally builds an HTML string. `extractors/dom_builder.rs::Builder` is preferable for structured output. |
-| `standardizeContent()` in `src/standardize.ts` | `standardize::standardize_content()` and `crates/defuddle/src/standardize/` | Preserve the ordering in `standardize/mod.rs`; put a new rule in the narrowest existing submodule. |
-| `standardizeExtractorOutput()` in `src/standardize.ts` | `standardize::standardize_extractor_output()` called by `lib.rs::site_result()` | Site-extractor output is a separate boundary from generic page cleanup. |
-| `src/removals/*.ts` | `pipeline.rs`, `prune.rs`, `extraction_selectors.rs`, and `scoring.rs` | Upstream removal behavior is spread across several Rust modules. Search for the selector and the behavior phase before choosing a target. |
-| `src/elements/footnotes.ts` | `crates/defuddle/src/footnotes/mod.rs::standardize_footnotes()` | Definitions may live outside the selected content root, then become canonical Rust output. |
-| `src/elements/callouts.ts` | `crates/defuddle/src/standardize/callouts/` | Callout conversion is an explicit shared boundary. |
-| `src/elements/images.ts` | `crates/defuddle/src/standardize/images.rs` | Lazy-image recovery, `srcset`, placeholders, and deduplication are separate Rust operations. |
-| `src/elements/headings.ts` | `crates/defuddle/src/standardize/headings.rs` | Heading normalization remains in the standardization sequence. |
-| `src/elements/code.ts` | `crates/defuddle/src/standardize/elements.rs` | The Rust port intentionally does not reintroduce renderer-specific code-block heuristics. |
-| `src/utils/comments.ts` | `crates/defuddle/src/extractors/comments.rs` | Shared comment markup and nesting serve several site adapters. |
-| `src/markdown.ts` | `crates/defuddle/src/markdown.rs` | General conversion uses `html-to-markdown-rs`; Rust preprocessing and postprocessing surround it. |
-| `src/metadata.ts` and schema extraction in `defuddle.ts` | `crates/defuddle/src/metadata.rs` and `schema.rs` | Metadata is extracted before source-DOM mutation. |
-| `src/utils/dom.ts` URL and unsafe-element handling | `crates/defuddle/src/sanitize.rs` and `standardize/urls.rs` | Keep dangerous URL policy in sanitization; URL resolution is separate normalization. |
+| Parse API, options, and result | [`core API`](../crates/defuddle/src/lib.rs) | Rust exposes a free function and owns parsing, metadata, adapter dispatch, retries, and result assembly. Browser, fetch, and async options do not automatically belong in the Rust API. |
+| DOM operations | [`DOM adapter`](../crates/defuddle/src/dom.rs) | A mutable flat node store uses `NodeId` for mutations, subtree queries, and serialization. |
+| Derived document facts | [`analysis snapshot`](../crates/defuddle/src/analysis.rs) | A snapshot and empty mutation overlay are collected only when profiling is enabled; generic scoring still uses the mutable DOM. |
+| Site adapter registry | [site adapter guide](site-adapters.md) | Rust checks a URL gate and then `SiteAdapter::matches()`. Candidate order defines priority. |
+| Generic selection and removal | [`content pipeline`](../crates/defuddle/src/pipeline.rs), [`pruning`](../crates/defuddle/src/prune.rs), [`scoring`](../crates/defuddle/src/scoring.rs) | Upstream removal behavior is spread across several Rust modules. Search the behavior before choosing an owner. |
+| Standardization | [`standardization`](../crates/defuddle/src/standardize/mod.rs) | Preserve the existing ordering and put new rules in the narrowest current submodule. |
+| Footnotes and callouts | [`footnote handling`](../crates/defuddle/src/footnotes/mod.rs), [`callout handling`](../crates/defuddle/src/standardize/callouts/mod.rs) | Footnote definitions can live outside selected content; callouts are a shared format boundary. |
+| Images, headings, and elements | [`image normalization`](../crates/defuddle/src/standardize/images.rs), [`heading normalization`](../crates/defuddle/src/standardize/headings.rs), [`element normalization`](../crates/defuddle/src/standardize/elements.rs) | The Rust port does not include renderer-specific code-block heuristics. |
+| Markdown conversion | [`Markdown conversion`](../crates/defuddle/src/markdown.rs) | General conversion uses `htmd`, surrounded by Defuddle-specific preprocessing and postprocessing. |
+| Metadata and schema | [`metadata`](../crates/defuddle/src/metadata.rs), [`schema extraction`](../crates/defuddle/src/schema.rs) | Metadata is extracted before content selection mutates the document. |
+| URL and unsafe-element handling | [`sanitization`](../crates/defuddle/src/sanitize.rs), [`URL resolution`](../crates/defuddle/src/standardize/urls.rs) | Dangerous URL policy and relative URL resolution remain separate operations. |
 
-## Site extractor map
-
-These upstream extractors have direct Rust counterparts:
-
-| Upstream source | Rust source |
-| --- | --- |
-| `src/extractors/hackernews.ts` | `extractors/hackernews.rs` |
-| `src/extractors/reddit.ts` | `extractors/reddit.rs` |
-| `src/extractors/github.ts` | `extractors/github.rs` |
-| `src/extractors/chatgpt.ts` | `extractors/chatgpt.rs` |
-| `src/extractors/substack.ts` | `extractors/substack.rs` |
-| `src/extractors/mastodon.ts` | `extractors/mastodon.rs` |
-| `src/extractors/twitter.ts` and the X article/oEmbed paths | `extractors/twitter.rs` |
-| `src/extractors/gmail.ts` | `extractors/gmail.rs` |
+Adapter names, URL gates, supported page shapes, and module links are listed
+in the [site adapter guide](site-adapters.md).
 
 The Rust adapter registry is intentionally smaller. YouTube and Bilibili
 transcripts, Reddit Atom feeds, and other fetch-dependent paths are outside the
@@ -62,37 +42,29 @@ not add a network client or async runtime to `defuddle` to close that gap. A
 future fetch-capable integration belongs in a separate crate with a
 caller-provided fetch abstraction.
 
-## DOM and selector differences
+## DOM differences
 
 Upstream code can use browser-DOM methods directly. In Rust, corresponding
 operations are methods on `Document` and identify nodes with `NodeId`:
 
-| TypeScript operation | Rust operation |
+| Operation | Rust API |
 | --- | --- |
-| `element.querySelectorAll(selector)` | `doc.query_selector_all_in_subtree(element_id, selector)` |
-| `document.querySelectorAll(selector)` | `doc.query_selector_all(selector)` |
-| `element.closest(selector)` | `doc.closest(element_id, selector)` |
-| `element.innerHTML` / `outerHTML` | `doc.inner_html(element_id)` / `doc.outer_html(element_id)` |
-| `element.remove()` | `doc.remove(element_id)` |
-| `element.replaceWith(html)` | `doc.replace_with_html(element_id, html)` |
-| `element.cloneNode(true)` | Clone the `Document` for an isolated working tree, or use `dom_builder::Builder::clone_children()` for generated output. |
+| Query within a subtree | `doc.query_selector_all_in_subtree(element_id, selector)` |
+| Query the document | `doc.query_selector_all(selector)` |
+| Find the nearest ancestor | `doc.closest(element_id, selector)` |
+| Read inner or outer HTML | `doc.inner_html(element_id)` / `doc.outer_html(element_id)` |
+| Remove or replace a node | `doc.remove(element_id)` / `doc.replace_with_html(element_id, html)` |
+| Clone nodes | Clone the `Document` or use the DOM builder for generated output. |
 
 Do not retain a `NodeId` after removing or replacing its ancestor without
 checking whether it is still live. When a rule needs document order, sort
 collected IDs explicitly: comma-selector results can be grouped by selector
 instead of returned in browser document order.
 
-The parser in `crates/defuddle/src/css_selector.rs` supports tags, IDs,
-classes, attribute presence/equality/contains/prefix/suffix/token matching,
-`:not()`, and the case-insensitive attribute flag. It does not support `>`,
-`+`, `~`, or `:has()` as general combinators. For an upstream selector using
-those forms:
-
-1. Try a simpler selector plus `closest`, containment, sibling, or attribute
-   checks.
-2. Add a narrowly scoped manual branch in the owning phase if needed.
-3. Extend `css_selector.rs` only when the capability is broadly useful and has
-   independent tests.
+Do not retain a `NodeId` after removing or replacing its ancestor without
+checking whether it is still live. Sort collected IDs when document order
+matters; comma-selector results can be grouped by selector rather than returned
+in browser order. See [selector limits](architecture.md#boundaries).
 
 ## Extractor output and options
 
@@ -119,13 +91,11 @@ option, determine whether it changes the public crate contract or is only an
 upstream constructor detail. Do not add fetch, transcript retrieval, or async
 extraction to the core crate.
 
-The current audit found no additional low-risk behavior to add beyond the
-seven resync areas already implemented. Upstream constructor-option forwarding
-maps conceptually to `ExtractionContext`, but implementing `includeReplies` or
-fetch injection consistently would require a deliberate Rust API decision
-across all conversation adapters. Reddit's Atom-feed fallback is likewise
-outside the static, network-free core contract. Keep both documented as scope
-differences until a separate fetch-capable design exists.
+The upstream constructor also forwards `includeReplies` and an optional fetch
+function. Rust has no corresponding cross-adapter options, and Reddit's Atom
+feed fallback is outside the static, network-free core contract. Keep those
+behaviors out of the core until the public API and fetch boundary are designed
+for them.
 
 ## Resync workflow
 
@@ -153,7 +123,6 @@ Useful verification commands are:
 ```bash
 cargo test -p defuddle
 cargo test -p defuddle --test fixture_harness -- --nocapture
-cargo fmt --all -- --check
 git diff --check
 ```
 
@@ -165,6 +134,10 @@ The fixture harness compares `tests/upstream/defuddle/fixtures/` with
 - an intentional Rust API or scope difference;
 - an upstream fixture/output update that should be vendored; or
 - a fixture that belongs in the exception manifest.
+
+The historical resync notes below preserve source-relative paths: Rust file
+names are relative to the core crate source directory, while TypeScript source
+names are relative to the sibling upstream checkout.
 
 ## Friction observed during the 6c39f09 to 6de1634 resync
 

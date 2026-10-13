@@ -9,8 +9,9 @@ over the fixed 50-page Wikipedia fixture corpus. The benchmark binary uses
 Prepare the corpus in a new empty directory, then run the benchmark:
 
 ```bash
-python3 benchmarks/prepare_wikipedia_fixtures.py /tmp/defuddle-wikipedia-50
-DEFUDDLE_HTML_DIR=/tmp/defuddle-wikipedia-50 make bench
+mkdir -p .work/tmp
+python3 benchmarks/prepare_wikipedia_fixtures.py .work/tmp/defuddle-wikipedia-50
+TMPDIR=.work/tmp DEFUDDLE_HTML_DIR=.work/tmp/defuddle-wikipedia-50 make bench
 ```
 
 The preparation script copies the 50 HTML fixtures from
@@ -25,7 +26,7 @@ Set `DEFUDDLE_PHASES=1` to run one unbenchmarked pass and print phase timing,
 invocation counts, phase shares, and retry counts:
 
 ```bash
-DEFUDDLE_HTML_DIR=/tmp/defuddle-wikipedia-50 DEFUDDLE_PHASES=1 make bench
+TMPDIR=.work/tmp DEFUDDLE_HTML_DIR=.work/tmp/defuddle-wikipedia-50 DEFUDDLE_PHASES=1 make bench
 ```
 
 For controlled phase isolation, set `DEFUDDLE_VARIANT` to one of
@@ -36,17 +37,17 @@ For controlled phase isolation, set `DEFUDDLE_VARIANT` to one of
 default of one worker.
 
 ```bash
-DEFUDDLE_HTML_DIR=/tmp/defuddle-wikipedia-50 DEFUDDLE_THREADS=8 make bench
+TMPDIR=.work/tmp DEFUDDLE_HTML_DIR=.work/tmp/defuddle-wikipedia-50 DEFUDDLE_THREADS=8 make bench
 ```
 
 For repeatable comparisons, keep the source revision, Rust toolchain, machine,
 allocator, corpus, worker count, and benchmark options constant. Capture both
-revisions with the same sample count. The local `../rustybench` checkout is the
-benchmark runner and a path development dependency; keep its revision constant
-too. For a quick single run:
+revisions with the same sample count. The [Rustybench runner](https://github.com/joshuarli/rustybench)
+is a sibling checkout and a path development dependency; keep its revision
+constant too. For a quick single run:
 
 ```bash
-DEFUDDLE_HTML_DIR=/tmp/defuddle-wikipedia-50 \
+TMPDIR=.work/tmp DEFUDDLE_HTML_DIR=.work/tmp/defuddle-wikipedia-50 \
   cargo bench -p defuddle --bench zim_bench -- \
   --sample-count 5 --sample-size 1
 ```
@@ -55,13 +56,13 @@ To save a repeatable JSON baseline, use the `rustybench baseline` command. It
 warms up once and records three measured runs by default:
 
 ```bash
-DEFUDDLE_HTML_DIR=/tmp/defuddle-wikipedia-50 \
+TMPDIR=.work/tmp DEFUDDLE_HTML_DIR=.work/tmp/defuddle-wikipedia-50 \
   cargo run --manifest-path ../rustybench/Cargo.toml -- baseline \
-  --root . --baseline benchmarks/candidate.json \
+  --root . --baseline .work/tmp/candidate.json \
   --sample-count 5 --sample-size 1 -- \
   cargo bench -p defuddle --bench zim_bench
 cargo run --manifest-path ../rustybench/Cargo.toml -- \
-  diff benchmarks/m1-wikipedia-50-goal-2026-09-23.json benchmarks/candidate.json
+  diff benchmarks/m1-wikipedia-50-goal-2026-09-23.json .work/tmp/candidate.json
 ```
 
 For phase-level Markdown timing, set `DEFUDDLE_PROFILE=1`. This prints the
@@ -69,8 +70,8 @@ existing parse phases plus `markdown preprocess`, `markdown convert`, and
 `markdown postprocess` without changing normal output:
 
 ```bash
-DEFUDDLE_PROFILE=1 cargo run --release -p defuddle-cli -- --markdown \
-  --url https://example.com/article input.html > /tmp/article.md
+TMPDIR=.work/tmp DEFUDDLE_PROFILE=1 cargo run --release -p defuddle-cli -- --markdown \
+  --url https://example.com/article input.html > .work/tmp/article.md
 ```
 
 Compare medians across several runs rather than relying on a single fastest or
@@ -108,7 +109,7 @@ benchmark harness.
 ## Current performance goals
 
 The starting point is the achieved result in
-[`benchmarks/m1-wikipedia-50-goal-2026-09-23.json`](benchmarks/m1-wikipedia-50-goal-2026-09-23.json)
+[`benchmarks/m1-wikipedia-50-goal-2026-09-23.json`](../benchmarks/m1-wikipedia-50-goal-2026-09-23.json)
 from `fee5c2f`. On this Apple M1, one complete 50-page pass had a 7.279-second
 median, 2,907,093,403 cumulative allocated bytes, 19,606,268 allocations,
 and 16,270,796 peak live allocated bytes. The saved result used one warmup,
@@ -135,7 +136,7 @@ there is no larger-corpus measurement requirement.
 ## Initial baseline and completed goal
 
 The saved baseline is
-[`benchmarks/m1-wikipedia-50-2026-09-23.json`](benchmarks/m1-wikipedia-50-2026-09-23.json).
+[`benchmarks/m1-wikipedia-50-2026-09-23.json`](../benchmarks/m1-wikipedia-50-2026-09-23.json).
 It was captured on 2026-09-23 from core source revision `e854032` after
 switching the benchmark harness to `rustybench` revision `56a0611`. The host
 was an Apple M1 with 8 GiB RAM, macOS 27.0, and
@@ -180,7 +181,7 @@ active goals are the tighter limits above.
 
 The goal is met on the fixed 50-page corpus. The matching one-warmup,
 three-measured-run result is saved in
-[`benchmarks/m1-wikipedia-50-goal-2026-09-23.json`](benchmarks/m1-wikipedia-50-goal-2026-09-23.json).
+[`benchmarks/m1-wikipedia-50-goal-2026-09-23.json`](../benchmarks/m1-wikipedia-50-goal-2026-09-23.json).
 The three run medians were 7.279, 7.278, and 7.290 seconds.
 
 | Metric per 50-page pass | Baseline | Result | Change |

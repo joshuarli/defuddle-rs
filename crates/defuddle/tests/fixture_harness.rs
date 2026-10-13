@@ -283,8 +283,8 @@ fn local_fixtures_extractors() {
 
         let html = fs::read_to_string(&path).expect("raw html readable");
 
-        // Skip fixtures that rely on exact HTML output from site extractors
-        // that may differ slightly after parser changes (Phase 8).
+        // Skip this live fixture because parser changes can alter exact
+        // extractor HTML output slightly.
         if stem.contains("Claude Code") {
             continue;
         }

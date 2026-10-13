@@ -33,19 +33,16 @@
 //! - Metadata extraction (title, author, date, site, etc.)
 //! - Schema.org JSON-LD support
 //! - Dangerous element/attribute sanitization
-//! - HTML-to-Markdown conversion via `html-to-markdown-rs`
+//! - HTML-to-Markdown conversion via `htmd`
 //! - No network, TLS, proxy, or async runtime dependencies
 //!
 //! ## Limitations
 //!
-//! This crate accepts static HTML input only. It does not:
-//! - Fetch URLs over HTTP
-//! - Execute JavaScript
-//! - Evaluate live browser CSS/layout
-//! - Access shadow DOM from extension isolated worlds
-//! - Support async/streaming extraction (future work)
-// The snapshot is profile-gated until its parity contract is stable enough to
-// replace the mutable-DOM oracle in extraction phases.
+//! This crate accepts supplied static HTML only; it does not fetch URLs,
+//! execute JavaScript, inspect live browser layout, or access browser-only
+//! shadow DOM.
+// This snapshot is collected only during profiling; extraction still uses the
+// mutable DOM.
 #[allow(dead_code)]
 mod analysis;
 mod embeds;
