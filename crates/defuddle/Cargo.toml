@@ -19,7 +19,7 @@ cssparser = "0.37"
 workspace = true
 
 [dev-dependencies]
-rustybench = { path = "../../../rustybench" }
+rustybench = "0.4"
 rayon = "1.12"
 walkdir = "2"
 zim = { git = "https://github.com/dignifiedquire/zim", rev = "82b897e479254601efdabc0f37c1cb9e7e20f7d3", version = "0.5.0" }
