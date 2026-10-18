@@ -1262,7 +1262,9 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "rustybench"
-version = "0.1.0"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a64392032c28cc45d5fe44fe9232b6bf91498c407f1cfcd532ab742b6241712"
 dependencies = [
  "lexopt",
  "miniserde",
@@ -1272,7 +1274,9 @@ dependencies = [
 
 [[package]]
 name = "rustybench-macros"
-version = "0.1.0"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3dc620959d82483d14afbe317790bc9814aa90df11c91565ead4f3a578883f50"
 
 [[package]]
 name = "same-file"
