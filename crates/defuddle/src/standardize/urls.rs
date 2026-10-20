@@ -31,10 +31,6 @@ pub fn resolve_urls(doc: &mut Document, content_id: NodeId, page_url: &str) {
     }
 }
 
-// Individual standardization steps.
-
-/// Replace &nbsp; with regular spaces in text nodes.
-
 pub(crate) fn resolve_url(url: &str, base: &str) -> Option<String> {
     if url.contains("://") {
         if url.matches('/').count() == 2 && !url.contains(['?', '#']) {

@@ -18,9 +18,6 @@ pub(crate) fn normalize_data_tables(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-/// Convert Bootstrap alerts and Hugo admonitions to callout format BEFORE
-/// element removal runs (which would strip .alert elements).
-
 pub(crate) fn unwrap_layout_tables(doc: &mut Document, content_id: NodeId) {
     let mut tables = doc.query_selector_all_in_subtree(content_id, "table");
     if doc.is_element(content_id) && doc.tag_name(content_id).eq_ignore_ascii_case("table") {

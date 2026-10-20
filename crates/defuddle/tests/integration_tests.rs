@@ -65,6 +65,14 @@ mod markdown_conversion {
     }
 
     #[test]
+    fn omits_dangerous_link_destinations() {
+        let html = r#"<p><a href="javascript:alert(1)">Open page</a></p>"#;
+        let md = html_to_markdown(html);
+        assert!(!md.contains("javascript:"));
+        assert!(md.contains("Open page"));
+    }
+
+    #[test]
     fn omits_image_alt_text_but_preserves_link_wrapping() {
         let html = r#"<p>Hello world</p><a href="https://example.com/image"><img src="https://example.com/img.png" alt="photo"></a>"#;
         let md = html_to_markdown(html);
@@ -137,6 +145,54 @@ fn preserves_video_elements_that_use_source_children() {
     assert!(
         content.contains("video.mp4"),
         "video URL should be preserved"
+    );
+}
+
+#[test]
+fn promotes_explicit_lazy_image_sources_with_fixed_precedence() {
+    let html = r#"<html><body><article><p>This article has enough text to keep its image in extracted content.</p><img src="/preview" data-lazy-src="/third" data-original="/second" data-src="/first" resource="/wrong.jpg"><img src="data:image/svg+xml,%3Csvg/%3E" data-image-loader="/photo"><img src="/preview" srcset="/preview 1x" data-lazy-srcset="/photo 1x, /large 2x"><img src="/safe.jpg" data-src="javascript:alert(1)"></article></body></html>"#;
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com/article".into()),
+            content_selector: Some("article".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(result.content.contains("src=\"https://example.com/first\""));
+    assert!(result.content.contains("src=\"https://example.com/photo\""));
+    assert!(
+        result
+            .content
+            .contains("srcset=\"https://example.com/photo 1x, /large 2x\""),
+        "{}",
+        result.content
+    );
+    assert!(result.content.contains("src=\"https://example.com/safe.jpg\""));
+    assert!(!result.content.contains("wrong.jpg"));
+    assert!(!result.content.contains("data-image-loader"));
+}
+
+#[test]
+fn keeps_screen_reader_content_and_removes_link_annotations() {
+    let html = r#"<html><body><article><p>Article text with a <a href="https://example.com">useful link<span class="sr-only"> (opens in a new tab)</span></a>.</p><p class="visually-hidden">A description for screen reader users.</p></article></body></html>"#;
+    let result = defuddle::parse_html(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.com/article".into()),
+            content_selector: Some("article".into()),
+            ..Default::default()
+        },
+    )
+    .expect("parse succeeds");
+
+    assert!(result.content.contains("A description for screen reader users."));
+    assert!(
+        !result.content.contains("opens in a new tab"),
+        "{}",
+        result.content
     );
 }
 

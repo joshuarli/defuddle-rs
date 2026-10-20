@@ -323,17 +323,7 @@ fn parse_html_internal(
             elapsed_nanos,
         });
         drop(std::mem::replace(&mut context.doc, Document::empty()));
-        let mut parsed_page = site_result(
-            extraction,
-            name,
-            &metadata,
-            &meta_tags,
-            &schema_org_data,
-            separate_markdown,
-            context.page_url,
-            debug,
-            &mut context.diagnostics,
-        );
+        let mut parsed_page = site_result(extraction, name, &mut context);
         context.diagnostics.report_if_requested();
         if defuddle_options.profile {
             parsed_page.parse_time = context.diagnostics.total_nanos() as u64 / 1_000_000;
@@ -377,37 +367,31 @@ fn parse_html_internal(
 fn site_result(
     mut extraction: extractors::SiteExtraction,
     extractor_type: &str,
-    metadata: &Metadata,
-    meta_tags: &[MetaTag],
-    schema_org_data: &[Value],
-    separate_markdown: bool,
-    page_url: &str,
-    debug: bool,
-    diagnostics: &mut pipeline::Diagnostics,
+    context: &mut pipeline::ExtractionContext<'_>,
 ) -> DefuddleResult {
     sanitize::strip_unsafe_elements(&mut extraction.extracted_content.document);
     standardize::resolve_urls(
         &mut extraction.extracted_content.document,
         extraction.extracted_content.root,
-        page_url,
+        context.page_url,
     );
     standardize::standardize_extractor_output(
         &mut extraction.extracted_content.document,
         extraction.extracted_content.root,
-        debug,
+        context.defuddle_options.debug,
     );
     let mut variables = extraction.variables;
     let content_html = extraction.extracted_content.html();
-    let content_markdown = separate_markdown.then(|| {
+    let content_markdown = context.defuddle_options.separate_markdown.then(|| {
         markdown::normalize_origin_links(&markdown::html_to_markdown_with_diagnostics(
             &content_html,
-            diagnostics,
+            &mut context.diagnostics,
         ))
     });
-    let schema_org_data = if schema_org_data.is_empty() {
+    let schema_org_data = if context.schema_org_data.is_empty() {
         Value::Array(Array::new())
     } else {
-        Value::Array(Array::from_iter(schema_org_data.iter().cloned()))
+        Value::Array(Array::from_iter(context.schema_org_data.iter().cloned()))
     };
 
     DefuddleResult {
@@ -415,24 +399,24 @@ fn site_result(
         content_markdown,
         title: variables
             .remove("title")
-            .unwrap_or_else(|| metadata.title.clone()),
+            .unwrap_or_else(|| context.metadata.title.clone()),
         description: variables
             .remove("description")
-            .unwrap_or_else(|| metadata.description.clone()),
-        domain: metadata.domain.clone(),
-        favicon: metadata.favicon.clone(),
-        image: metadata.image.clone(),
-        language: metadata.language.clone(),
-        meta_tags: meta_tags.to_vec(),
+            .unwrap_or_else(|| context.metadata.description.clone()),
+        domain: context.metadata.domain.clone(),
+        favicon: context.metadata.favicon.clone(),
+        image: context.metadata.image.clone(),
+        language: context.metadata.language.clone(),
+        meta_tags: context.meta_tags.to_vec(),
         published: variables
             .remove("published")
-            .unwrap_or_else(|| metadata.published.clone()),
+            .unwrap_or_else(|| context.metadata.published.clone()),
         author: variables
             .remove("author")
-            .unwrap_or_else(|| metadata.author.clone()),
+            .unwrap_or_else(|| context.metadata.author.clone()),
         site: variables
             .remove("site")
-            .unwrap_or_else(|| metadata.site.clone()),
+            .unwrap_or_else(|| context.metadata.site.clone()),
         schema_org_data,
         extractor_type: Some(extractor_type.to_string()),
         variables: if variables.is_empty() {
@@ -558,15 +542,14 @@ fn parse_internal_once(
     let content_id = main_content.or_else(|| body_ids.first().copied());
     let overrides = overrides::lookup_page_overrides(&config.metadata.title);
 
-    if config.profile {
-        if let Some(content_id) = content_id {
+    if config.profile
+        && let Some(content_id) = content_id {
             let snapshot = diagnostics.measure("analysis snapshot", || {
                 analysis::AnalysisSnapshot::from_subtree(&doc, content_id)
             });
             let overlay = diagnostics.measure("analysis overlay", || snapshot.overlay());
             std::hint::black_box((snapshot.node_count(), overlay.checkpoint()));
         }
-    }
 
     // Convert Bootstrap alerts and Hugo admonitions to callout format
     // BEFORE remove_by_selector strips .alert elements

@@ -90,23 +90,53 @@ pub(crate) fn replace_if_placeholder(
 }
 
 pub(crate) fn recover_lazy_images(doc: &mut Document, content_id: NodeId) {
-    let lazy_attrs = ["data-image-loader", "data-src", "data-original-src"];
     let imgs = doc.query_selector_all_in_subtree(content_id, "img");
     for id in imgs {
-        let src = doc.get_attr(id, "src").unwrap_or("").to_string();
-        if src.is_empty() || !src.starts_with("data:image/") {
-            continue;
-        }
-        for attr in &lazy_attrs {
-            if let Some(real_url) = doc.get_attr(id, attr)
-                && !real_url.is_empty()
-                && !real_url.starts_with("data:")
+        for attr in ["data-src", "data-original", "data-lazy-src", "data-original-src"] {
+            if let Some(source) = doc.get_attr(id, attr).map(str::trim).map(str::to_owned)
+                && !source.is_empty()
+                && !crate::sanitize::is_dangerous_url(&source)
             {
-                let url = real_url.to_string();
-                doc.set_attr(id, "src", &url);
+                doc.set_attr(id, "src", &source);
                 break;
             }
         }
+
+        for attr in ["data-srcset", "data-lazy-srcset"] {
+            if let Some(srcset) = doc.get_attr(id, attr).map(str::trim).map(str::to_owned)
+                && !srcset.is_empty()
+                && srcset
+                    .split(',')
+                    .filter_map(|candidate| candidate.split_whitespace().next())
+                    .all(|url| !crate::sanitize::is_dangerous_url(url))
+            {
+                doc.set_attr(id, "srcset", &srcset);
+            }
+        }
+
+        let src = doc.get_attr(id, "src").unwrap_or("").to_string();
+        if (src.is_empty() || src.starts_with("data:image/"))
+            && let Some(loader) = doc
+                .get_attr(id, "data-image-loader")
+                .map(str::trim)
+                .map(str::to_owned)
+            && !loader.is_empty()
+            && !crate::sanitize::is_dangerous_url(&loader)
+        {
+            doc.set_attr(id, "src", &loader);
+        }
+        for attr in [
+            "data-src",
+            "data-original",
+            "data-lazy-src",
+            "data-original-src",
+            "data-srcset",
+            "data-lazy-srcset",
+            "data-image-loader",
+        ] {
+            doc.remove_attr(id, attr);
+        }
+
         if doc
             .get_attr(id, "src")
             .is_none_or(|s| s.starts_with("data:"))
@@ -165,7 +195,13 @@ pub(crate) fn get_best_src_url(srcset: &str) -> Option<String> {
 }
 
 pub(crate) fn remove_base64_placeholder_images(doc: &mut Document, content_id: NodeId) {
-    let lazy_attrs = ["data-src", "data-image-loader", "data-original-src"];
+    let lazy_attrs = [
+        "data-src",
+        "data-image-loader",
+        "data-original-src",
+        "data-original",
+        "data-lazy-src",
+    ];
     let imgs = doc.query_selector_all_in_subtree(content_id, "img");
     for id in imgs {
         let src = doc.get_attr(id, "src").unwrap_or("");

@@ -176,18 +176,18 @@ fn run() -> Result<(), String> {
     if frontmatter {
         let mut out = out;
         writeln!(out, "---").map_err(|e| e.to_string())?;
-        writeln!(out, "title: {}", &parsed_page.title).map_err(|e| e.to_string())?;
-        writeln!(out, "author: {}", &parsed_page.author).map_err(|e| e.to_string())?;
+        writeln!(out, "title: {}", parsed_page.title).map_err(|e| e.to_string())?;
+        writeln!(out, "author: {}", parsed_page.author).map_err(|e| e.to_string())?;
         if !parsed_page.description.is_empty() {
-            writeln!(out, "description: {}", &parsed_page.description)
+            writeln!(out, "description: {}", parsed_page.description)
                 .map_err(|e| e.to_string())?;
         }
-        writeln!(out, "site: {}", &parsed_page.site).map_err(|e| e.to_string())?;
+        writeln!(out, "site: {}", parsed_page.site).map_err(|e| e.to_string())?;
         if !parsed_page.published.is_empty() {
-            writeln!(out, "published: {}", &parsed_page.published).map_err(|e| e.to_string())?;
+            writeln!(out, "published: {}", parsed_page.published).map_err(|e| e.to_string())?;
         }
-        writeln!(out, "language: {}", &parsed_page.language).map_err(|e| e.to_string())?;
-        writeln!(out, "domain: {}", &parsed_page.domain).map_err(|e| e.to_string())?;
+        writeln!(out, "language: {}", parsed_page.language).map_err(|e| e.to_string())?;
+        writeln!(out, "domain: {}", parsed_page.domain).map_err(|e| e.to_string())?;
         writeln!(out, "---").map_err(|e| e.to_string())?;
         if markdown && let Some(ref md) = parsed_page.content_markdown {
             write!(out, "{md}").map_err(|e| e.to_string())?;

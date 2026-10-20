@@ -54,8 +54,6 @@ pub(crate) fn standardize_preformatted_elements(doc: &mut Document, content_id: 
     }
 }
 
-/// Unwrap <figure> elements that contain block-level content (paragraphs, headings),
-
 pub(crate) fn unwrap_figure_content_wrappers(doc: &mut Document, content_id: NodeId) {
     let figures = doc.query_selector_all_in_subtree(content_id, "figure");
     for id in figures {
@@ -87,8 +85,6 @@ pub(crate) fn unwrap_figure_content_wrappers(doc: &mut Document, content_id: Nod
     }
 }
 
-/// When an <img> has a base64/SVG placeholder src and a sibling <noscript> contains
-
 pub(crate) fn remove_obsolete_elements(doc: &mut Document, content_id: NodeId) {
     for tag in &["object", "embed", "applet"] {
         for id in doc.query_selector_all_in_subtree(content_id, tag) {
@@ -96,8 +92,6 @@ pub(crate) fn remove_obsolete_elements(doc: &mut Document, content_id: NodeId) {
         }
     }
 }
-
-/// Remove empty elements (no text, no children, not in ALLOWED_EMPTY_ELEMENTS)
 
 pub(crate) fn remove_empty_elements(doc: &mut Document, content_id: NodeId) {
     loop {
@@ -221,18 +215,17 @@ pub(crate) fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
         {
             return true;
         }
-        if let Some(class) = doc.get_attr(id, "class") {
-            if crate::content_utils::contains_ascii_case_insensitive(class, "article")
+        if let Some(class) = doc.get_attr(id, "class")
+            && (crate::content_utils::contains_ascii_case_insensitive(class, "article")
                 || crate::content_utils::contains_ascii_case_insensitive(class, "main")
                 || crate::content_utils::contains_ascii_case_insensitive(class, "content")
                 || crate::content_utils::contains_ascii_case_insensitive(class, "footnote")
                 || crate::content_utils::contains_ascii_case_insensitive(class, "reference")
                 || crate::content_utils::contains_ascii_case_insensitive(class, "bibliography")
-                || crate::content_utils::contains_ascii_case_insensitive(class, "callout-")
+                || crate::content_utils::contains_ascii_case_insensitive(class, "callout-"))
             {
                 return true;
             }
-        }
         false
     };
 
@@ -263,15 +256,14 @@ pub(crate) fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
             if el_children.is_empty() {
                 continue;
             }
-            if el_children.len() == 1 {
-                if tag_in(doc.tag_name(el_children[0]), BLOCK_LEVEL_ELEMENTS)
+            if el_children.len() == 1
+                && tag_in(doc.tag_name(el_children[0]), BLOCK_LEVEL_ELEMENTS)
                     && !should_keep(doc, el_children[0])
                 {
                     doc.unwrap(id);
                     changed = true;
                     continue;
                 }
-            }
             if el_children
                 .iter()
                 .all(|&c| tag_in(doc.tag_name(c), BLOCK_LEVEL_ELEMENTS))
@@ -285,8 +277,6 @@ pub(crate) fn flatten_wrapper_elements(doc: &mut Document, content_id: NodeId) {
         }
     }
 }
-
-/// Normalize <br> tags: remove standalone brs between blocks, collapse consecutive brs,
 
 pub(crate) fn strip_extra_br_elements(doc: &mut Document, content_id: NodeId) {
     let brs = doc.query_selector_all_in_subtree(content_id, "br");
@@ -555,8 +545,6 @@ pub(crate) fn standardize_element_roles(doc: &mut Document, content_id: NodeId) 
         doc.set_tag_name(id, "li");
     }
 }
-
-/// Flatten definition lists (<dl>) by converting <dt>/<dd> pairs into
 
 pub(crate) fn flatten_definition_lists(doc: &mut Document, content_id: NodeId) {
     let dls = doc.query_selector_all_in_subtree(content_id, "dl");

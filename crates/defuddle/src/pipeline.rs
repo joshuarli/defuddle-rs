@@ -425,6 +425,54 @@ fn remove_by_selector_impl(
             }
         }
     }
+    remove_link_annotations(doc);
+}
+
+fn remove_link_annotations(doc: &mut Document) {
+    let mut elements = Vec::new();
+    doc.element_ids_with_any_attribute_into(&["class"], &mut elements);
+    for id in elements {
+        let is_annotation_class = doc.get_attr(id, "class").is_some_and(|class_value| {
+            class_value.split_ascii_whitespace().any(|class_name| {
+                matches!(class_name, "sr-only" | "visually-hidden" | "screen-reader-text")
+            })
+        });
+        if !is_annotation_class || doc.closest(id, "pre, code, [data-defuddle]").is_some() {
+            continue;
+        }
+        let Some(link) = doc.closest(id, "a") else {
+            continue;
+        };
+        let annotation_text = doc.text_content(id);
+        if !is_link_annotation(&annotation_text) {
+            continue;
+        }
+        let visible_text = doc.text_content(link).replacen(&annotation_text, "", 1);
+        if !visible_text.trim().is_empty() {
+            doc.remove(id);
+        }
+    }
+}
+
+fn is_link_annotation(text: &str) -> bool {
+    let normalized = text
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    matches!(
+        normalized.as_str(),
+        "opensinanewwindow"
+            | "linkopensinanewwindow"
+            | "opensinanewtab"
+            | "linkopensinanewtab"
+            | "newwindow"
+            | "newtab"
+            | "external"
+            | "externallink"
+            | "externalsite"
+            | "externalwebsite"
+    )
 }
 
 fn partial_attribute_contains(
@@ -656,9 +704,7 @@ pub fn extract_content(
         scoring::find_main_content(doc, ENTRY_POINT_ELEMENTS)
     };
 
-    let Some(main) = main_content else {
-        return None;
-    };
+    let main = main_content?;
 
     if doc.tag_name_is(main, "body") {
         if let Some(main_element) = doc.query_selector_all("main").first().copied()

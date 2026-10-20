@@ -16,6 +16,24 @@ static DEL_TAG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static PROTOCOL_RELATIVE_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static ORIGIN_URL_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 
+fn format_markdown_link_destination(href: &str) -> Option<String> {
+    if crate::sanitize::is_dangerous_url(href) {
+        return None;
+    }
+    let escaped = href
+        .replace('\\', "\\\\")
+        .replace('<', "%3C")
+        .replace('>', "%3E")
+        .replace('\n', "%0A")
+        .replace('\r', "%0D")
+        .replace('\t', "%09");
+    Some(if escaped.chars().any(char::is_whitespace) {
+        format!("<{escaped}>")
+    } else {
+        escape_link_parens(&escaped)
+    })
+}
+
 /// Convert HTML content to Markdown using htmd (Turndown.js-compatible) with
 /// custom element handlers matching the upstream Defuddle Turndown rules.
 pub fn html_to_markdown(html: &str) -> String {
@@ -37,15 +55,15 @@ fn html_to_markdown_internal(html: &str, mut diagnostics: Option<&mut Diagnostic
 
 fn convert_cleaned_html_to_markdown(
     cleaned: &str,
-    mut diagnostics: &mut Option<&mut Diagnostics>,
+    diagnostics: &mut Option<&mut Diagnostics>,
 ) -> String {
     let converter = build_converter();
 
-    let converted = measure_phase(&mut diagnostics, "markdown convert", || {
-        converter.convert(&cleaned)
+    let converted = measure_phase(diagnostics, "markdown convert", || {
+        converter.convert(cleaned)
     });
     match converted {
-        Ok(md) => measure_phase(&mut diagnostics, "markdown postprocess", || {
+        Ok(md) => measure_phase(diagnostics, "markdown postprocess", || {
             postprocess_markdown(&md)
         }),
         Err(_) => cleaned.to_string(),
@@ -95,6 +113,48 @@ fn build_converter() -> HtmlToMarkdown {
             let children = _h.walk_children(el.node);
             Some(HandlerResult {
                 content: format!("~~{}~~", children.content),
+                markdown_translated: true,
+            })
+        },
+    );
+
+    builder = builder.add_handler(
+        vec!["a"],
+        |_h: &dyn Handlers, el: Element| -> Option<HandlerResult> {
+            let href = el
+                .attrs
+                .iter()
+                .find(|a| a.name.local.as_ref() == "href")
+                .map(|a| a.value.as_ref())
+                .unwrap_or("");
+            let children = _h.walk_children(el.node);
+            let content = if href.is_empty() {
+                children.content
+            } else {
+                let Some(destination) = format_markdown_link_destination(href) else {
+                    return Some(HandlerResult {
+                        content: children.content,
+                        markdown_translated: true,
+                    });
+                };
+                let title = el
+                    .attrs
+                    .iter()
+                    .find(|a| a.name.local.as_ref() == "title")
+                    .map(|a| {
+                        format!(
+                            " \"{}\"",
+                            a.value
+                                .replace(['\r', '\n'], " ")
+                                .replace('\\', "\\\\")
+                                .replace('"', "\\\"")
+                        )
+                    })
+                    .unwrap_or_default();
+                format!("[{}]({destination}{title})", children.content)
+            };
+            Some(HandlerResult {
+                content,
                 markdown_translated: true,
             })
         },
@@ -995,12 +1055,11 @@ fn fix_inline_spacing_line_stateful(line: &str) -> String {
             output.push('`');
             output.push_str(content);
             output.push('`');
-            if line[close + 1..].starts_with("[^") {
-                output.push(' ');
-            } else if line[close + 1..]
-                .chars()
-                .next()
-                .is_some_and(|character| character.is_alphanumeric())
+            if line[close + 1..].starts_with("[^")
+                || line[close + 1..]
+                    .chars()
+                    .next()
+                    .is_some_and(|character| character.is_alphanumeric())
             {
                 output.push(' ');
             }

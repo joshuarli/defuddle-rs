@@ -53,9 +53,7 @@ pub fn extract_metadata(
         detected_site_name
     } else if !author_as_site.is_empty() {
         author_as_site.to_string()
-    } else if domain.starts_with("research.") {
-        domain.clone()
-    } else if has_canonical {
+    } else if domain.starts_with("research.") || has_canonical {
         domain.clone()
     } else {
         String::new()

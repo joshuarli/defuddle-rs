@@ -1055,8 +1055,8 @@ impl Document {
         {
             return false;
         }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_contains {
-            if !attr_match(attrs, aname, |val| {
+        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_contains
+            && !attr_match(attrs, aname, |val| {
                 if case_insensitive {
                     crate::content_utils::contains_ascii_case_insensitive(val, aval)
                 } else {
@@ -1065,9 +1065,8 @@ impl Document {
             }) {
                 return false;
             }
-        }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_starts {
-            if !attr_match(attrs, aname, |val| {
+        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_starts
+            && !attr_match(attrs, aname, |val| {
                 if case_insensitive {
                     starts_ascii_case_insensitive(val, aval)
                 } else {
@@ -1076,9 +1075,8 @@ impl Document {
             }) {
                 return false;
             }
-        }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_ends {
-            if !attr_match(attrs, aname, |val| {
+        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_ends
+            && !attr_match(attrs, aname, |val| {
                 if case_insensitive {
                     ends_ascii_case_insensitive(val, aval)
                 } else {
@@ -1087,7 +1085,6 @@ impl Document {
             }) {
                 return false;
             }
-        }
         if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_word
             && !attr_match(attrs, aname, |val| {
                 if case_insensitive {

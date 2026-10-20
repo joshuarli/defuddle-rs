@@ -30,6 +30,8 @@ pub(crate) trait SiteAdapter {
     fn extract(&self, context: &mut ExtractionContext<'_>) -> SiteExtraction;
 }
 
+type AdapterCandidate = (&'static str, fn() -> Box<dyn SiteAdapter>);
+
 pub(crate) fn site_extraction_from_html(
     content_html: String,
     variables: FxHashMap<String, String>,
@@ -46,7 +48,7 @@ pub(crate) fn find_site_adapter(
     context: &ExtractionContext<'_>,
     requested_name: Option<&str>,
 ) -> Option<(&'static str, Box<dyn SiteAdapter>)> {
-    let candidates: &[(&str, fn() -> Box<dyn SiteAdapter>)] = &[
+    let candidates: &[AdapterCandidate] = &[
         ("hackernews", hackernews::adapter),
         ("substack", substack::adapter),
         ("reddit", reddit::adapter),

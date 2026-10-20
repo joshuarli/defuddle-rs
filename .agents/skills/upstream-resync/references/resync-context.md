@@ -2,11 +2,11 @@
 
 ## Baselines
 
-The most recent recorded Rust source resync covered upstream through `49d14ecc4089696565c2479b2f57db72be199adc`. The prior resync covered through `d4c4bad0dc96ca31b2383328e38061cc1490db47`. Update this source baseline when a resync is completed.
+The Rust source resync covers upstream through `556d74e8c8fd68c49912d4b11a4ae9ec04d7b2b5`; the prior baseline was `49d14ecc4089696565c2479b2f57db72be199adc`. The companion YouTube extension was reviewed through the same upstream commit. Track these baselines separately when a resync covers only one owner.
 
 The vendored fixture snapshot is independently pinned to `6c39f0959a2f566469a93a190b50e4b34bcf52c4`, recorded in `tests/upstream/SNAPSHOT.md`. Do not use it as the source resync baseline unless the Rust source baseline is intentionally reset.
 
-The sibling TypeScript checkout is `../defuddle`. The fixture harness compares `tests/upstream/defuddle/fixtures/` with `tests/upstream/defuddle/expected/` and checks `tests/upstream-exceptions.toml`.
+The TypeScript source is [kepano/defuddle](https://github.com/kepano/defuddle). Use `../defuddle` when that checkout exists. Otherwise clone it to `.work/wt/upstream-defuddle`. The fixture harness compares `tests/upstream/defuddle/fixtures/` with `tests/upstream/defuddle/expected/` and checks `tests/upstream-exceptions.toml`.
 
 ## Upstream-to-Rust ownership
 
@@ -23,6 +23,7 @@ The sibling TypeScript checkout is `../defuddle`. The fixture harness compares `
 | Markdown conversion | `crates/defuddle/src/markdown.rs` | General conversion uses `htmd`, with Defuddle-specific preprocessing and postprocessing. |
 | Metadata and schema | `crates/defuddle/src/metadata.rs`, `schema.rs` | Metadata is extracted before content selection mutates the document. |
 | URL and unsafe-element handling | `crates/defuddle/src/sanitize.rs`, `standardize/urls.rs` | Dangerous URL policy and relative URL resolution are separate operations. |
+| Fetch-dependent YouTube transcripts | `../extensions/extension-youtube-transcript/src/youtube-api.ts`, `captions.ts`, `types.ts` | Keep network access and transcript selection in the extension. Follow `../extensions/AGENTS.md` and test in that repository. |
 
 Confirm file paths and symbols against the current checkout before editing; ownership can move.
 
@@ -43,7 +44,7 @@ Check that a `NodeId` remains live after removing or replacing its ancestor. Sor
 
 Rust adapters return `SiteExtraction`; `lib.rs::site_result()` sanitizes unsafe elements, resolves URLs, standardizes extractor output, serializes it, and optionally converts it to Markdown. Do not run generic page scoring or boilerplate removal over already extracted site output. Generated extractor classes that must survive cleanup belong in `extractors::comments::is_extractor_class()`.
 
-The upstream `BaseExtractor` carries `schemaOrgData`, `includeReplies`, `language`, and an optional `fetch` function. Rust adapters receive the shared `pipeline::ExtractionContext`, which provides the parsed DOM, page URL, metadata, schema data, and `DefuddleOptions`. Decide whether an upstream option changes the public Rust contract or is only a constructor detail before adding it. Do not add fetch, transcript retrieval, or async extraction to the core crate. The Rust registry intentionally excludes fetch-dependent paths such as YouTube and Bilibili transcripts and Reddit Atom feeds.
+The upstream `BaseExtractor` carries `schemaOrgData`, `includeReplies`, `language`, and an optional `fetch` function. Rust adapters receive the shared `pipeline::ExtractionContext`, which provides the parsed DOM, page URL, metadata, schema data, and `DefuddleOptions`. Decide whether an upstream option changes the public Rust contract or is only a constructor detail before adding it. Do not add fetch, transcript retrieval, or async extraction to the core crate. The Rust registry excludes fetch-dependent paths such as YouTube and Bilibili transcripts and Reddit Atom feeds. The companion YouTube extension owns transcript fetching, caption selection, and its asynchronous tests.
 
 ## Known scope gaps
 

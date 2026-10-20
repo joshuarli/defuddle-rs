@@ -518,10 +518,10 @@ mod tests {
         let snapshot = AnalysisSnapshot::from_subtree(&doc, root);
         let paragraphs = snapshot.select_tag("p");
         let heading = snapshot.select_tag("h2").into_iter().next().unwrap();
-        let checkpoint;
+        
 
         let mut overlay = snapshot.overlay();
-        checkpoint = overlay.checkpoint();
+        let checkpoint = overlay.checkpoint();
         overlay.remove(paragraphs[1]);
         overlay.set_tag_name(heading, "h3");
         overlay.set_attr(paragraphs[0], "data-kept", "yes");

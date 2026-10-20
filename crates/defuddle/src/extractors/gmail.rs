@@ -270,7 +270,7 @@ fn month_number(token: &str) -> Option<u32> {
 }
 
 fn collect_descendants(doc: &Document, node: NodeId, output: &mut Vec<NodeId>) {
-    for child in doc.children(node).iter().copied().collect::<Vec<_>>() {
+    for child in doc.children(node).to_vec() {
         output.push(child);
         if doc.is_element(child) {
             collect_descendants(doc, child, output);
@@ -328,7 +328,7 @@ fn collect_lines(
     lines: &mut Vec<Vec<NodeId>>,
     line: &mut Vec<NodeId>,
 ) {
-    for child in doc.children(parent).iter().copied().collect::<Vec<_>>() {
+    for child in doc.children(parent).to_vec() {
         if !doc.is_element(child) {
             line.push(child);
             continue;
@@ -415,10 +415,7 @@ fn is_blank(doc: &Document, node: NodeId) -> bool {
 }
 
 fn trim_trailing_blanks(doc: &mut Document, root: NodeId) {
-    loop {
-        let Some(last) = doc.children(root).last().copied() else {
-            break;
-        };
+    while let Some(last) = doc.children(root).last().copied() {
         if !is_blank(doc, last) {
             break;
         }
