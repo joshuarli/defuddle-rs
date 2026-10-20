@@ -179,6 +179,7 @@ dependencies = [
  "regex-lite",
  "rustc-hash 2.1.3",
  "rustybench",
+ "smallvec",
  "thiserror",
  "walkdir",
 ]

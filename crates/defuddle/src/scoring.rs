@@ -285,11 +285,13 @@ pub fn score_non_content_block_with_text(doc: &Document, node: NodeId, text: &st
 
 pub fn find_main_content(doc: &Document, entry_point_selectors: &[&str]) -> Option<NodeId> {
     let mut candidates: Vec<(NodeId, f64, usize)> = Vec::new();
+    let mut text = String::new();
 
     for (index, selector) in entry_point_selectors.iter().enumerate() {
         let elements = doc.query_selector_all(selector);
         for el in elements {
-            let mut text = String::new();
+            text.clear();
+            text.reserve_exact(doc.text_content_len(el));
             doc.text_content_into(el, &mut text);
             let score = (entry_point_selectors.len() - index) as f64 * 40.0
                 + score_element_with_text(doc, el, &text);
@@ -315,6 +317,8 @@ pub fn find_main_content(doc: &Document, entry_point_selectors: &[&str]) -> Opti
     let mut child_text = String::new();
     for i in 1..candidates.len() {
         let child = candidates[i];
+        child_text.clear();
+        child_text.reserve_exact(doc.text_content_len(child.0));
         doc.text_content_into(child.0, &mut child_text);
         let child_words = count_words(&child_text);
         if child.2 < best.2 && doc.contains(best.0, child.0) && child_words > 50 {

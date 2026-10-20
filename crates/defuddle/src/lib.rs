@@ -649,9 +649,11 @@ fn parse_internal_once(
         {
             extracted_html = post(&extracted_html);
         }
+        let debug_content_selector =
+            config.debug.then(|| element_selector(&doc, content));
         let md = if config.separate_markdown {
             let markdown_raw =
-                markdown::content_to_markdown_with_diagnostics(&doc, content, diagnostics);
+                markdown::content_to_markdown_mut_with_diagnostics(&mut doc, content, diagnostics);
             let mut markdown = markdown::normalize_origin_links(&markdown_raw)
                 .replace("Vox_\\(website) ", "Vox_\\(website\\) ");
             if let Some(ref ov) = overrides
@@ -665,15 +667,10 @@ fn parse_internal_once(
         };
         let word_count = pipeline::count_html_words(&extracted_html);
 
-        let debug_info = if config.debug {
-            let content_sel = element_selector(&doc, content);
-            Some(DebugInfo {
-                content_selector: content_sel,
+        let debug_info = debug_content_selector.map(|content_selector| DebugInfo {
+                content_selector,
                 removals: Vec::new(),
-            })
-        } else {
-            None
-        };
+            });
 
         let schema_val = if config.schema_org_data.is_empty() {
             Value::Array(Array::new())

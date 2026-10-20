@@ -3,8 +3,10 @@ use html5ever::tendril::{StrTendril, TendrilSink};
 use html5ever::tree_builder::{ElemName, TreeSink};
 use html5ever::{Attribute, LocalName, Namespace, QualName};
 use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::mem;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -49,14 +51,22 @@ impl Clone for Document {
     }
 }
 
+#[derive(Default)]
+struct TrimmedTextStats {
+    byte_len: usize,
+    word_count: usize,
+    pending_whitespace: usize,
+    has_text: bool,
+    in_word: bool,
+}
+
 impl Document {
     pub(crate) fn empty() -> Self {
         Self {
             nodes: vec![Node {
-                parent: None,
-                children: Vec::new(),
+                parent: NodeParent::new(None),
+                children: SmallVec::new(),
                 kind: NodeKind::Document,
-                removed: false,
             }],
             root: NodeId(0),
             selector_cache: RefCell::new(FxHashMap::default()),
@@ -101,8 +111,8 @@ enum NodeKind {
     Document,
     Doctype,
     Element {
-        name: String,
-        attrs: Vec<(String, String)>,
+        name: LocalName,
+        attrs: Vec<(LocalName, String)>,
     },
     Text(String),
     Comment(String),
@@ -116,8 +126,12 @@ struct ParseSink {
 
 impl ParseSink {
     fn new() -> Self {
+        Self::with_node_capacity(0)
+    }
+
+    fn with_node_capacity(node_capacity: usize) -> Self {
         let mut document = Document {
-            nodes: Vec::new(),
+            nodes: Vec::with_capacity(node_capacity),
             root: NodeId(0),
             selector_cache: RefCell::new(FxHashMap::default()),
         };
@@ -130,24 +144,30 @@ impl ParseSink {
 
     fn append_node(&self, parent: NodeId, child: NodeId) {
         let mut document = self.document.borrow_mut();
-        if let Some(old_parent) = document.node(child).parent {
+        if let Some(old_parent) = document.node(child).parent.get() {
             document
                 .node_mut(old_parent)
                 .children
-                .retain(|&id| id != child);
+                .retain(|id| *id != child);
         }
-        let child_text = match &document.node(child).kind {
-            NodeKind::Text(text) => Some(text.clone()),
+        let child_text = match document.node(child).kind {
+            NodeKind::Text(_) => Some(mem::replace(
+                &mut document.node_mut(child).kind,
+                NodeKind::Removed,
+            )),
             _ => None,
         };
-        if let (Some(text), Some(&last)) = (child_text, document.node(parent).children.last())
-            && let NodeKind::Text(last_text) = &mut document.node_mut(last).kind
-        {
-            last_text.push_str(&text);
-            document.node_mut(child).removed = true;
-            return;
+        if let Some(NodeKind::Text(text)) = child_text {
+            if let Some(&last) = document.node(parent).children.last()
+                && last != child
+                && let NodeKind::Text(last_text) = &mut document.node_mut(last).kind
+            {
+                last_text.push_str(&text);
+                return;
+            }
+            document.node_mut(child).kind = NodeKind::Text(text);
         }
-        document.node_mut(child).parent = Some(parent);
+        document.node_mut(child).parent = NodeParent::new(Some(parent));
         document.node_mut(parent).children.push(child);
     }
 
@@ -165,14 +185,14 @@ impl ParseSink {
 
     fn append_before(&self, sibling: NodeId, child: NodeId) {
         let mut document = self.document.borrow_mut();
-        let Some(parent) = document.node(sibling).parent else {
+        let Some(parent) = document.node(sibling).parent.get() else {
             return;
         };
-        if let Some(old_parent) = document.node(child).parent {
+        if let Some(old_parent) = document.node(child).parent.get() {
             document
                 .node_mut(old_parent)
                 .children
-                .retain(|&id| id != child);
+                .retain(|id| *id != child);
         }
         let Some(position) = document
             .node(parent)
@@ -182,7 +202,7 @@ impl ParseSink {
         else {
             return;
         };
-        document.node_mut(child).parent = Some(parent);
+        document.node_mut(child).parent = NodeParent::new(Some(parent));
         document.node_mut(parent).children.insert(position, child);
     }
 }
@@ -234,11 +254,11 @@ impl TreeSink for ParseSink {
     ) -> NodeId {
         let attrs = attrs
             .into_iter()
-            .map(|attr| (attr.name.local.to_string(), attr.value.to_string()))
+            .map(|attr| (attr.name.local, attr.value.to_string()))
             .collect();
         self.document.borrow_mut().push_node(
             NodeKind::Element {
-                name: name.local.to_string(),
+                name: name.local,
                 attrs,
             },
             None,
@@ -275,7 +295,8 @@ impl TreeSink for ParseSink {
             .borrow()
             .node(*element)
             .parent
-            .or_else(|| self.document.borrow().node(*prev_element).parent);
+            .get()
+            .or_else(|| self.document.borrow().node(*prev_element).parent.get());
         if let Some(parent) = parent {
             self.append(&parent, child);
         }
@@ -310,7 +331,7 @@ impl TreeSink for ParseSink {
             NodeOrText::AppendNode(child) => self.append_before(*sibling, child),
             NodeOrText::AppendText(text) => {
                 let mut document = self.document.borrow_mut();
-                let Some(parent) = document.node(*sibling).parent else {
+                let Some(parent) = document.node(*sibling).parent.get() else {
                     return;
                 };
                 let Some(position) = document
@@ -340,22 +361,22 @@ impl TreeSink for ParseSink {
         for attr in attrs {
             if !existing
                 .iter()
-                .any(|(name, _)| name.eq_ignore_ascii_case(attr.name.local.as_ref()))
+                .any(|(name, _)| name.as_ref().eq_ignore_ascii_case(attr.name.local.as_ref()))
             {
-                existing.push((attr.name.local.to_string(), attr.value.to_string()));
+                existing.push((attr.name.local, attr.value.to_string()));
             }
         }
     }
 
     fn remove_from_parent(&self, target: &NodeId) {
         let mut document = self.document.borrow_mut();
-        if let Some(parent) = document.node(*target).parent {
+        if let Some(parent) = document.node(*target).parent.get() {
             document
                 .node_mut(parent)
                 .children
-                .retain(|&id| id != *target);
+                .retain(|id| *id != *target);
         }
-        document.node_mut(*target).parent = None;
+        document.node_mut(*target).parent = NodeParent::new(None);
     }
 
     fn reparent_children(&self, node: &NodeId, new_parent: &NodeId) {
@@ -369,17 +390,44 @@ impl TreeSink for ParseSink {
 
 #[derive(Debug, Clone)]
 struct Node {
-    parent: Option<NodeId>,
-    children: Vec<NodeId>,
+    parent: NodeParent,
+    children: SmallVec<[NodeId; 1]>,
     kind: NodeKind,
-    removed: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct NodeParent(Option<NonZeroUsize>);
+
+impl NodeParent {
+    fn new(parent: Option<NodeId>) -> Self {
+        Self(parent.map(|parent| NonZeroUsize::new(parent.0 + 1).unwrap()))
+    }
+
+    fn get(self) -> Option<NodeId> {
+        self.0.map(|parent| NodeId(parent.get() - 1))
+    }
 }
 
 impl Document {
     pub fn parse(html: &str) -> Self {
         #[cfg(test)]
         PARSE_COUNT.with(|count| count.set(count.get() + 1));
-        html5ever::parse_document(ParseSink::new(), Default::default()).one(html)
+        let node_capacity = html
+            .as_bytes()
+            .windows(2)
+            .filter(|pair| {
+                pair[0] == b'<' && (pair[1].is_ascii_alphabetic() || b"/!?".contains(&pair[1]))
+            })
+            .count()
+            .saturating_add(4)
+            * 95
+            / 100;
+        let sink = if node_capacity > 2_048 {
+            ParseSink::with_node_capacity(node_capacity)
+        } else {
+            ParseSink::new()
+        };
+        html5ever::parse_document(sink, Default::default()).one(html)
     }
 
     pub fn root(&self) -> NodeId {
@@ -387,7 +435,7 @@ impl Document {
     }
 
     pub fn parent(&self, node: NodeId) -> Option<NodeId> {
-        self.node(node).parent
+        self.node(node).parent.get()
     }
 
     pub fn children(&self, node: NodeId) -> &[NodeId] {
@@ -395,22 +443,24 @@ impl Document {
     }
 
     pub fn append_node(&mut self, parent: NodeId, child: NodeId) {
-        if self.node(parent).removed
-            || self.node(child).removed
+        if self.is_removed(parent)
+            || self.is_removed(child)
             || parent == child
             || self.contains(child, parent)
         {
             return;
         }
-        if let Some(old_parent) = self.node(child).parent {
-            self.node_mut(old_parent).children.retain(|&id| id != child);
+        if let Some(old_parent) = self.node(child).parent.get() {
+            self.node_mut(old_parent)
+                .children
+                .retain(|id| *id != child);
         }
-        self.node_mut(child).parent = Some(parent);
+        self.node_mut(child).parent = NodeParent::new(Some(parent));
         self.node_mut(parent).children.push(child);
     }
 
     pub fn append_text(&mut self, parent: NodeId, text: &str) {
-        if self.node(parent).removed || text.is_empty() {
+        if self.is_removed(parent) || text.is_empty() {
             return;
         }
         if let Some(&last) = self.node(parent).children.last()
@@ -431,10 +481,10 @@ impl Document {
     ) -> NodeId {
         let node = self.push_node(
             NodeKind::Element {
-                name: name.to_string(),
+                name: name.into(),
                 attrs: attrs
                     .iter()
-                    .map(|(name, value)| ((*name).to_string(), (*value).to_string()))
+                    .map(|(name, value)| ((*name).into(), (*value).to_string()))
                     .collect(),
             },
             Some(parent),
@@ -461,7 +511,7 @@ impl Document {
 
     pub fn tag_name(&self, node: NodeId) -> &str {
         match &self.node(node).kind {
-            NodeKind::Element { name, .. } => name.as_str(),
+            NodeKind::Element { name, .. } => name.as_ref(),
             _ => "",
         }
     }
@@ -470,7 +520,7 @@ impl Document {
     /// tag name equals `name` ignoring ASCII case.
     pub fn tag_name_is(&self, node: NodeId, name: &str) -> bool {
         match &self.node(node).kind {
-            NodeKind::Element { name: n, .. } => n.eq_ignore_ascii_case(name),
+            NodeKind::Element { name: n, .. } => n.as_ref().eq_ignore_ascii_case(name),
             _ => false,
         }
     }
@@ -480,7 +530,9 @@ impl Document {
     pub fn tag_name_is_any(&self, node: NodeId, names: &[&str]) -> bool {
         match &self.node(node).kind {
             NodeKind::Element { name: n, .. } => {
-                names.iter().any(|&name| n.eq_ignore_ascii_case(name))
+                names
+                    .iter()
+                    .any(|&name| n.as_ref().eq_ignore_ascii_case(name))
             }
             _ => false,
         }
@@ -499,7 +551,7 @@ impl Document {
     }
 
     pub fn is_removed(&self, node: NodeId) -> bool {
-        self.node(node).removed
+        matches!(self.node(node).kind, NodeKind::Removed)
     }
 
     pub fn query_selector_all(&self, selector: &str) -> Vec<NodeId> {
@@ -547,7 +599,7 @@ impl Document {
                 continue;
             };
             let tag_candidates = by_tag
-                .get(name)
+                .get(name.as_ref())
                 .into_iter()
                 .flat_map(|parts| parts.iter().copied());
             if wildcard
@@ -619,7 +671,7 @@ impl Document {
             if self.matches_simple(id, &selector) {
                 return Some(id);
             }
-            current = self.node(id).parent;
+            current = self.node(id).parent.get();
         }
         None
     }
@@ -630,7 +682,7 @@ impl Document {
             if id == ancestor {
                 return true;
             }
-            current = self.node(id).parent;
+            current = self.node(id).parent.get();
         }
         false
     }
@@ -672,6 +724,57 @@ impl Document {
         out
     }
 
+    pub(crate) fn text_content_len(&self, node: NodeId) -> usize {
+        if self.is_removed(node) {
+            return 0;
+        }
+        let own_len = self.text_node_value(node).map_or(0, str::len);
+        own_len
+            + self
+                .node(node)
+                .children
+                .iter()
+                .copied()
+                .map(|child| self.text_content_len(child))
+                .sum::<usize>()
+    }
+
+    pub(crate) fn trimmed_text_stats(&self, node: NodeId) -> (usize, usize) {
+        let mut stats = TrimmedTextStats::default();
+        self.accumulate_trimmed_text_stats(node, &mut stats);
+        (stats.byte_len, stats.word_count)
+    }
+
+    fn accumulate_trimmed_text_stats(&self, node: NodeId, stats: &mut TrimmedTextStats) {
+        if self.is_removed(node) {
+            return;
+        }
+        if let Some(text) = self.text_node_value(node) {
+            for character in text.chars() {
+                if character.is_whitespace() {
+                    if stats.has_text {
+                        stats.pending_whitespace += character.len_utf8();
+                    }
+                    stats.in_word = false;
+                } else {
+                    if stats.has_text {
+                        stats.byte_len += stats.pending_whitespace;
+                    }
+                    stats.pending_whitespace = 0;
+                    stats.byte_len += character.len_utf8();
+                    stats.has_text = true;
+                    if !stats.in_word {
+                        stats.word_count += 1;
+                    }
+                    stats.in_word = true;
+                }
+            }
+        }
+        for &child in &self.node(node).children {
+            self.accumulate_trimmed_text_stats(child, stats);
+        }
+    }
+
     pub(crate) fn text_node_value(&self, node: NodeId) -> Option<&str> {
         match &self.node(node).kind {
             NodeKind::Text(text) => Some(text),
@@ -683,7 +786,7 @@ impl Document {
         match &self.node(node).kind {
             NodeKind::Element { attrs, .. } => attrs
                 .iter()
-                .find(|(attr_name, _)| attr_name.eq_ignore_ascii_case(name))
+                .find(|(attr_name, _)| attr_name.as_ref().eq_ignore_ascii_case(name))
                 .map(|(_, value)| value.as_str()),
             _ => None,
         }
@@ -693,18 +796,18 @@ impl Document {
         if let NodeKind::Element { attrs, .. } = &mut self.node_mut(node).kind {
             if let Some((_, existing)) = attrs
                 .iter_mut()
-                .find(|(attr_name, _)| attr_name.eq_ignore_ascii_case(name))
+                .find(|(attr_name, _)| attr_name.as_ref().eq_ignore_ascii_case(name))
             {
                 *existing = value.to_string();
             } else {
-                attrs.push((name.to_string(), value.to_string()));
+                attrs.push((name.into(), value.to_string()));
             }
         }
     }
 
     pub fn remove_attr(&mut self, node: NodeId, name: &str) {
         if let NodeKind::Element { attrs, .. } = &mut self.node_mut(node).kind {
-            attrs.retain(|(attr_name, _)| !attr_name.eq_ignore_ascii_case(name));
+            attrs.retain(|(attr_name, _)| !attr_name.as_ref().eq_ignore_ascii_case(name));
         }
     }
 
@@ -723,7 +826,9 @@ impl Document {
     /// Get all attribute names on an element.
     pub fn attr_names(&self, node: NodeId) -> Vec<String> {
         match &self.node(node).kind {
-            NodeKind::Element { attrs, .. } => attrs.iter().map(|(name, _)| name.clone()).collect(),
+            NodeKind::Element { attrs, .. } => {
+                attrs.iter().map(|(name, _)| name.to_string()).collect()
+            }
             _ => Vec::new(),
         }
     }
@@ -731,7 +836,7 @@ impl Document {
     /// Set the tag name of an element.
     pub fn set_tag_name(&mut self, node: NodeId, new_name: &str) {
         if let NodeKind::Element { name, .. } = &mut self.node_mut(node).kind {
-            *name = new_name.to_string();
+            *name = new_name.into();
         }
     }
 
@@ -775,22 +880,22 @@ impl Document {
     }
 
     pub fn remove(&mut self, node: NodeId) {
-        if node == self.root || self.node(node).removed {
+        if node == self.root || self.is_removed(node) {
             return;
         }
-        if let Some(parent) = self.node(node).parent {
+        if let Some(parent) = self.node(node).parent.get() {
             self.node_mut(parent)
                 .children
-                .retain(|&child| child != node);
+                .retain(|child| *child != node);
         }
         self.mark_removed(node);
     }
 
     pub fn unwrap(&mut self, node: NodeId) {
-        if node == self.root || self.node(node).removed {
+        if node == self.root || self.is_removed(node) {
             return;
         }
-        let Some(parent) = self.node(node).parent else {
+        let Some(parent) = self.node(node).parent.get() else {
             return;
         };
         let children = self.node(node).children.clone();
@@ -807,10 +912,13 @@ impl Document {
             let parent_node = self.node_mut(parent);
             parent_node
                 .children
-                .splice(position..=position, children.clone());
+            .remove(position);
+            for (offset, child) in children.iter().copied().enumerate() {
+                parent_node.children.insert(position + offset, child);
+            }
         }
         for child in children {
-            self.node_mut(child).parent = Some(parent);
+            self.node_mut(child).parent = NodeParent::new(Some(parent));
         }
         self.node_mut(node).children.clear();
         self.mark_removed(node);
@@ -825,10 +933,10 @@ impl Document {
     }
 
     pub fn replace_with_html(&mut self, node: NodeId, html: &str) {
-        if node == self.root || self.node(node).removed {
+        if node == self.root || self.is_removed(node) {
             return;
         }
-        let Some(parent) = self.node(node).parent else {
+        let Some(parent) = self.node(node).parent.get() else {
             return;
         };
         let Some(position) = self
@@ -845,15 +953,16 @@ impl Document {
         let mut new_children = Vec::new();
         for child in fragment_children {
             let new_child = self.clone_subtree_from(&fragment, child, None);
-            self.node_mut(new_child).parent = Some(parent);
+            self.node_mut(new_child).parent = NodeParent::new(Some(parent));
             new_children.push(new_child);
         }
 
         {
             let parent_node = self.node_mut(parent);
-            parent_node
-                .children
-                .splice(position..=position, new_children);
+            parent_node.children.remove(position);
+            for (offset, child) in new_children.into_iter().enumerate() {
+                parent_node.children.insert(position + offset, child);
+            }
         }
         self.mark_removed(node);
     }
@@ -877,10 +986,9 @@ impl Document {
     fn push_node(&mut self, kind: NodeKind, parent: Option<NodeId>) -> NodeId {
         let id = NodeId(self.nodes.len());
         self.nodes.push(Node {
-            parent,
-            children: Vec::new(),
+            parent: NodeParent::new(parent),
+            children: SmallVec::new(),
             kind,
-            removed: false,
         });
         if let Some(parent) = parent {
             self.nodes[parent.0].children.push(id);
@@ -888,10 +996,10 @@ impl Document {
         id
     }
 
-    fn body_children_or_root_children(&self) -> Vec<NodeId> {
+    fn body_children_or_root_children(&self) -> SmallVec<[NodeId; 1]> {
         if let Some(body) = self
             .live_node_ids()
-            .find(|&id| matches!(&self.node(id).kind, NodeKind::Element { name, .. } if name.eq_ignore_ascii_case("body")))
+            .find(|&id| matches!(&self.node(id).kind, NodeKind::Element { name, .. } if name.as_ref().eq_ignore_ascii_case("body")))
         {
             return self.node(body).children.clone();
         }
@@ -906,7 +1014,7 @@ impl Document {
     ) -> NodeId {
         let new_id = self.push_node(source.node(source_id).kind.clone(), parent);
         for child in source.node(source_id).children.iter().copied() {
-            if !source.node(child).removed {
+            if !source.is_removed(child) {
                 self.clone_subtree_from(source, child, Some(new_id));
             }
         }
@@ -924,7 +1032,7 @@ impl Document {
     fn live_node_ids(&self) -> impl Iterator<Item = NodeId> + '_ {
         (0..self.nodes.len())
             .map(NodeId)
-            .filter(|&id| !self.node(id).removed)
+            .filter(|&id| !self.is_removed(id))
     }
 
     fn collect_matching_subtree(
@@ -933,7 +1041,7 @@ impl Document {
         selector: &[SimpleSelector],
         results: &mut Vec<NodeId>,
     ) {
-        if self.node(node).removed {
+        if self.is_removed(node) {
             return;
         }
         if self.matches_selector_chain(node, selector) {
@@ -945,7 +1053,7 @@ impl Document {
     }
 
     fn subtree_has_match(&self, node: NodeId, selector: &[SimpleSelector]) -> bool {
-        if self.node(node).removed {
+        if self.is_removed(node) {
             return false;
         }
         if self.matches_selector_chain(node, selector) {
@@ -958,7 +1066,7 @@ impl Document {
     }
 
     fn subtree_match_count(&self, node: NodeId, selector: &[SimpleSelector]) -> usize {
-        if self.node(node).removed {
+        if self.is_removed(node) {
             return 0;
         }
         let own_match = usize::from(self.matches_selector_chain(node, selector));
@@ -972,13 +1080,12 @@ impl Document {
     }
 
     fn mark_removed(&mut self, node: NodeId) {
-        if self.node(node).removed {
+        if self.is_removed(node) {
             return;
         }
         let children = mem::take(&mut self.node_mut(node).children);
         let kind = mem::replace(&mut self.node_mut(node).kind, NodeKind::Removed);
-        self.node_mut(node).removed = true;
-        self.node_mut(node).parent = None;
+        self.node_mut(node).parent = NodeParent::new(None);
         drop(kind);
         for child in children {
             self.mark_removed(child);
@@ -993,16 +1100,16 @@ impl Document {
             return false;
         }
 
-        let mut ancestor = self.node(node).parent;
+        let mut ancestor = self.node(node).parent.get();
         for selector in parts[..parts.len() - 1].iter().rev() {
             let mut matched = None;
             while let Some(candidate) = ancestor {
                 if self.matches_simple(candidate, selector) {
                     matched = Some(candidate);
-                    ancestor = self.node(candidate).parent;
+                    ancestor = self.node(candidate).parent.get();
                     break;
                 }
-                ancestor = self.node(candidate).parent;
+                ancestor = self.node(candidate).parent.get();
             }
             if matched.is_none() {
                 return false;
@@ -1016,86 +1123,87 @@ impl Document {
             return false;
         };
         if let Some(tag) = &selector.tag
-            && !name.eq_ignore_ascii_case(tag)
+            && !name.as_ref().eq_ignore_ascii_case(tag)
         {
             return false;
         }
         if let Some(id) = &selector.id
             && !attrs
                 .iter()
-                .any(|(aname, aval)| aname.eq_ignore_ascii_case("id") && aval == id)
+                .any(|(aname, aval)| {
+                    aname.as_ref().eq_ignore_ascii_case("id") && aval == id.as_ref()
+                })
         {
             return false;
         }
         if !selector.classes.is_empty() {
             for class in &selector.classes {
                 if !attrs.iter().any(|(aname, aval)| {
-                    aname.eq_ignore_ascii_case("class")
-                        && aval.split_whitespace().any(|value| value == class)
+                    aname.as_ref().eq_ignore_ascii_case("class")
+                        && aval
+                            .split_whitespace()
+                            .any(|value| value == class.as_ref())
                 }) {
                     return false;
                 }
             }
         }
-        if let Some(ref attr_presence) = selector.attr_presence
-            && !attrs
-                .iter()
-                .any(|(aname, _)| eq_ignore_case(aname, attr_presence))
-        {
-            return false;
-        }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_equals
-            && !attr_match(attrs, aname, |val| {
-                if case_insensitive {
-                    val.eq_ignore_ascii_case(aval)
-                } else {
-                    val == aval
+        for attribute in &selector.attributes {
+            let matches = match attribute {
+                AttributeSelector::Presence(name) => attrs
+                    .iter()
+                    .any(|(attr_name, _)| eq_ignore_case(attr_name.as_ref(), name)),
+                AttributeSelector::Equals(name, value, case_insensitive) => {
+                    attr_match(attrs, name, |actual| {
+                        if *case_insensitive {
+                            actual.eq_ignore_ascii_case(value)
+                        } else {
+                            actual == value
+                        }
+                    })
                 }
-            })
-        {
-            return false;
-        }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_contains
-            && !attr_match(attrs, aname, |val| {
-                if case_insensitive {
-                    crate::content_utils::contains_ascii_case_insensitive(val, aval)
-                } else {
-                    val.contains(aval.as_str())
+                AttributeSelector::Contains(name, value, case_insensitive) => {
+                    attr_match(attrs, name, |actual| {
+                        if *case_insensitive {
+                            crate::content_utils::contains_ascii_case_insensitive(actual, value)
+                        } else {
+                            actual.contains(value.as_str())
+                        }
+                    })
                 }
-            }) {
+                AttributeSelector::Starts(name, value, case_insensitive) => {
+                    attr_match(attrs, name, |actual| {
+                        if *case_insensitive {
+                            starts_ascii_case_insensitive(actual, value)
+                        } else {
+                            actual.starts_with(value.as_str())
+                        }
+                    })
+                }
+                AttributeSelector::Ends(name, value, case_insensitive) => {
+                    attr_match(attrs, name, |actual| {
+                        if *case_insensitive {
+                            ends_ascii_case_insensitive(actual, value)
+                        } else {
+                            actual.ends_with(value.as_str())
+                        }
+                    })
+                }
+                AttributeSelector::Word(name, value, case_insensitive) => {
+                    attr_match(attrs, name, |actual| {
+                        if *case_insensitive {
+                            actual
+                                .split_whitespace()
+                                .any(|word| word.eq_ignore_ascii_case(value))
+                        } else {
+                            actual.split_whitespace().any(|word| word == value.as_str())
+                        }
+                    })
+                }
+            };
+            if !matches {
                 return false;
             }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_starts
-            && !attr_match(attrs, aname, |val| {
-                if case_insensitive {
-                    starts_ascii_case_insensitive(val, aval)
-                } else {
-                    val.starts_with(aval.as_str())
-                }
-            }) {
-                return false;
-            }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_ends
-            && !attr_match(attrs, aname, |val| {
-                if case_insensitive {
-                    ends_ascii_case_insensitive(val, aval)
-                } else {
-                    val.ends_with(aval.as_str())
-                }
-            }) {
-                return false;
-            }
-        if let Some((ref aname, ref aval, case_insensitive)) = selector.attr_word
-            && !attr_match(attrs, aname, |val| {
-                if case_insensitive {
-                    val.split_whitespace()
-                        .any(|word| word.eq_ignore_ascii_case(aval))
-                } else {
-                    val.split_whitespace().any(|word| word == aval)
-                }
-            })
-        {
-            return false;
         }
         if let Some(ref negation) = selector.negation
             && self.matches_simple(node, negation)
@@ -1121,7 +1229,7 @@ impl Document {
     }
 
     pub(crate) fn text_content_into(&self, node: NodeId, out: &mut String) {
-        if self.node(node).removed {
+        if self.is_removed(node) {
             return;
         }
         if let NodeKind::Text(text) = &self.node(node).kind {
@@ -1133,12 +1241,12 @@ impl Document {
     }
 
     pub(crate) fn text_content_with_br_into(&self, node: NodeId, out: &mut String) {
-        if self.node(node).removed {
+        if self.is_removed(node) {
             return;
         }
         match &self.node(node).kind {
             NodeKind::Text(text) => out.push_str(text),
-            NodeKind::Element { name, .. } if name.eq_ignore_ascii_case("br") => {
+            NodeKind::Element { name, .. } if name.as_ref().eq_ignore_ascii_case("br") => {
                 out.push('\n');
             }
             _ => {
@@ -1156,34 +1264,36 @@ impl Document {
     }
 
     pub fn replace_with_node(&mut self, target: NodeId, replacement: NodeId) {
-        if target == self.root || self.node(target).removed {
+        if target == self.root || self.is_removed(target) {
             return;
         }
         if target == replacement || self.contains(replacement, target) {
             return;
         }
-        let target_parent = self.node(target).parent;
+        let target_parent = self.node(target).parent.get();
         let target_pos =
             target_parent.and_then(|p| self.node(p).children.iter().position(|&c| c == target));
 
-        if let Some(rp) = self.node(replacement).parent {
-            self.node_mut(rp).children.retain(|&c| c != replacement);
+        if let Some(rp) = self.node(replacement).parent.get() {
+            self.node_mut(rp)
+                .children
+                .retain(|c| *c != replacement);
         }
 
         if let (Some(parent), Some(pos)) = (target_parent, target_pos) {
             self.node_mut(parent).children[pos] = replacement;
-            self.node_mut(replacement).parent = target_parent;
+            self.node_mut(replacement).parent = NodeParent::new(target_parent);
         }
 
         for child in self.node(target).children.clone() {
-            self.node_mut(child).parent = None;
+            self.node_mut(child).parent = NodeParent::new(None);
         }
         self.node_mut(target).children.clear();
         self.mark_removed(target);
     }
 
     fn serialize_node(&self, node: NodeId, out: &mut String) {
-        if self.node(node).removed {
+        if self.is_removed(node) {
             return;
         }
         match &self.node(node).kind {
@@ -1227,18 +1337,22 @@ impl Document {
 
 #[derive(Debug, Default)]
 pub(crate) struct SimpleSelector {
-    pub(crate) tag: Option<String>,
-    pub(crate) id: Option<String>,
-    pub(crate) classes: Vec<String>,
-    pub(crate) attr_presence: Option<String>,
-    pub(crate) attr_equals: Option<(String, String, bool)>,
-    pub(crate) attr_contains: Option<(String, String, bool)>,
-    pub(crate) attr_starts: Option<(String, String, bool)>,
-    pub(crate) attr_ends: Option<(String, String, bool)>,
-    pub(crate) attr_word: Option<(String, String, bool)>,
+    pub(crate) tag: Option<Box<str>>,
+    pub(crate) id: Option<Box<str>>,
+    pub(crate) classes: Vec<Box<str>>,
+    pub(crate) attributes: Vec<AttributeSelector>,
     pub(crate) negation: Option<Box<SimpleSelector>>,
-    /// For `:has(sel)` — inner selector to check in descendants.
     pub(crate) extra: Option<Box<SimpleSelector>>,
+}
+
+#[derive(Debug)]
+pub(crate) enum AttributeSelector {
+    Presence(String),
+    Equals(String, String, bool),
+    Contains(String, String, bool),
+    Starts(String, String, bool),
+    Ends(String, String, bool),
+    Word(String, String, bool),
 }
 
 fn eq_ignore_case(a: &str, b: &str) -> bool {
@@ -1261,13 +1375,13 @@ fn ends_ascii_case_insensitive(value: &str, suffix: &str) -> bool {
 }
 
 fn attr_match<F: FnMut(&str) -> bool>(
-    attrs: &[(String, String)],
+    attrs: &[(LocalName, String)],
     name: &str,
     mut predicate: F,
 ) -> bool {
     attrs
         .iter()
-        .any(|(aname, aval)| eq_ignore_case(aname, name) && predicate(aval))
+        .any(|(aname, aval)| eq_ignore_case(aname.as_ref(), name) && predicate(aval))
 }
 
 fn is_void_element(name: &str) -> bool {
@@ -1316,6 +1430,27 @@ fn escape_attr_into(input: &str, out: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::Document;
+
+    #[test]
+    fn trimmed_text_stats_match_trimmed_text_content() {
+        let doc = Document::parse("<article> \nAlpha <b>Beta</b> \n CJK　終わり</article>");
+        let article = doc.query_selector_all("article")[0];
+        let text = doc.text_content(article);
+        assert_eq!(
+            doc.trimmed_text_stats(article),
+            (text.trim().len(), text.split_whitespace().count())
+        );
+    }
+
+    #[test]
+    fn selector_matches_each_attribute_constraint() {
+        let doc = Document::parse(
+            "<div data-first='yes' data-second='yes'></div><div data-first='yes'></div>",
+        );
+        let matches = doc.query_selector_all("div[data-first][data-second]");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(doc.get_attr(matches[0], "data-second"), Some("yes"));
+    }
 
     #[test]
     fn dom_adapter_spike_covers_required_operations() {

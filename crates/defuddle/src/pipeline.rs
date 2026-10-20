@@ -822,17 +822,12 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
             ]
             .iter()
             .any(|pattern| crate::content_utils::contains_ascii_case_insensitive(c, pattern));
-            if is_boilerplate {
-                text.clear();
-                doc.text_content_into(id, &mut text);
-                if text.split_whitespace().count() < 50 {
-                    doc.remove(id);
-                }
+            if is_boilerplate && doc.trimmed_text_stats(id).1 < 50 {
+                doc.remove(id);
             }
         }
     }
 
-    // Remove "Read time", "X min read", "Reading time" elements
     let read_time_patterns = [
         "read-time",
         "read_time",
@@ -847,18 +842,21 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         "time-read",
         "timestamp",
     ];
-    for pattern in &read_time_patterns {
-        let selector = format!("[class*=\"{pattern}\" i], [id*=\"{pattern}\" i]");
-        doc.query_selector_all_in_subtree_into(content_id, &selector, &mut matches);
-        for &id in &matches {
-            if !doc.has_closest(id, &["pre", "code"]) {
-                doc.remove(id);
-            }
+    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
+    for &id in &matches {
+        let matches_pattern = [doc.get_attr(id, "class"), doc.get_attr(id, "id")]
+            .into_iter()
+            .flatten()
+            .any(|value| {
+                read_time_patterns.iter().any(|pattern| {
+                    crate::content_utils::contains_ascii_case_insensitive(value, pattern)
+                })
+            });
+        if matches_pattern && !doc.has_closest(id, &["pre", "code"]) {
+            doc.remove(id);
         }
     }
 
-    // Remove eyebrow/breadcrumb labels: short divs with single-word text
-    // like "Blog", "News", "Home" that appear before headings
     doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
         if !doc.is_element(id) {
@@ -869,20 +867,14 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
             continue;
         }
         let class = doc.get_attr(id, "class").unwrap_or("");
-        text.clear();
-        doc.text_content_into(id, &mut text);
-        let text = text.trim();
-        let word_count = text.split_whitespace().count();
-        // Breadcrumb containers — remove if class indicates breadcrumb
         if crate::content_utils::contains_ascii_case_insensitive(class, "breadcrumb")
             || crate::content_utils::contains_ascii_case_insensitive(class, "nav")
         {
             doc.remove(id);
             continue;
         }
-        // List/nav elements with breadcrumb-like patterns
-        if (tag == "ol" || tag == "ul" || tag == "nav") && text.len() < 200 {
-            // Check if this looks like a breadcrumb (short items, links, text- classes)
+        let (text_len, word_count) = doc.trimmed_text_stats(id);
+        if (tag == "ol" || tag == "ul" || tag == "nav") && text_len < 200 {
             let link_count = doc.count_selector_in_subtree(id, "a");
             if link_count >= 1
                 && crate::content_utils::contains_ascii_case_insensitive(class, "text-")
@@ -891,9 +883,8 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
                 continue;
             }
         }
-        // Single-word labels that are common breadcrumbs/eyebrows
         if word_count <= 3
-            && text.len() < 100
+            && text_len < 100
             && (crate::content_utils::contains_ascii_case_insensitive(class, "text-")
                 || crate::content_utils::contains_ascii_case_insensitive(class, "eyebrow")
                 || crate::content_utils::contains_ascii_case_insensitive(class, "overline")
@@ -954,16 +945,12 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
             continue;
         }
         let class = doc.get_attr(id, "class").unwrap_or("");
-        // Remove subtitle/lede paragraphs near beginning of content
         if crate::content_utils::contains_ascii_case_insensitive(class, "subtitle")
             || crate::content_utils::contains_ascii_case_insensitive(class, "lede")
             || crate::content_utils::contains_ascii_case_insensitive(class, "deck")
             || crate::content_utils::contains_ascii_case_insensitive(class, "article-deck")
         {
-            text.clear();
-            doc.text_content_into(id, &mut text);
-            let text = text.trim();
-            let word_count = text.split_whitespace().count();
+            let word_count = doc.trimmed_text_stats(id).1;
             if word_count < 40 {
                 doc.remove(id);
                 continue;
@@ -1910,6 +1897,21 @@ mod tests {
         remove_by_selector, remove_content_patterns,
     };
     use crate::dom::Document;
+
+    #[test]
+    fn removes_read_time_attributes_but_keeps_code_examples() {
+        let mut doc = Document::parse(
+            "<article><div class='Read-Time'>4 min read</div><p id='timestamp'>Article text remains.</p><pre class='reading-time'><code>let read_time = 4;</code></pre></article>",
+        );
+        let root = doc.query_selector_all("article")[0];
+
+        remove_content_patterns(&mut doc, root);
+
+        let output = doc.outer_html(root);
+        assert!(!output.contains("Read-Time"));
+        assert!(!output.contains("timestamp"));
+        assert!(output.contains("let read_time = 4;"));
+    }
 
     #[test]
     fn partial_pattern_index_preserves_selector_matching() {

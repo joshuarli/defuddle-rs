@@ -5,6 +5,7 @@ use htmd::{
     Element, HtmlToMarkdown,
     options::{HeadingStyle, LinkStyle},
 };
+use std::borrow::Cow;
 use std::sync::OnceLock;
 
 static WBR_TAG_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
@@ -151,7 +152,13 @@ fn build_converter() -> HtmlToMarkdown {
                         )
                     })
                     .unwrap_or_default();
-                format!("[{}]({destination}{title})", children.content)
+                let label = children.content.trim_start_matches(['\t', '\n', '\r', ' ']);
+                let label_end = label.trim_end_matches(['\t', '\n', '\r', ' ']).len();
+                let trailing_whitespace = &label[label_end..];
+                let label = &label[..label_end];
+                let mut markdown_link = format!("[{label}]({destination}{title})");
+                markdown_link.push_str(trailing_whitespace);
+                markdown_link
             };
             Some(HandlerResult {
                 content,
@@ -587,10 +594,18 @@ fn preprocess_html_text_with_diagnostics(
     diagnostics: &mut Option<&mut Diagnostics>,
 ) -> String {
     let html = measure_phase(diagnostics, "markdown text basic", || {
-        html.replace("&nbsp;", " ")
-            .replace("<br>", "\n")
-            .replace("<br/>", "\n")
-            .replace("<br />", "\n")
+        let mut html = Cow::Borrowed(html);
+        for (pattern, replacement) in [
+            ("&nbsp;", " "),
+            ("<br>", "\n"),
+            ("<br/>", "\n"),
+            ("<br />", "\n"),
+        ] {
+            if html.contains(pattern) {
+                html = Cow::Owned(html.replace(pattern, replacement));
+            }
+        }
+        html.into_owned()
     });
 
     // Strip <wbr> tags
@@ -661,10 +676,6 @@ fn preprocess_html_dom(html: &str) -> String {
 }
 
 fn preprocess_markdown_dom(doc: &mut Document, root: NodeId) {
-    for id in doc.query_selector_all_in_subtree(root, "wbr") {
-        doc.remove(id);
-    }
-
     for id in doc.query_selector_all_in_subtree(root, "img") {
         // Markdown output intentionally omits image alt text. Captions and
         // surrounding text remain in the document, while alt text often
@@ -1566,8 +1577,13 @@ fn convert_task_lists(html: &str) -> String {
     let re_unchecked = UNCHECKED_CHECKBOX_RE.get_or_init(|| {
         regex_lite::Regex::new(r#"<li[^>]*>\s*<input[^>]*type="checkbox"[^>]*>\s*"#).unwrap()
     });
-    let html = re_checked.replace_all(html, "<li>[x] ").to_string();
-    re_unchecked.replace_all(&html, "<li>[ ] ").to_string()
+    match re_checked.replace_all(html, "<li>[x] ") {
+        Cow::Borrowed(checked) => re_unchecked.replace_all(checked, "<li>[ ] ").into_owned(),
+        Cow::Owned(checked) if re_unchecked.is_match(&checked) => {
+            re_unchecked.replace_all(&checked, "<li>[ ] ").into_owned()
+        }
+        Cow::Owned(checked) => checked,
+    }
 }
 
 /// Get the best image URL from a srcset attribute.
@@ -1619,14 +1635,18 @@ pub fn resolve_best_image_sources(html: &str) -> String {
     preprocess_html_dom(html)
 }
 
-/// Convert inline formatting: <mark> → ==text==, <del>/<s>/<strike> → ~~text~~
 fn convert_inline_formatting(html: &str) -> String {
     let re_mark =
         MARK_TAG_RE.get_or_init(|| regex_lite::Regex::new(r"<mark[^>]*>(.*?)</mark>").unwrap());
     let re_del =
         DEL_TAG_RE.get_or_init(|| regex_lite::Regex::new(r"</?(?:del|s|strike)\b[^>]*>").unwrap());
-    let html = re_mark.replace_all(html, "==$1==").to_string();
-    re_del.replace_all(&html, "~~").to_string()
+    match re_mark.replace_all(html, "==$1==") {
+        Cow::Borrowed(marked) => re_del.replace_all(marked, "~~").into_owned(),
+        Cow::Owned(marked) if re_del.is_match(&marked) => {
+            re_del.replace_all(&marked, "~~").into_owned()
+        }
+        Cow::Owned(marked) => marked,
+    }
 }
 
 /// Convert the content of a DOM element to Markdown.
@@ -1634,12 +1654,26 @@ pub fn content_to_markdown(doc: &Document, content_id: NodeId) -> String {
     content_to_markdown_from_document(doc, content_id, None)
 }
 
-pub(crate) fn content_to_markdown_with_diagnostics(
-    doc: &Document,
+pub(crate) fn content_to_markdown_mut_with_diagnostics(
+    doc: &mut Document,
     content_id: NodeId,
     diagnostics: &mut Diagnostics,
 ) -> String {
-    content_to_markdown_from_document(doc, content_id, Some(diagnostics))
+    let needs_dom_preprocess = ["img", "table", "iframe"].iter().any(|selector| {
+        !doc.query_selector_all_in_subtree(content_id, selector)
+            .is_empty()
+    });
+    let mut diagnostics = Some(diagnostics);
+    let html = measure_phase(&mut diagnostics, "markdown serialize", || {
+        if needs_dom_preprocess {
+            preprocess_markdown_dom(doc, content_id);
+        }
+        doc.inner_html(content_id)
+    });
+    let cleaned = measure_phase(&mut diagnostics, "markdown preprocess", || {
+        preprocess_html_text(&html)
+    });
+    convert_cleaned_html_to_markdown(&cleaned, &mut diagnostics)
 }
 
 fn content_to_markdown_from_document(
@@ -1667,15 +1701,21 @@ fn content_to_markdown_from_document(
 }
 
 pub fn normalize_origin_links(md: &str) -> String {
-    let md = md.replace("](//CLAUDE.md)", "](https://claude.md/)");
+    let mut md = Cow::Borrowed(md);
+    if md.contains("](//CLAUDE.md)") {
+        md = Cow::Owned(md.replace("](//CLAUDE.md)", "](https://claude.md/)"));
+    }
     let protocol_relative =
         PROTOCOL_RELATIVE_RE.get_or_init(|| regex_lite::Regex::new(r"\(//([^/\s)]+)\)").unwrap());
-    let md = protocol_relative
-        .replace_all(&md, "(https://$1/)")
-        .to_string();
+    if let Cow::Owned(normalized) = protocol_relative.replace_all(md.as_ref(), "(https://$1/)") {
+        md = Cow::Owned(normalized);
+    }
     let origin_re =
         ORIGIN_URL_RE.get_or_init(|| regex_lite::Regex::new(r"\((https?://[^/\s)]+)\)").unwrap());
-    origin_re.replace_all(&md, "($1/)").to_string()
+    if let Cow::Owned(normalized) = origin_re.replace_all(md.as_ref(), "($1/)") {
+        md = Cow::Owned(normalized);
+    }
+    md.into_owned()
 }
 
 #[cfg(test)]
@@ -1702,6 +1742,13 @@ mod tests {
     }
 
     #[test]
+    fn linked_images_trim_block_whitespace_from_link_labels() {
+        let html = "<a href='https://example.com/page'>\n  <figure><img src='https://example.com/image.png'></figure>\n</a>";
+        let md = html_to_markdown(html);
+        assert!(md.contains("[![](https://example.com/image.png)](https://example.com/page)"));
+    }
+
+    #[test]
     fn test_markdown_lists() {
         let html = "<ul><li>Item 1</li><li>Item 2</li></ul>";
         let md = html_to_markdown(html);
@@ -1715,6 +1762,36 @@ mod tests {
         assert_eq!(
             normalize_table_separator_line("| --- |  | --- |"),
             "| --- | --- | --- |"
+        );
+    }
+
+    #[test]
+    fn inline_formatting_replacements_preserve_text_and_transform_tags() {
+        assert_eq!(convert_inline_formatting("plain"), "plain");
+        assert_eq!(convert_inline_formatting("<mark>marked</mark>"), "==marked==");
+        assert_eq!(convert_inline_formatting("<del>deleted</del>"), "~~deleted~~");
+        assert_eq!(
+            convert_inline_formatting("<mark>marked</mark> and <s>deleted</s>"),
+            "==marked== and ~~deleted~~"
+        );
+    }
+
+    #[test]
+    fn basic_html_replacements_convert_nbsp_and_break_variants() {
+        assert_eq!(
+            preprocess_html_text("A&nbsp;B<br>C<br/>D<br />E"),
+            "A B\nC\nD\nE"
+        );
+    }
+
+    #[test]
+    fn origin_link_normalization_preserves_and_rewrites_links() {
+        assert_eq!(normalize_origin_links("plain"), "plain");
+        assert_eq!(
+            normalize_origin_links(
+                "](//CLAUDE.md) (//example.com) (https://example.org)"
+            ),
+            "](https://claude.md/) (https://example.com/) (https://example.org/)"
         );
     }
 

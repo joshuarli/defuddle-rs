@@ -1,4 +1,4 @@
-use crate::dom::SimpleSelector;
+use crate::dom::{AttributeSelector, SimpleSelector};
 
 pub(crate) type ParsedSelector = Vec<Vec<SimpleSelector>>;
 
@@ -79,7 +79,7 @@ fn parse_simple(p: &mut cssparser::Parser<'_>) -> Option<SimpleSelector> {
             None => break,
             Some(cssparser::Token::Ident(name)) => {
                 if sel.tag.is_none() {
-                    sel.tag = Some(name.as_ref().to_string());
+                    sel.tag = Some(name.as_ref().into());
                 }
                 hit = true;
             }
@@ -87,12 +87,12 @@ fn parse_simple(p: &mut cssparser::Parser<'_>) -> Option<SimpleSelector> {
                 hit = true;
             }
             Some(cssparser::Token::IDHash(id)) => {
-                sel.id = Some(id.as_ref().to_string());
+                sel.id = Some(id.as_ref().into());
                 hit = true;
             }
             Some(cssparser::Token::Delim('.')) => {
                 if let Ok(ident) = p.expect_ident_cloned() {
-                    sel.classes.push(ident.as_ref().to_string());
+                    sel.classes.push(ident.as_ref().into());
                     hit = true;
                 } else {
                     break;
@@ -210,12 +210,18 @@ fn consume_i_flag(p: &mut cssparser::Parser<'_>) -> bool {
 
 fn apply_attr(sel: &mut SimpleSelector, attr: Attr) {
     match attr {
-        Attr::Presence(name) => sel.attr_presence = Some(name),
-        Attr::Equals(name, val, ci) => sel.attr_equals = Some((name, val, ci)),
-        Attr::Contains(name, val, ci) => sel.attr_contains = Some((name, val, ci)),
-        Attr::Starts(name, val, ci) => sel.attr_starts = Some((name, val, ci)),
-        Attr::Ends(name, val, ci) => sel.attr_ends = Some((name, val, ci)),
-        Attr::Word(name, val, ci) => sel.attr_word = Some((name, val, ci)),
+        Attr::Presence(name) => sel.attributes.push(AttributeSelector::Presence(name)),
+        Attr::Equals(name, val, ci) => sel
+            .attributes
+            .push(AttributeSelector::Equals(name, val, ci)),
+        Attr::Contains(name, val, ci) => sel
+            .attributes
+            .push(AttributeSelector::Contains(name, val, ci)),
+        Attr::Starts(name, val, ci) => sel
+            .attributes
+            .push(AttributeSelector::Starts(name, val, ci)),
+        Attr::Ends(name, val, ci) => sel.attributes.push(AttributeSelector::Ends(name, val, ci)),
+        Attr::Word(name, val, ci) => sel.attributes.push(AttributeSelector::Word(name, val, ci)),
     }
 }
 
@@ -230,7 +236,7 @@ mod tests {
         assert_eq!(parsed[0].len(), 2);
         assert_eq!(parsed[0][0].tag.as_deref(), Some("main"));
         assert_eq!(parsed[0][1].tag.as_deref(), Some("article"));
-        assert_eq!(parsed[0][1].classes, vec!["post"]);
+        assert_eq!(parsed[0][1].classes[0].as_ref(), "post");
     }
 
     #[test]
@@ -251,7 +257,10 @@ mod tests {
     fn test_attr_equals() {
         let s = &parse("input[type=\"checkbox\"]")[0][0];
         assert_eq!(s.tag.as_deref(), Some("input"));
-        assert!(s.attr_equals.is_some());
+        assert!(matches!(
+            s.attributes.first(),
+            Some(AttributeSelector::Equals(..))
+        ));
     }
 
     #[test]
@@ -264,7 +273,7 @@ mod tests {
         );
         let neg = s.negation.as_ref().unwrap();
         assert!(
-            neg.attr_presence.as_deref() == Some("src"),
+            matches!(neg.attributes.first(), Some(AttributeSelector::Presence(name)) if name == "src"),
             "negation should check [src] presence"
         );
     }
@@ -307,8 +316,17 @@ mod tests {
     fn test_attr_with_case_insensitive_flag() {
         let s = parse_one("[role=\"banner\"]");
         if let Some(s) = s {
-            assert!(s.attr_equals.is_some());
+            assert!(matches!(
+                s.attributes.first(),
+                Some(AttributeSelector::Equals(..))
+            ));
         }
+    }
+
+    #[test]
+    fn test_multiple_attributes_on_one_selector() {
+        let selector = parse_one("div[data-first][data-second]").expect("should parse");
+        assert_eq!(selector.attributes.len(), 2);
     }
 
     #[test]
