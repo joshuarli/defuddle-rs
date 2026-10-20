@@ -1,9 +1,5 @@
 # Testing and verification
 
-## Cargo prerequisite
-
-The core crate declares `rustybench` as a local development dependency one directory above the repository root. Clone [the `rustybench` repository](https://github.com/joshuarli/rustybench) there before running Cargo commands. Without it, Cargo fails during manifest loading.
-
 ## Commands
 
 Run workspace checks from the repository root:

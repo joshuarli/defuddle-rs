@@ -7,7 +7,7 @@ Defuddle is a synchronous Rust library and CLI for extracting readable content f
 - Build: `cargo build --workspace`.
 - Test: `cargo test --workspace`.
 - Check: `cargo clippy --workspace --all-targets -- --deny warnings`.
-- Cargo commands need the `rustybench` checkout at `../rustybench`, referenced by the core crate's path dev-dependency; see [testing](docs/testing.md).
+- Performance baselines use `rustybench` 0.4.0; see [performance](docs/performance.md).
 
 ## Invariants
 
@@ -23,5 +23,5 @@ Defuddle is a synchronous Rust library and CLI for extracting readable content f
 - Pipeline, DOM, selectors, and module ownership: [architecture](docs/architecture.md).
 - Site adapter matching, scope, and additions: [site adapters](docs/site-adapters.md).
 - Build prerequisites, fixtures, and verification: [testing](docs/testing.md).
+- Performance baseline workflow: [performance](docs/performance.md).
 - Upstream resync workflow and Rust mapping: [upstream-resync skill](.agents/skills/upstream-resync/SKILL.md).
-- Benchmarks and performance records: [performance](docs/performance.md).

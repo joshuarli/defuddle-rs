@@ -6,16 +6,11 @@ The workspace contains the `defuddle` library, the `defuddle` command-line progr
 
 ## Availability
 
-The workspace crates are currently version `0.0.0`. Building the checkout requires the adjacent [`rustybench` repository](https://github.com/joshuarli/rustybench), which the core manifest uses as a local development dependency. Clone both repositories side by side, then install the CLI:
+The workspace crates are currently version `0.0.0`. Install the CLI from a checkout with:
 
 ```sh
-git clone https://github.com/joshuarli/defuddle-rs
-git clone https://github.com/joshuarli/rustybench
-cd defuddle-rs
 cargo install --path crates/defuddle-cli
 ```
-
-For an existing checkout, clone `rustybench` into its parent directory before running Cargo.
 
 ## Rust library
 

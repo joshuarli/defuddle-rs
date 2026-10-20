@@ -19,15 +19,9 @@ cssparser = "0.37"
 workspace = true
 
 [dev-dependencies]
-rustybench = "0.4"
-rayon = "1.12"
+rustybench = "=0.4.0"
 walkdir = "2"
-zim = { git = "https://github.com/dignifiedquire/zim", rev = "82b897e479254601efdabc0f37c1cb9e7e20f7d3", version = "0.5.0" }
 
 [[bench]]
-name = "zim_bench"
-harness = false
-
-[[bench]]
-name = "zim_extract"
+name = "fixture_bench"
 harness = false

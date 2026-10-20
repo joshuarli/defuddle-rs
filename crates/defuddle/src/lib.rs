@@ -225,8 +225,7 @@ pub fn parse_html(
 
 /// Parse HTML and return structured timings for every measured pipeline phase.
 ///
-/// The returned timings are collected during the same work as `parse_html()`;
-/// ZIM readers, HTTP servers, and other input adapters are outside this API.
+/// The returned timings are collected during the same work as `parse_html()`.
 /// Use this entry point for diagnostics and aggregation, not for normal
 /// extraction when the profile is not needed.
 pub fn parse_html_profiled(
