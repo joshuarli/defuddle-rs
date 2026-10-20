@@ -4,9 +4,8 @@ pub(crate) type ParsedSelector = Vec<Vec<SimpleSelector>>;
 
 pub(crate) fn parse(selector: &str) -> ParsedSelector {
     let mut result = Vec::new();
-    let mut input = cssparser::ParserInput::new(selector);
     {
-        let mut parser = cssparser::Parser::new(&mut input);
+        let mut parser = cssparser::Parser::new(selector);
         loop {
             let mut compound = Vec::new();
             loop {
@@ -64,7 +63,7 @@ pub(crate) fn parse_one(s: &str) -> Option<SimpleSelector> {
     parse(s).into_iter().next()?.into_iter().next()
 }
 
-fn parse_simple(p: &mut cssparser::Parser<'_, '_>) -> Option<SimpleSelector> {
+fn parse_simple(p: &mut cssparser::Parser<'_>) -> Option<SimpleSelector> {
     let mut sel = SimpleSelector::default();
     let mut hit = false;
     loop {
@@ -137,10 +136,10 @@ fn parse_simple(p: &mut cssparser::Parser<'_, '_>) -> Option<SimpleSelector> {
     if hit { Some(sel) } else { None }
 }
 
-fn parse_inner(p: &mut cssparser::Parser<'_, '_>) -> Option<SimpleSelector> {
-    p.parse_nested_block(|pp| {
+fn parse_inner(p: &mut cssparser::Parser<'_>) -> Option<SimpleSelector> {
+    p.parse_nested_block(|pp| -> Result<SimpleSelector, cssparser::ParseError<()>> {
         while pp.try_parse(|ppp| ppp.expect_whitespace()).is_ok() {}
-        parse_simple(pp).ok_or(pp.new_custom_error::<(), ()>(()))
+        parse_simple(pp).ok_or_else(unexpected_token)
     })
     .ok()
 }
@@ -154,8 +153,8 @@ enum Attr {
     Word(String, String, bool),
 }
 
-fn parse_attr(p: &mut cssparser::Parser<'_, '_>) -> Option<Attr> {
-    p.parse_nested_block(|pp| {
+fn parse_attr(p: &mut cssparser::Parser<'_>) -> Option<Attr> {
+    p.parse_nested_block(|pp| -> Result<Attr, cssparser::ParseError<()>> {
         let name = pp.expect_ident_cloned()?.as_ref().to_string();
         let mut ci = false;
         // Convert token to tag value to release borrow
@@ -173,12 +172,12 @@ fn parse_attr(p: &mut cssparser::Parser<'_, '_>) -> Option<Attr> {
             return Ok(Attr::Presence(name));
         }
         if op == 99 {
-            return Err(pp.new_custom_error::<(), ()>(()));
+            return Err(unexpected_token());
         }
         let val = match pp.next() {
             Ok(cssparser::Token::Ident(v)) => v.as_ref().to_string(),
             Ok(cssparser::Token::QuotedString(v)) => v.as_ref().to_string(),
-            _ => return Err(pp.new_custom_error::<(), ()>(())),
+            _ => return Err(unexpected_token()),
         };
         let attr = match op {
             1 => {
@@ -189,14 +188,18 @@ fn parse_attr(p: &mut cssparser::Parser<'_, '_>) -> Option<Attr> {
             3 | 4 => Attr::Starts(name, val, ci),
             5 => Attr::Ends(name, val, ci),
             6 => Attr::Contains(name, val, ci),
-            _ => return Err(pp.new_custom_error::<(), ()>(())),
+            _ => return Err(unexpected_token()),
         };
         Ok(attr)
     })
     .ok()
 }
 
-fn consume_i_flag(p: &mut cssparser::Parser<'_, '_>) -> bool {
+fn unexpected_token() -> cssparser::ParseError<()> {
+    cssparser::BasicParseError::unexpected_token().into()
+}
+
+fn consume_i_flag(p: &mut cssparser::Parser<'_>) -> bool {
     let s = p.state();
     if p.expect_whitespace().is_ok() && p.expect_ident_matching("i").is_ok() {
         return true;

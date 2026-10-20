@@ -10,11 +10,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 defuddle = { path = "../defuddle" }
-miniserde = "0.1"
-wasm-bindgen = "=0.2.108"
+miniserde = "0.1.46"
+wasm-bindgen = "=0.2.129"
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3"
+wasm-bindgen-test = "0.3.79"
 
 [lints]
 workspace = true
