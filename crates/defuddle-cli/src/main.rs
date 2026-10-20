@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Cursor, Read, Write};
+use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::process;
 
@@ -251,41 +251,44 @@ fn is_single_file_cli_archive(bytes: &[u8]) -> bool {
 }
 
 fn read_single_file_cli_archive(bytes: &[u8]) -> Result<CliInput, String> {
-    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
+    let archive = rawzip::ZipArchive::from_slice(bytes)
         .map_err(|e| format!("Cannot read SingleFile ZIP archive: {e}"))?;
 
     let (index_name, archive_url) = {
-        let manifest = archive.by_name("manifest.json").ok().and_then(|mut file| {
-            let mut contents = String::new();
-            file.read_to_string(&mut contents).ok()?;
-            let value = miniserde::json::from_str::<miniserde::json::Value>(&contents).ok()?;
-            let object = match value {
-                miniserde::json::Value::Object(object) => object,
-                _ => return None,
-            };
-            let index_name = object
-                .get("indexFilename")
-                .and_then(|value| match value {
-                    miniserde::json::Value::String(value) => Some(value.clone()),
+        let manifest = find_archive_entry(&archive, "manifest.json")
+            .ok()
+            .flatten()
+            .and_then(|(wayfinder, method)| {
+                let bytes = read_archive_entry(&archive, wayfinder, method).ok()?;
+                let contents = String::from_utf8(bytes).ok()?;
+                let value = miniserde::json::from_str::<miniserde::json::Value>(&contents).ok()?;
+                let object = match value {
+                    miniserde::json::Value::Object(object) => object,
+                    _ => return None,
+                };
+                let index_name = object
+                    .get("indexFilename")
+                    .and_then(|value| match value {
+                        miniserde::json::Value::String(value) => Some(value.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| "index.html".to_string());
+                let archive_url = object.get("originalUrl").and_then(|value| match value {
+                    miniserde::json::Value::String(value) if !value.is_empty() => {
+                        Some(value.clone())
+                    }
                     _ => None,
-                })
-                .unwrap_or_else(|| "index.html".to_string());
-            let archive_url = object.get("originalUrl").and_then(|value| match value {
-                miniserde::json::Value::String(value) if !value.is_empty() => Some(value.clone()),
-                _ => None,
+                });
+                Some((index_name, archive_url))
             });
-            Some((index_name, archive_url))
-        });
 
         manifest.unwrap_or_else(|| ("index.html".to_string(), None))
     };
 
-    let mut index = archive
-        .by_name(&index_name)
-        .map_err(|e| format!("SingleFile archive does not contain {index_name}: {e}"))?;
-    let mut html_bytes = Vec::new();
-    index
-        .read_to_end(&mut html_bytes)
+    let (wayfinder, method) = find_archive_entry(&archive, &index_name)
+        .map_err(|e| format!("Cannot read SingleFile ZIP archive: {e}"))?
+        .ok_or_else(|| format!("SingleFile archive does not contain {index_name}"))?;
+    let html_bytes = read_archive_entry(&archive, wayfinder, method)
         .map_err(|e| format!("Cannot read {index_name} from SingleFile archive: {e}"))?;
     let source_html = String::from_utf8(html_bytes)
         .map_err(|e| format!("SingleFile index is not valid UTF-8: {e}"))?;
@@ -294,6 +297,44 @@ fn read_single_file_cli_archive(bytes: &[u8]) -> Result<CliInput, String> {
         source_html,
         page_url: archive_url,
     })
+}
+
+fn find_archive_entry(
+    archive: &rawzip::ZipSliceArchive<&[u8]>,
+    name: &str,
+) -> Result<Option<(rawzip::ZipArchiveEntryWayfinder, rawzip::CompressionMethod)>, rawzip::Error>
+{
+    let mut entries = archive.entries();
+    while let Some(entry) = entries.next_entry()? {
+        if entry.file_path().as_ref() == name.as_bytes() {
+            return Ok(Some((entry.wayfinder(), entry.compression_method())));
+        }
+    }
+    Ok(None)
+}
+
+fn read_archive_entry(
+    archive: &rawzip::ZipSliceArchive<&[u8]>,
+    wayfinder: rawzip::ZipArchiveEntryWayfinder,
+    method: rawzip::CompressionMethod,
+) -> Result<Vec<u8>, String> {
+    let entry = archive
+        .get_entry(wayfinder)
+        .map_err(|error| error.to_string())?;
+    let data = entry.data();
+    let decoder: Box<dyn Read + '_> = if method == rawzip::CompressionMethod::STORE {
+        Box::new(data)
+    } else if method == rawzip::CompressionMethod::DEFLATE {
+        Box::new(flate2::read::DeflateDecoder::new(data))
+    } else {
+        return Err(format!("unsupported compression method: {method:?}"));
+    };
+    let mut reader = entry.verifying_reader(decoder);
+    let mut contents = Vec::new();
+    reader
+        .read_to_end(&mut contents)
+        .map_err(|error| error.to_string())?;
+    Ok(contents)
 }
 
 fn print_help() {

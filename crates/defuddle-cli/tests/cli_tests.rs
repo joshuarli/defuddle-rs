@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{Cursor, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -61,22 +61,36 @@ fn cli_reads_file() {
 
 #[test]
 fn cli_reads_single_file_zip_html() {
-    let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    archive
-        .start_file("index.html", zip::write::SimpleFileOptions::default())
-        .unwrap();
-    archive
-        .write_all(
-            br#"<html><head><title>Archived document</title></head><body><article><p>Archived content.</p></article></body></html>"#,
-        )
-        .unwrap();
-    archive
-        .start_file("manifest.json", zip::write::SimpleFileOptions::default())
-        .unwrap();
-    archive
-        .write_all(br#"{"originalUrl":"https://example.com/archive"}"#)
-        .unwrap();
-    let zip_bytes = archive.finish().unwrap().into_inner();
+    let mut zip_bytes = Vec::new();
+    {
+        let mut archive = rawzip::ZipArchiveWriter::new(&mut zip_bytes);
+        for (name, contents) in [
+            (
+                "index.html",
+                &b"<html><head><title>Archived document</title></head><body><article><p>Archived content.</p></article></body></html>"[..],
+            ),
+            (
+                "manifest.json",
+                &br#"{"originalUrl":"https://example.com/archive"}"#[..],
+            ),
+        ] {
+            let (mut entry, config) = archive
+                .new_file(name)
+                .compression_method(rawzip::CompressionMethod::DEFLATE)
+                .start()
+                .unwrap();
+            let encoder = flate2::write::DeflateEncoder::new(
+                &mut entry,
+                flate2::Compression::default(),
+            );
+            let mut writer = config.wrap(encoder);
+            writer.write_all(contents).unwrap();
+            let (encoder, descriptor) = writer.finish().unwrap();
+            encoder.finish().unwrap();
+            entry.finish(descriptor).unwrap();
+        }
+        archive.finish().unwrap();
+    }
 
     let path = std::env::temp_dir().join(format!(
         "defuddle-cli-single-file-{}.zip.html",
