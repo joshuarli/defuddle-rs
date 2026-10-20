@@ -23,5 +23,5 @@ Defuddle is a synchronous Rust library and CLI for extracting readable content f
 - Pipeline, DOM, selectors, and module ownership: [architecture](docs/architecture.md).
 - Site adapter matching, scope, and additions: [site adapters](docs/site-adapters.md).
 - Build prerequisites, fixtures, and verification: [testing](docs/testing.md).
-- Upstream mapping, scope differences, and resync: [upstream sync](docs/upstream.md).
+- Upstream resync workflow and Rust mapping: [upstream-resync skill](.agents/skills/upstream-resync/SKILL.md).
 - Benchmarks and performance records: [performance](docs/performance.md).
