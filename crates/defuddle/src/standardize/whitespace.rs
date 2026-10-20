@@ -2,55 +2,81 @@ use crate::dom::{Document, NodeId};
 
 pub(crate) fn move_inline_whitespace(doc: &mut Document, content_id: NodeId) {
     let inline = doc
-        .query_selector_all_in_subtree(content_id, "code,em,strong,a,mark,s,del")
-        .into_iter()
-        .collect::<Vec<_>>();
+        .query_selector_all_in_subtree(content_id, "code,em,strong,a,mark,s,del");
     for id in inline {
         let Some(parent) = doc.parent(id) else {
             continue;
         };
-        let siblings = doc.children(parent).to_vec();
-        let Some(pos) = siblings.iter().position(|&child| child == id) else {
-            continue;
+        let (previous_text, next_text) = {
+            let siblings = doc.children(parent);
+            let Some(pos) = siblings.iter().position(|&child| child == id) else {
+                continue;
+            };
+            let previous_text = siblings[..pos]
+                .iter()
+                .rev()
+                .copied()
+                .find(|&sibling| doc.is_text(sibling));
+            let next_text = siblings[pos + 1..]
+                .iter()
+                .copied()
+                .find(|&sibling| {
+                    doc.text_node_value(sibling)
+                        .is_some_and(|text| !text.trim().is_empty())
+                });
+            (previous_text, next_text)
         };
-        let children = doc.children(id).to_vec();
-        if let Some(&first) = children.first()
+        let (first, last) = {
+            let children = doc.children(id);
+            (children.first().copied(), children.last().copied())
+        };
+        if let Some(first) = first
             && doc.is_text(first)
         {
-            let text = doc.text_content(first).to_string();
-            let trimmed = text.trim_start().to_string();
-            if trimmed != text {
-                doc.set_text(first, &trimmed);
-                if let Some(&previous) = siblings[..pos].iter().rev().find(|&&s| doc.is_text(s)) {
-                    let value = format!("{} ", doc.text_content(previous));
-                    doc.set_text(previous, &value);
+            let leading_whitespace = {
+                let text = doc.text_node_value(first).expect("text node has a value");
+                text.len() - text.trim_start().len()
+            };
+            if leading_whitespace > 0 {
+                if let Some(text) = doc.text_content_mut(first) {
+                    text.drain(..leading_whitespace);
+                }
+                if let Some(previous) = previous_text
+                    && let Some(text) = doc.text_content_mut(previous)
+                {
+                    text.push(' ');
                 }
             }
         }
-        if let Some(&last) = children.last()
+        if let Some(last) = last
             && doc.is_text(last)
         {
-            let text = doc.text_content(last).to_string();
-            let trimmed = text.trim_end().to_string();
-            if trimmed != text {
-                doc.set_text(last, &trimmed);
-                if let Some(&next) = siblings[pos + 1..]
-                    .iter()
-                    .find(|&&s| doc.is_text(s) && !doc.text_content(s).trim().is_empty())
+            let trailing_whitespace = {
+                let text = doc.text_node_value(last).expect("text node has a value");
+                text.len() - text.trim_end().len()
+            };
+            if trailing_whitespace > 0 {
+                if let Some(text) = doc.text_content_mut(last) {
+                    text.truncate(text.len() - trailing_whitespace);
+                }
+                if let Some(next) = next_text
+                    && let Some(text) = doc.text_content_mut(next)
                 {
-                    let value = format!(" {}", doc.text_content(next).trim_start());
-                    doc.set_text(next, &value);
+                    let leading_whitespace = text.len() - text.trim_start().len();
+                    if leading_whitespace == 0 {
+                        text.insert(0, ' ');
+                    } else {
+                        text.replace_range(..leading_whitespace, " ");
+                    }
                 }
             }
         }
         if doc.tag_name(id).eq_ignore_ascii_case("code") {
-            let code_text = doc.text_content(id).trim().to_string();
-            if !code_text.is_empty()
-                && let Some(&next) = siblings[pos + 1..]
-                    .iter()
-                    .find(|&&s| doc.is_text(s) && !doc.text_content(s).trim().is_empty())
+            let code_text = doc.text_content(id);
+            if !code_text.trim().is_empty()
+                && let Some(next) = next_text
             {
-                let next_text = doc.text_content(next).to_string();
+                let next_text = doc.text_node_value(next).expect("text node has a value");
                 if next_text
                     .chars()
                     .next()
@@ -60,8 +86,9 @@ pub(crate) fn move_inline_whitespace(doc: &mut Document, content_id: NodeId) {
                         .last()
                         .is_some_and(|c| c.is_alphanumeric())
                     && !next_text.starts_with(char::is_whitespace)
+                    && let Some(next_text) = doc.text_content_mut(next)
                 {
-                    doc.set_text(next, &format!(" {next_text}"));
+                    next_text.insert(0, ' ');
                 }
             }
         }
@@ -69,7 +96,6 @@ pub(crate) fn move_inline_whitespace(doc: &mut Document, content_id: NodeId) {
 }
 
 pub(crate) fn standardize_spaces(doc: &mut Document, node: NodeId) {
-    // Skip pre, code, and SVG elements to preserve their significant whitespace.
     if doc.is_element(node) && doc.tag_name_is_any(node, &["pre", "code", "svg"]) {
         return;
     }
@@ -77,8 +103,9 @@ pub(crate) fn standardize_spaces(doc: &mut Document, node: NodeId) {
     let children = doc.children(node).to_vec();
     for child in children {
         if doc.is_text(child) {
-            if let Some(text) = doc.text_content_mut(child) {
-                // Only replace non-breaking spaces — do NOT collapse consecutive spaces
+            if let Some(text) = doc.text_content_mut(child)
+                && text.contains('\u{00A0}')
+            {
                 *text = text.replace('\u{00A0}', " ");
             }
         } else if doc.is_element(child) {
@@ -95,5 +122,22 @@ pub(crate) fn remove_html_comments(doc: &mut Document, node: NodeId) {
         } else if doc.is_element(child) {
             remove_html_comments(doc, child);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn standardizes_nonbreaking_spaces_and_preserves_preformatted_text() {
+        let mut doc = Document::parse("<p>a&nbsp;b</p><pre>c&nbsp;d</pre>");
+        let root = doc.root();
+        standardize_spaces(&mut doc, root);
+
+        let paragraph = doc.query_selector_all("p")[0];
+        let preformatted = doc.query_selector_all("pre")[0];
+        assert_eq!(doc.text_content(paragraph), "a b");
+        assert_eq!(doc.text_content(preformatted), "c\u{00a0}d");
     }
 }

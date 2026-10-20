@@ -574,27 +574,31 @@ fn build_converter() -> HtmlToMarkdown {
     builder.build()
 }
 
-fn preprocess_html_for_markdown_with_diagnostics(
-    html: &str,
+fn preprocess_html_for_markdown_with_diagnostics<'a>(
+    html: &'a str,
     diagnostics: &mut Option<&mut Diagnostics>,
-) -> String {
+) -> Cow<'a, str> {
     let html = preprocess_html_text_with_diagnostics(html, diagnostics);
     measure_phase(diagnostics, "markdown preprocess dom", || {
-        preprocess_html_dom(&html)
+        if !html.contains("<img") && !html.contains("<table") && !html.contains("<iframe") {
+            html
+        } else {
+            Cow::Owned(preprocess_html_dom(&html))
+        }
     })
 }
 
-fn preprocess_html_text(html: &str) -> String {
+fn preprocess_html_text(html: &str) -> Cow<'_, str> {
     let mut diagnostics = None;
     preprocess_html_text_with_diagnostics(html, &mut diagnostics)
 }
 
-fn preprocess_html_text_with_diagnostics(
-    html: &str,
+fn preprocess_html_text_with_diagnostics<'a>(
+    html: &'a str,
     diagnostics: &mut Option<&mut Diagnostics>,
-) -> String {
+) -> Cow<'a, str> {
     let html = measure_phase(diagnostics, "markdown text basic", || {
-        let mut html = Cow::Borrowed(html);
+        let mut html: Cow<'a, str> = Cow::Borrowed(html);
         for (pattern, replacement) in [
             ("&nbsp;", " "),
             ("<br>", "\n"),
@@ -605,52 +609,43 @@ fn preprocess_html_text_with_diagnostics(
                 html = Cow::Owned(html.replace(pattern, replacement));
             }
         }
-        html.into_owned()
+        html
     });
 
-    // Strip <wbr> tags
     let html = if html.contains("<wbr") {
-        measure_phase(diagnostics, "markdown text wbr", || {
-            WBR_TAG_RE
-                .get_or_init(|| regex_lite::Regex::new(r"<wbr\s*/?>").unwrap())
-                .replace_all(&html, "")
-                .to_string()
+        measure_phase(diagnostics, "markdown text wbr", move || {
+            let re = WBR_TAG_RE
+                .get_or_init(|| regex_lite::Regex::new(r"<wbr\s*/?>").unwrap());
+            replace_all_if_changed(html, re, "")
         })
     } else {
         html
     };
 
-    // Handle callout blocks: convert to blockquote format
-    // build_converter() handles callouts in DOM order, including nested divs.
-    // No string-level regex needed.
-
-    // Handle footnote inline references
     let html = if html.contains("footnote-ref") {
-        measure_phase(diagnostics, "markdown text footnotes", || {
-            convert_footnotes_to_markdown(&html)
+        measure_phase(diagnostics, "markdown text footnotes", move || {
+            convert_footnotes_to_markdown(html)
         })
     } else {
         html
     };
 
-    // Handle task list checkboxes
     let html = if html.contains("checkbox") {
-        measure_phase(diagnostics, "markdown text tasks", || {
-            convert_task_lists(&html)
+        measure_phase(diagnostics, "markdown text tasks", move || {
+            convert_task_lists(html)
         })
     } else {
         html
     };
 
-    // Handle inline formatting: <mark> → ==text==, <del>/<s>/<strike> → ~~text~~
     let has_inline_formatting = html.contains("<mark")
         || html.contains("<del")
         || html.contains("<strike")
         || html.contains("<s>")
         || html.contains("<s ");
     if has_inline_formatting {
-        measure_phase(diagnostics, "markdown text inline", || {
-            convert_inline_formatting(&html)
+        measure_phase(diagnostics, "markdown text inline", move || {
+            convert_inline_formatting(html)
         })
     } else {
         html
@@ -849,12 +844,16 @@ impl<'a> MarkdownPostprocessor<'a> {
             return;
         }
 
-        let mut line = line.trim().to_string();
+        let mut line = Cow::Borrowed(line.trim());
         if is_quote_only_line(&line) {
-            line.push(' ');
+            let mut owned = line.into_owned();
+            owned.push(' ');
+            line = Cow::Owned(owned);
         }
         if line == "--" {
-            line.insert(0, '\\');
+            let mut owned = line.into_owned();
+            owned.insert(0, '\\');
+            line = Cow::Owned(owned);
         }
 
         if line.is_empty() {
@@ -866,20 +865,20 @@ impl<'a> MarkdownPostprocessor<'a> {
             return;
         }
 
-        line = normalize_table_separator_line(&line);
-        line = normalize_table_code_line(&line);
+        line = normalize_table_separator_line(line);
+        line = normalize_table_code_line(line);
         line = normalize_layout_line(
-            &line,
+            line,
             &mut self.filled_table_separator,
             self.previous_nonempty_is_list,
             &mut self.output,
         );
-        line = normalize_terminal_spacing_line(&line);
+        line = normalize_terminal_spacing_line(line);
 
         if is_list_item(&line) && self.previous_nonempty_is_list && self.output.ends_with("\n\n") {
             self.output.pop();
         }
-        self.output.push_str(&line);
+        self.output.push_str(line.as_ref());
         self.output.push('\n');
         self.previous_blank = false;
         self.previous_nonempty_is_list = is_list_item(&line);
@@ -928,9 +927,9 @@ fn is_list_item(line: &str) -> bool {
         })
 }
 
-fn normalize_table_separator_line(line: &str) -> String {
+fn normalize_table_separator_line(line: Cow<'_, str>) -> Cow<'_, str> {
     if !line.starts_with('|') || !line.ends_with('|') {
-        return line.to_string();
+        return line;
     }
     let cells = line.split('|').collect::<Vec<_>>();
     if cells.len() < 3
@@ -938,23 +937,24 @@ fn normalize_table_separator_line(line: &str) -> String {
             .iter()
             .all(|cell| cell.trim().is_empty() || cell.trim() == "---")
     {
-        return line.to_string();
+        return line;
     }
-    format!(
+    Cow::Owned(format!(
         "|{}|",
         cells[1..cells.len() - 1]
             .iter()
             .map(|_| " --- ")
             .collect::<Vec<_>>()
             .join("|")
-    )
+    ))
 }
 
-fn normalize_table_code_line(line: &str) -> String {
+fn normalize_table_code_line(line: Cow<'_, str>) -> Cow<'_, str> {
     if !line.starts_with('|') || !line.ends_with('|') || !line.contains("/*") {
-        return line.to_string();
+        return line;
     }
-    let mut cells = line.split('|').map(str::to_string).collect::<Vec<_>>();
+    let source = line.as_ref();
+    let mut cells = source.split('|').map(str::to_string).collect::<Vec<_>>();
     let end = cells.len() - 1;
     for cell in &mut cells[1..end] {
         let value = cell.trim();
@@ -963,18 +963,23 @@ fn normalize_table_code_line(line: &str) -> String {
             *cell = format!(" ``` {value} ``` ");
         }
     }
-    cells.join("|")
+    let normalized = cells.join("|");
+    if normalized == source {
+        line
+    } else {
+        Cow::Owned(normalized)
+    }
 }
 
-fn normalize_layout_line(
-    line: &str,
+fn normalize_layout_line<'a>(
+    line: Cow<'a, str>,
     filled_table_separator: &mut bool,
     previous_nonempty_is_list: bool,
     output: &mut String,
-) -> String {
+) -> Cow<'a, str> {
     let trimmed = line.trim();
     if trimmed.starts_with('#') {
-        return line.replace("**", "");
+        return replace_if_changed(line, "**", "");
     }
     if trimmed.starts_with("✅ ") && trimmed.matches("✅ ").count() > 1 {
         let items = trimmed
@@ -982,7 +987,7 @@ fn normalize_layout_line(
             .filter(|item| !item.is_empty())
             .map(str::trim)
             .collect::<Vec<_>>();
-        return format!("✅ {}", items.join("  \n✅ "));
+        return Cow::Owned(format!("✅ {}", items.join("  \n✅ ")));
     }
     if trimmed.starts_with('|') {
         let cells = trimmed
@@ -1000,15 +1005,15 @@ fn normalize_layout_line(
         let is_separator = cells.iter().all(|cell| cell.is_empty() || *cell == "---");
         if is_separator && !*filled_table_separator && cells.iter().any(|cell| cell.is_empty()) {
             *filled_table_separator = true;
-            return format!(
+            return Cow::Owned(format!(
                 "| {} |",
                 cells.iter().map(|_| "---").collect::<Vec<_>>().join(" | ")
-            );
+            ));
         }
         if is_separator {
             *filled_table_separator = true;
         }
-        return format!("| {} |", cells.join(" | "));
+        return Cow::Owned(format!("| {} |", cells.join(" | ")));
     }
     if !trimmed.is_empty() {
         *filled_table_separator = false;
@@ -1018,44 +1023,59 @@ fn normalize_layout_line(
         && !prefix.is_empty()
         && prefix.chars().all(|character| character.is_ascii_digit())
     {
-        return format!("{prefix}. {}", rest.trim_start());
+        return Cow::Owned(format!("{prefix}. {}", rest.trim_start()));
     }
 
     if is_list_item(trimmed) && previous_nonempty_is_list && output.ends_with("\n\n") {
         output.pop();
     }
-    line.to_string()
-}
-
-fn process_inline_markdown_line(line: &str) -> String {
-    let mut line = escape_tag_like_line(line);
-    line = normalize_quoted_fence_line(&line);
-    line = remove_empty_links_line(&line);
-    line = line.replace(")![", ") ![");
-    line = line.replace("!![", "! ![").replace("![![", "! [!");
-    line = line
-        .replace("\\<iframe", "<iframe")
-        .replace("\\</iframe>", "</iframe>");
-    line = line.replace(". .", "..");
-    line = remove_backreferences_line(&line);
-    line = fix_inline_spacing_line_stateful(&line);
-    line = normalize_escaped_markdown_line(&line);
-    line = normalize_url_parentheses_line(&line);
-    line = format_link_destinations_line(&line);
     line
 }
 
-fn fix_inline_spacing_line_stateful(line: &str) -> String {
+fn replace_if_changed<'a>(input: Cow<'a, str>, pattern: &str, replacement: &str) -> Cow<'a, str> {
+    if input.contains(pattern) {
+        Cow::Owned(input.replace(pattern, replacement))
+    } else {
+        input
+    }
+}
+
+fn process_inline_markdown_line(line: &str) -> Cow<'_, str> {
+    let line = escape_tag_like_line(Cow::Borrowed(line));
+    let line = normalize_quoted_fence_line(line);
+    let line = remove_empty_links_line(line);
+    let line = replace_if_changed(line, ")![", ") ![");
+    let line = replace_if_changed(line, "!![", "! ![");
+    let line = replace_if_changed(line, "![![", "! [!");
+    let line = replace_if_changed(line, "\\<iframe", "<iframe");
+    let line = replace_if_changed(line, "\\</iframe>", "</iframe>");
+    let line = replace_if_changed(line, ". .", "..");
+    let line = remove_backreferences_line(line);
+    let line = fix_inline_spacing_line_stateful(line);
+    let line = normalize_escaped_markdown_line(line);
+    let line = normalize_url_parentheses_line(line);
+    format_link_destinations_line(line)
+}
+
+fn fix_inline_spacing_line_stateful(line: Cow<'_, str>) -> Cow<'_, str> {
+    if !line.contains('`')
+        && !line.contains('*')
+        && !line.contains('[')
+        && !line.contains('\\')
+    {
+        return line;
+    }
+    let source = line.as_ref();
     let mut output = String::with_capacity(line.len());
     let mut cursor = 0;
 
-    while cursor < line.len() {
-        let rest = &line[cursor..];
+    while cursor < source.len() {
+        let rest = &source[cursor..];
         if rest.starts_with('`')
             && let Some(close_rel) = rest[1..].find('`')
         {
             let close = cursor + 1 + close_rel;
-            let content = line[cursor + 1..close].trim();
+            let content = source[cursor + 1..close].trim();
             if output
                 .chars()
                 .last()
@@ -1066,8 +1086,8 @@ fn fix_inline_spacing_line_stateful(line: &str) -> String {
             output.push('`');
             output.push_str(content);
             output.push('`');
-            if line[close + 1..].starts_with("[^")
-                || line[close + 1..]
+            if source[close + 1..].starts_with("[^")
+                || source[close + 1..]
                     .chars()
                     .next()
                     .is_some_and(|character| character.is_alphanumeric())
@@ -1201,7 +1221,11 @@ fn fix_inline_spacing_line_stateful(line: &str) -> String {
         cursor += character.len_utf8();
     }
 
-    output
+    if output == source {
+        line
+    } else {
+        Cow::Owned(output)
+    }
 }
 
 fn output_ends_with_footnote(output: &str) -> bool {
@@ -1215,16 +1239,20 @@ fn output_ends_with_footnote(output: &str) -> bool {
             .all(|character| character.is_ascii_digit())
 }
 
-fn escape_tag_like_line(line: &str) -> String {
-    let mut output = String::with_capacity(line.len());
+fn escape_tag_like_line(line: Cow<'_, str>) -> Cow<'_, str> {
+    if !line.contains('<') {
+        return line;
+    }
+    let source = line.as_ref();
+    let mut output = String::with_capacity(source.len());
     let mut cursor = 0;
-    while cursor < line.len() {
-        let rest = &line[cursor..];
+    while cursor < source.len() {
+        let rest = &source[cursor..];
         if rest.starts_with('`')
             && let Some(close_rel) = rest[1..].find('`')
         {
             let close = cursor + 1 + close_rel;
-            output.push_str(&line[cursor..=close]);
+            output.push_str(&source[cursor..=close]);
             cursor = close + 1;
             continue;
         }
@@ -1235,7 +1263,14 @@ fn escape_tag_like_line(line: &str) -> String {
         output.push(character);
         cursor += character.len_utf8();
     }
-    output.replace("\\\\<", "\\<")
+    if output.contains("\\\\<") {
+        output = output.replace("\\\\<", "\\<");
+    }
+    if output == source {
+        line
+    } else {
+        Cow::Owned(output)
+    }
 }
 
 fn looks_like_tag(rest: &str) -> bool {
@@ -1261,9 +1296,10 @@ fn looks_like_tag(rest: &str) -> bool {
     false
 }
 
-fn normalize_quoted_fence_line(line: &str) -> String {
-    let trimmed = line.trim_start();
-    let prefix_len = line.len() - trimmed.len();
+fn normalize_quoted_fence_line(line: Cow<'_, str>) -> Cow<'_, str> {
+    let source = line.as_ref();
+    let trimmed = source.trim_start();
+    let prefix_len = source.len() - trimmed.len();
     let rest = trimmed.strip_prefix('>').unwrap_or(trimmed).trim_start();
     if let Some(language) = rest.strip_prefix("```") {
         let language = language.trim_start();
@@ -1272,58 +1308,80 @@ fn normalize_quoted_fence_line(line: &str) -> String {
                 .chars()
                 .all(|character| character.is_ascii_alphabetic())
         {
-            let prefix = &line[..prefix_len];
-            return format!("{prefix}> ```{language}");
+            let prefix = &source[..prefix_len];
+            return Cow::Owned(format!("{prefix}> ```{language}"));
         }
     }
-    line.to_string()
+    line
 }
 
-fn remove_empty_links_line(line: &str) -> String {
-    let mut output = String::with_capacity(line.len());
+fn remove_empty_links_line(line: Cow<'_, str>) -> Cow<'_, str> {
+    if !line.contains("[](") {
+        return line;
+    }
+    let source = line.as_ref();
+    let mut output = String::with_capacity(source.len());
     let mut cursor = 0;
-    while let Some(start_rel) = line[cursor..].find("[](") {
+    let mut removed_link = false;
+    while let Some(start_rel) = source[cursor..].find("[](") {
         let start = cursor + start_rel;
-        let Some(close_rel) = line[start + 3..].find(')') else {
+        let Some(close_rel) = source[start + 3..].find(')') else {
             break;
         };
-        if start > 0 && line.as_bytes()[start - 1] == b'!' {
-            output.push_str(&line[cursor..start + 3 + close_rel + 1]);
+        if start > 0 && source.as_bytes()[start - 1] == b'!' {
+            output.push_str(&source[cursor..start + 3 + close_rel + 1]);
         } else {
-            output.push_str(&line[cursor..start]);
+            output.push_str(&source[cursor..start]);
+            removed_link = true;
         }
         cursor = start + 3 + close_rel + 1;
     }
-    output.push_str(&line[cursor..]);
-    output.trim_end_matches('\n').to_string()
+    if !removed_link {
+        return line;
+    }
+    output.push_str(&source[cursor..]);
+    Cow::Owned(output.trim_end_matches('\n').to_string())
 }
 
-fn remove_backreferences_line(line: &str) -> String {
+fn remove_backreferences_line(line: Cow<'_, str>) -> Cow<'_, str> {
     let marker = "[↩](#fnref:";
-    let mut output = String::with_capacity(line.len());
+    if !line.contains(marker) {
+        return line;
+    }
+    let source = line.as_ref();
+    let mut output = String::with_capacity(source.len());
     let mut cursor = 0;
-    while let Some(start_rel) = line[cursor..].find(marker) {
+    let mut removed_backreference = false;
+    while let Some(start_rel) = source[cursor..].find(marker) {
         let start = cursor + start_rel;
-        let Some(close_rel) = line[start + marker.len()..].find(')') else {
+        let Some(close_rel) = source[start + marker.len()..].find(')') else {
             break;
         };
         let mut content_end = start + marker.len() + close_rel + 1;
         while output.ends_with(char::is_whitespace) {
             output.pop();
         }
-        output.push_str(&line[cursor..start]);
+        output.push_str(&source[cursor..start]);
         content_end = content_end.max(start + marker.len() + close_rel + 1);
         cursor = content_end;
+        removed_backreference = true;
     }
-    output.push_str(&line[cursor..]);
-    output
+    if !removed_backreference {
+        return line;
+    }
+    output.push_str(&source[cursor..]);
+    Cow::Owned(output)
 }
 
-fn normalize_escaped_markdown_line(line: &str) -> String {
-    let mut output = String::with_capacity(line.len());
+fn normalize_escaped_markdown_line(line: Cow<'_, str>) -> Cow<'_, str> {
+    if !line.contains("\\[^") && !line.contains("!\\[\\](") && !line.contains("\\<") {
+        return line;
+    }
+    let source = line.as_ref();
+    let mut output = String::with_capacity(source.len());
     let mut cursor = 0;
-    while cursor < line.len() {
-        let rest = &line[cursor..];
+    while cursor < source.len() {
+        let rest = &source[cursor..];
         if rest.starts_with("\\[^")
             && let Some(close_rel) = rest[3..].find("\\]")
             && rest[3..3 + close_rel]
@@ -1361,58 +1419,89 @@ fn normalize_escaped_markdown_line(line: &str) -> String {
         output.push(character);
         cursor += character.len_utf8();
     }
-    output
+    if output == source {
+        line
+    } else {
+        Cow::Owned(output)
+    }
 }
 
-fn normalize_url_parentheses_line(line: &str) -> String {
-    let mut output = String::with_capacity(line.len());
+fn normalize_url_parentheses_line(line: Cow<'_, str>) -> Cow<'_, str> {
+    if !line.contains("\\_") {
+        return line;
+    }
+    let source = line.as_ref();
+    let mut output = String::with_capacity(source.len());
     let mut cursor = 0;
-    while cursor < line.len() {
-        let rest = &line[cursor..];
+    while cursor < source.len() {
+        let rest = &source[cursor..];
         let Some(open_rel) = rest.find('(') else {
             output.push_str(rest);
             break;
         };
         let open = cursor + open_rel;
-        output.push_str(&line[cursor..=open]);
-        let Some(close_rel) = line[open + 1..].find(')') else {
-            output.push_str(&line[open + 1..]);
+        output.push_str(&source[cursor..=open]);
+        let Some(close_rel) = source[open + 1..].find(')') else {
+            output.push_str(&source[open + 1..]);
             break;
         };
         let close = open + 1 + close_rel;
-        output.push_str(&line[open + 1..close].replace("\\_", "_"));
+        let inner = &source[open + 1..close];
+        if inner.contains("\\_") {
+            output.push_str(&inner.replace("\\_", "_"));
+        } else {
+            output.push_str(inner);
+        }
         output.push(')');
         cursor = close + 1;
     }
-    output
+    if output == source {
+        line
+    } else {
+        Cow::Owned(output)
+    }
 }
 
-fn format_link_destinations_line(line: &str) -> String {
-    let mut output = String::with_capacity(line.len());
+fn format_link_destinations_line(line: Cow<'_, str>) -> Cow<'_, str> {
+    if !line.contains("](") {
+        return line;
+    }
+    let source = line.as_ref();
+    let mut output = String::with_capacity(source.len());
     let mut cursor = 0;
-    while let Some(open_rel) = line[cursor..].find("](") {
+    while let Some(open_rel) = source[cursor..].find("](") {
         let open = cursor + open_rel;
-        output.push_str(&line[cursor..open + 2]);
-        let Some(close_rel) = line[open + 2..].find(')') else {
-            output.push_str(&line[open + 2..]);
-            return output;
+        output.push_str(&source[cursor..open + 2]);
+        let Some(close_rel) = source[open + 2..].find(')') else {
+            output.push_str(&source[open + 2..]);
+            return if output == source {
+                line
+            } else {
+                Cow::Owned(output)
+            };
         };
         let close = open + 2 + close_rel;
-        let url = &line[open + 2..close];
+        let url = &source[open + 2..close];
         if url.starts_with('<') && url.ends_with('>') {
             output.push_str(url);
         } else if url.contains(char::is_whitespace) && !url.contains('"') {
             output.push('<');
             output.push_str(&url.replace('>', "\\>"));
             output.push('>');
+        } else if !url.contains('(') && !url.contains(')') {
+            output.push_str(url);
         } else {
             output.push_str(&escape_link_parens(url));
         }
         output.push(')');
         cursor = close + 1;
     }
-    output.push_str(&line[cursor..]);
-    output
+    output.push_str(&source[cursor..]);
+    if output == source {
+        line
+    } else {
+        Cow::Owned(output)
+    }
 }
 
 fn normalize_strong_spacing(line: &str) -> String {
@@ -1457,22 +1546,30 @@ fn normalize_strong_spacing(line: &str) -> String {
     output
 }
 
-fn normalize_terminal_spacing_line(line: &str) -> String {
-    let mut output = String::with_capacity(line.len());
+fn normalize_terminal_spacing_line(line: Cow<'_, str>) -> Cow<'_, str> {
+    if !line.contains("**")
+        && !line.contains('`')
+        && !line.contains("[^")
+        && !line.contains(")[")
+    {
+        return line;
+    }
+    let source = line.as_ref();
+    let mut output = String::with_capacity(source.len());
     let mut cursor = 0;
 
-    while cursor < line.len() {
-        let rest = &line[cursor..];
+    while cursor < source.len() {
+        let rest = &source[cursor..];
         if rest.starts_with("**") {
             let content_start = cursor + 2;
-            let Some(close_rel) = line[content_start..].find("**") else {
+            let Some(close_rel) = source[content_start..].find("**") else {
                 output.push_str(rest);
                 break;
             };
             let close = content_start + close_rel;
-            let inner = line[content_start..close].trim();
+            let inner = source[content_start..close].trim();
             if inner.is_empty() {
-                output.push_str(&line[cursor..close + 2]);
+                output.push_str(&source[cursor..close + 2]);
             } else {
                 if output
                     .chars()
@@ -1484,7 +1581,7 @@ fn normalize_terminal_spacing_line(line: &str) -> String {
                 output.push_str("**");
                 output.push_str(inner);
                 output.push_str("**");
-                if line[close + 2..]
+                if source[close + 2..]
                     .chars()
                     .next()
                     .is_some_and(|character| character.is_alphanumeric())
@@ -1497,7 +1594,7 @@ fn normalize_terminal_spacing_line(line: &str) -> String {
         }
         if rest.starts_with('`') {
             let content_start = cursor + 1;
-            let Some(close_rel) = line[content_start..].find('`') else {
+            let Some(close_rel) = source[content_start..].find('`') else {
                 output.push_str(rest);
                 break;
             };
@@ -1510,9 +1607,9 @@ fn normalize_terminal_spacing_line(line: &str) -> String {
                 output.push(' ');
             }
             output.push('`');
-            output.push_str(&normalize_strong_spacing(&line[content_start..close]));
+            output.push_str(&normalize_strong_spacing(&source[content_start..close]));
             output.push('`');
-            if line[close + 1..]
+            if source[close + 1..]
                 .chars()
                 .next()
                 .is_some_and(|character| character.is_alphanumeric())
@@ -1529,8 +1626,8 @@ fn normalize_terminal_spacing_line(line: &str) -> String {
             if output.ends_with('"') {
                 output.push(' ');
             }
-            output.push_str(&line[cursor..end]);
-            if line[end..].starts_with('*') || line[end..].starts_with("[^") {
+            output.push_str(&source[cursor..end]);
+            if source[end..].starts_with('*') || source[end..].starts_with("[^") {
                 output.push(' ');
             }
             cursor = end;
@@ -1547,7 +1644,11 @@ fn normalize_terminal_spacing_line(line: &str) -> String {
         cursor += character.len_utf8();
     }
 
-    output
+    if output == source {
+        line
+    } else {
+        Cow::Owned(output)
+    }
 }
 
 fn escape_link_parens(url: &str) -> String {
@@ -1560,16 +1661,25 @@ fn escape_link_parens(url: &str) -> String {
     }
     output
 }
-/// Convert footnote references and lists.
-fn convert_footnotes_to_markdown(html: &str) -> String {
+fn replace_all_if_changed<'a>(
+    input: Cow<'a, str>,
+    re: &regex_lite::Regex,
+    replacement: &str,
+) -> Cow<'a, str> {
+    match re.replace_all(input.as_ref(), replacement) {
+        Cow::Borrowed(_) => input,
+        Cow::Owned(replaced) => Cow::Owned(replaced),
+    }
+}
+
+fn convert_footnotes_to_markdown<'a>(html: Cow<'a, str>) -> Cow<'a, str> {
     let re = FOOTNOTE_REF_RE.get_or_init(|| regex_lite::Regex::new(
         r##"<sup[^>]*class="[^"]*footnote-ref[^"]*"[^>]*>\s*<a[^>]*href="#fn:?(\d+)"[^>]*>.*?</a>\s*</sup>"##
     ).unwrap());
-    re.replace_all(html, "[^$1]").to_string()
+    replace_all_if_changed(html, re, "[^$1]")
 }
 
-/// Convert task list checkboxes to markdown format.
-fn convert_task_lists(html: &str) -> String {
+fn convert_task_lists<'a>(html: Cow<'a, str>) -> Cow<'a, str> {
     let re_checked = CHECKED_CHECKBOX_RE.get_or_init(|| {
         regex_lite::Regex::new(r#"<li[^>]*>\s*<input[^>]*type="checkbox"[^>]*checked[^>]*>\s*"#)
             .unwrap()
@@ -1577,13 +1687,8 @@ fn convert_task_lists(html: &str) -> String {
     let re_unchecked = UNCHECKED_CHECKBOX_RE.get_or_init(|| {
         regex_lite::Regex::new(r#"<li[^>]*>\s*<input[^>]*type="checkbox"[^>]*>\s*"#).unwrap()
     });
-    match re_checked.replace_all(html, "<li>[x] ") {
-        Cow::Borrowed(checked) => re_unchecked.replace_all(checked, "<li>[ ] ").into_owned(),
-        Cow::Owned(checked) if re_unchecked.is_match(&checked) => {
-            re_unchecked.replace_all(&checked, "<li>[ ] ").into_owned()
-        }
-        Cow::Owned(checked) => checked,
-    }
+    let html = replace_all_if_changed(html, re_checked, "<li>[x] ");
+    replace_all_if_changed(html, re_unchecked, "<li>[ ] ")
 }
 
 /// Get the best image URL from a srcset attribute.
@@ -1635,18 +1740,13 @@ pub fn resolve_best_image_sources(html: &str) -> String {
     preprocess_html_dom(html)
 }
 
-fn convert_inline_formatting(html: &str) -> String {
+fn convert_inline_formatting<'a>(html: Cow<'a, str>) -> Cow<'a, str> {
     let re_mark =
         MARK_TAG_RE.get_or_init(|| regex_lite::Regex::new(r"<mark[^>]*>(.*?)</mark>").unwrap());
     let re_del =
         DEL_TAG_RE.get_or_init(|| regex_lite::Regex::new(r"</?(?:del|s|strike)\b[^>]*>").unwrap());
-    match re_mark.replace_all(html, "==$1==") {
-        Cow::Borrowed(marked) => re_del.replace_all(marked, "~~").into_owned(),
-        Cow::Owned(marked) if re_del.is_match(&marked) => {
-            re_del.replace_all(&marked, "~~").into_owned()
-        }
-        Cow::Owned(marked) => marked,
-    }
+    let html = replace_all_if_changed(html, re_mark, "==$1==");
+    replace_all_if_changed(html, re_del, "~~")
 }
 
 /// Convert the content of a DOM element to Markdown.
@@ -1657,6 +1757,7 @@ pub fn content_to_markdown(doc: &Document, content_id: NodeId) -> String {
 pub(crate) fn content_to_markdown_mut_with_diagnostics(
     doc: &mut Document,
     content_id: NodeId,
+    serialized_outer_html: Option<&str>,
     diagnostics: &mut Diagnostics,
 ) -> String {
     let needs_dom_preprocess = ["img", "table", "iframe"].iter().any(|selector| {
@@ -1664,16 +1765,67 @@ pub(crate) fn content_to_markdown_mut_with_diagnostics(
             .is_empty()
     });
     let mut diagnostics = Some(diagnostics);
-    let html = measure_phase(&mut diagnostics, "markdown serialize", || {
+    let html: Cow<'_, str> = measure_phase(&mut diagnostics, "markdown serialize", || {
         if needs_dom_preprocess {
             preprocess_markdown_dom(doc, content_id);
+            Cow::Owned(doc.inner_html(content_id))
+        } else if let Some(inner_html) = serialized_outer_html
+            .and_then(|outer_html| inner_html_from_outer_html(doc.tag_name(content_id), outer_html))
+        {
+            Cow::Borrowed(inner_html)
+        } else {
+            Cow::Owned(doc.inner_html(content_id))
         }
-        doc.inner_html(content_id)
     });
     let cleaned = measure_phase(&mut diagnostics, "markdown preprocess", || {
         preprocess_html_text(&html)
     });
     convert_cleaned_html_to_markdown(&cleaned, &mut diagnostics)
+}
+
+fn inner_html_from_outer_html<'a>(tag_name: &str, outer_html: &'a str) -> Option<&'a str> {
+    if tag_name.is_empty() || !outer_html.starts_with('<') {
+        return None;
+    }
+
+    let tag_end = tag_name.len() + 1;
+    if !outer_html[1..].starts_with(tag_name)
+        || !matches!(outer_html.as_bytes().get(tag_end), Some(b' ' | b'>' | b'/'))
+    {
+        return None;
+    }
+
+    let mut quote = None;
+    let opening_end = outer_html.as_bytes().iter().enumerate().skip(tag_end).find_map(
+        |(index, byte)| match (quote, byte) {
+            (Some(active_quote), b) if *b == active_quote => {
+                quote = None;
+                None
+            }
+            (None, b'\'' | b'"') => {
+                quote = Some(*byte);
+                None
+            }
+            (None, b'>') => Some(index + 1),
+            _ => None,
+        },
+    )?;
+
+    if opening_end == outer_html.len() {
+        return Some(&outer_html[opening_end..]);
+    }
+
+    let closing_start = outer_html.rfind("</")?;
+    let closing_tag = outer_html.get(closing_start + 2..)?;
+    if !closing_tag.starts_with(tag_name)
+        || closing_tag.as_bytes().get(tag_name.len()) != Some(&b'>')
+        || closing_start + tag_name.len() + 3 != outer_html.len()
+        || closing_start < opening_end
+    {
+        return None;
+    }
+
+    Some(&outer_html[opening_end..closing_start])
 }
 
 fn content_to_markdown_from_document(
@@ -1723,6 +1875,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn inner_html_slice_matches_dom_serialization() {
+        let doc = Document::parse(
+            "<article data-value=\"x > y\"><article>nested</article><p>content</p></article>",
+        );
+        let article = doc.query_selector_all("article")[0];
+        let outer_html = doc.outer_html(article);
+
+        assert_eq!(
+            inner_html_from_outer_html(doc.tag_name(article), &outer_html),
+            Some(doc.inner_html(article).as_str())
+        );
+    }
+
+    #[test]
     fn test_basic_markdown_conversion() {
         // Page title h1 is stripped. h1→h2 promotion means h2 titles survive.
         let html = "<h1>Page Title</h1><p>Hello <strong>world</strong></p>";
@@ -1760,18 +1926,29 @@ mod tests {
     #[test]
     fn test_table_separator_normalization() {
         assert_eq!(
-            normalize_table_separator_line("| --- |  | --- |"),
+            normalize_table_separator_line(Cow::Borrowed("| --- |  | --- |")),
             "| --- | --- | --- |"
         );
     }
 
     #[test]
     fn inline_formatting_replacements_preserve_text_and_transform_tags() {
-        assert_eq!(convert_inline_formatting("plain"), "plain");
-        assert_eq!(convert_inline_formatting("<mark>marked</mark>"), "==marked==");
-        assert_eq!(convert_inline_formatting("<del>deleted</del>"), "~~deleted~~");
         assert_eq!(
-            convert_inline_formatting("<mark>marked</mark> and <s>deleted</s>"),
+            convert_inline_formatting(Cow::Borrowed("plain")),
+            "plain"
+        );
+        assert_eq!(
+            convert_inline_formatting(Cow::Borrowed("<mark>marked</mark>")),
+            "==marked=="
+        );
+        assert_eq!(
+            convert_inline_formatting(Cow::Borrowed("<del>deleted</del>")),
+            "~~deleted~~"
+        );
+        assert_eq!(
+            convert_inline_formatting(Cow::Borrowed(
+                "<mark>marked</mark> and <s>deleted</s>"
+            )),
             "==marked== and ~~deleted~~"
         );
     }
@@ -1782,6 +1959,7 @@ mod tests {
             preprocess_html_text("A&nbsp;B<br>C<br/>D<br />E"),
             "A B\nC\nD\nE"
         );
+        assert!(matches!(preprocess_html_text("plain"), Cow::Borrowed("plain")));
     }
 
     #[test]
@@ -1832,5 +2010,7 @@ mod tests {
         let fenced = postprocess_markdown("```rust\n**inside**`code`[^1]\n```\n**outside**[^2]");
         assert!(fenced.contains("```rust\n**inside**`code`[^1]\n```"));
         assert!(fenced.contains("**outside**[^2]"));
+        assert_eq!(postprocess_markdown("text[^1]"), "text [^1]");
+        assert_eq!(postprocess_markdown("text[^1] ."), "text [^1].");
     }
 }

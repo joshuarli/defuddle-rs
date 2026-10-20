@@ -272,7 +272,6 @@ fn remove_by_selector_impl(
 ) {
     let mut matches = Vec::new();
     if remove_exact {
-        // Remove dangerous elements and clutter
         let selectors = EXACT_SELECTORS
             .iter()
             .copied()
@@ -288,6 +287,10 @@ fn remove_by_selector_impl(
             if protected.is_some_and(|protected| protected.contains(&id)) {
                 continue;
             }
+            if doc.tag_name_is(id, "script") {
+                doc.remove(id);
+                continue;
+            }
             if doc.tag_name(id).is_empty() {
                 continue;
             }
@@ -297,40 +300,22 @@ fn remove_by_selector_impl(
             doc.remove(id);
         }
 
-        // Manual handling for multi-:not()/:has() compound selectors
-        // Remove all scripts.
-        doc.query_selector_all_into("script", &mut matches);
+        doc.query_selector_all_into("*", &mut matches);
         for &id in &matches {
-            if !protected.is_some_and(|protected| protected.contains(&id)) {
-                doc.remove(id);
+            if protected.is_some_and(|protected| protected.contains(&id)) {
+                continue;
             }
-        }
-        // Remove iframes without src or with empty src
-        doc.query_selector_all_into("iframe", &mut matches);
-        for &id in &matches {
-            if !protected.is_some_and(|protected| protected.contains(&id))
-                && doc.get_attr(id, "src").is_none_or(|s| s.is_empty())
-            {
-                doc.remove(id);
-            }
-        }
-        // Remove video/audio without src and without <source> children
-        doc.query_selector_all_into("video", &mut matches);
-        for &id in &matches {
-            if !protected.is_some_and(|protected| protected.contains(&id))
-                && doc.get_attr(id, "src").is_none()
-                && !doc.has_selector_in_subtree(id, "source")
-            {
-                doc.remove(id);
-            }
-        }
-        doc.query_selector_all_into("audio", &mut matches);
-        for &id in &matches {
-            if !protected.is_some_and(|protected| protected.contains(&id))
-                && doc.get_attr(id, "src").is_none()
-                && !doc.has_selector_in_subtree(id, "source")
-            {
-                doc.remove(id);
+            match doc.tag_name(id) {
+                "iframe" if doc.get_attr(id, "src").is_none_or(str::is_empty) => {
+                    doc.remove(id);
+                }
+                "video" | "audio"
+                    if doc.get_attr(id, "src").is_none()
+                        && !doc.has_selector_in_subtree(id, "source") =>
+                {
+                    doc.remove(id);
+                }
+                _ => {}
             }
         }
     }
@@ -784,20 +769,20 @@ fn remove_eyebrow_label(doc: &mut Document, content_id: NodeId) {
     doc.remove(prev);
 }
 
-/// Remove common boilerplate and content patterns from the document.
 pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
     let mut matches = Vec::new();
     let mut text = String::new();
 
-    // Remove eyebrow/category labels before the first heading
     remove_eyebrow_label(doc, content_id);
     doc.query_selector_all_in_subtree_into(content_id, ".abstract", &mut matches);
     for &abstract_node in &matches {
         doc.remove(abstract_node);
     }
-    // Check all elements and remove boilerplate by class
     doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
+        if doc.is_removed(id) {
+            continue;
+        }
         if let Some(c) = doc.get_attr(id, "class") {
             let is_boilerplate = [
                 "writer-contact-block",
@@ -842,8 +827,10 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         "time-read",
         "timestamp",
     ];
-    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
+        if doc.is_removed(id) {
+            continue;
+        }
         let matches_pattern = [doc.get_attr(id, "class"), doc.get_attr(id, "id")]
             .into_iter()
             .flatten()
@@ -857,8 +844,10 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         }
     }
 
-    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
+        if doc.is_removed(id) {
+            continue;
+        }
         if !doc.is_element(id) {
             continue;
         }
@@ -894,13 +883,13 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         }
     }
 
-    // Remove author/share labels: elements whose text is just "Share", "Author",
-    // "Follow", "Written by" — common sidebar widget labels
     let share_author_re = SHARE_AUTHOR_LABEL_RE.get_or_init(|| {
         regex_lite::Regex::new(r"(?i)^(share|follow|authors?|written\s+by)$").unwrap()
     });
-    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
+        if doc.is_removed(id) {
+            continue;
+        }
         if !doc.is_element(id) {
             continue;
         }
@@ -912,7 +901,6 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         doc.text_content_into(id, &mut text);
         let text_value = text.trim();
         if share_author_re.is_match(text_value) {
-            // Remove the parent container (the widget)
             let mut target = id;
             for _ in 0..3 {
                 if let Some(p) = doc.parent(target) {
@@ -934,9 +922,10 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         }
     }
 
-    // Remove "by Author" byline patterns when adjacent to headings
-    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
+        if doc.is_removed(id) {
+            continue;
+        }
         if !doc.is_element(id) {
             continue;
         }
@@ -982,7 +971,6 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         }
     }
 
-    // Remove ISO date lines (YYYY-MM-DD), "N min read", and date formats like "May 22, 2026"
     let date_re =
         ISO_DATE_RE.get_or_init(|| regex_lite::Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap());
     let named_date_re = NAMED_DATE_RE.get_or_init(|| {
@@ -999,8 +987,10 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         )
         .unwrap()
     });
-    doc.query_selector_all_in_subtree_into(content_id, "*", &mut matches);
     for &id in &matches {
+        if doc.is_removed(id) {
+            continue;
+        }
         if !doc.is_element(id) {
             continue;
         }
@@ -1030,31 +1020,22 @@ pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
         }
     }
 
-    // Remove byline blocks (author link + date near article top)
     remove_byline_blocks(doc, content_id);
 
-    // Remove related-posts headings and their following lists
     remove_related_posts_sections(doc, content_id);
 
-    // Remove table-of-contents sections (short-item lists where all items are links)
     remove_table_of_contents(doc, content_id);
 
-    // Remove newsletter/subscribe blocks
     remove_newsletter_blocks(doc, content_id);
 
-    // Remove social engagement counters (e.g. "13 Likes", "5 Comments")
     remove_social_counters(doc, content_id);
 
-    // Remove social counter links (anchors wrapping "Likes" / "Comments" text)
     remove_social_counter_links(doc, content_id);
 
-    // Remove cookie consent banners
     remove_cookie_consent(doc, content_id);
 
-    // Remove trailing CTA-like sections (thin heading-introduced blocks at end)
     remove_trailing_cta_sections(doc, content_id);
 
-    // Remove card-grid blocks (repeated img+heading sibling patterns)
     remove_card_grid_blocks(doc, content_id);
 }
 

@@ -811,6 +811,16 @@ impl Document {
         }
     }
 
+    pub(crate) fn retain_attributes(
+        &mut self,
+        node: NodeId,
+        mut keep: impl FnMut(&str) -> bool,
+    ) {
+        if let NodeKind::Element { attrs, .. } = &mut self.node_mut(node).kind {
+            attrs.retain(|(name, _)| keep(name));
+        }
+    }
+
     /// Remove every `on*` attribute without copying the element's attribute names.
     /// Sanitization must cover handlers added by browsers after this crate's known list.
     pub(crate) fn remove_event_handler_attrs(&mut self, node: NodeId) {

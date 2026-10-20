@@ -652,8 +652,17 @@ fn parse_internal_once(
         let debug_content_selector =
             config.debug.then(|| element_selector(&doc, content));
         let md = if config.separate_markdown {
-            let markdown_raw =
-                markdown::content_to_markdown_mut_with_diagnostics(&mut doc, content, diagnostics);
+            let serialized_outer_html = overrides
+                .as_ref()
+                .and_then(|overrides| overrides.custom_html_postprocess)
+                .is_none()
+                .then_some(extracted_html.as_str());
+            let markdown_raw = markdown::content_to_markdown_mut_with_diagnostics(
+                &mut doc,
+                content,
+                serialized_outer_html,
+                diagnostics,
+            );
             let mut markdown = markdown::normalize_origin_links(&markdown_raw)
                 .replace("Vox_\\(website) ", "Vox_\\(website\\) ");
             if let Some(ref ov) = overrides

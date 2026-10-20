@@ -114,15 +114,13 @@ pub(crate) fn standardize_extractor_output(doc: &mut Document, content_id: NodeI
 fn strip_unwanted_attributes(doc: &mut Document, content_id: NodeId) {
     let all_els = doc.query_selector_all_in_subtree(content_id, "*");
     for id in all_els {
-        let names = doc.attr_names(id);
-        for name in names {
-            let allowed = ALLOWED_ATTRIBUTES
-                .iter()
-                .any(|attribute| name.eq_ignore_ascii_case(attribute));
-            if !allowed && !name.eq_ignore_ascii_case("class") && !name.eq_ignore_ascii_case("id") {
-                doc.remove_attr(id, &name);
-            }
-        }
+        doc.retain_attributes(id, |name| {
+            name.eq_ignore_ascii_case("class")
+                || name.eq_ignore_ascii_case("id")
+                || ALLOWED_ATTRIBUTES
+                    .iter()
+                    .any(|attribute| name.eq_ignore_ascii_case(attribute))
+        });
     }
 }
 
