@@ -1,0 +1,18 @@
+[package]
+name = "htmd"
+version = "0.5.6"
+edition = "2024"
+authors = ["letmutex"]
+description = "A turndown.js inspired HTML to Markdown converter."
+license = "Apache-2.0"
+repository = "https://github.com/letmutex/htmd"
+keywords = ["html", "markdown", "converter"]
+categories = ["text-processing", "parsing"]
+
+[dependencies]
+html5ever = "0.39"
+markup5ever_rcdom = "0.39"
+phf = { version = "0.13.1", features = ["macros"] }
+
+[lints.cargo]
+missing_lints_inheritance = "allow"
