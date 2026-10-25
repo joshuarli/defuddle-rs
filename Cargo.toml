@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/defuddle", "crates/defuddle-cli", "crates/defuddle-wasm"]
+members = ["crates/defuddle", "crates/defuddle-cli", "crates/defuddle-wasm", "crates/htmd"]
 default-members = ["crates/defuddle", "crates/defuddle-cli"]
 resolver = "3"
 

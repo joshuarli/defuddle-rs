@@ -361,7 +361,7 @@ impl TreeSink for ParseSink {
         for attr in attrs {
             if !existing
                 .iter()
-                .any(|(name, _)| name.as_ref().eq_ignore_ascii_case(attr.name.local.as_ref()))
+                .any(|(name, _)| atom_str(name).eq_ignore_ascii_case(atom_str(&attr.name.local)))
             {
                 existing.push((attr.name.local, attr.value.to_string()));
             }
@@ -511,7 +511,7 @@ impl Document {
 
     pub fn tag_name(&self, node: NodeId) -> &str {
         match &self.node(node).kind {
-            NodeKind::Element { name, .. } => name.as_ref(),
+            NodeKind::Element { name, .. } => atom_str(name),
             _ => "",
         }
     }
@@ -520,7 +520,7 @@ impl Document {
     /// tag name equals `name` ignoring ASCII case.
     pub fn tag_name_is(&self, node: NodeId, name: &str) -> bool {
         match &self.node(node).kind {
-            NodeKind::Element { name: n, .. } => n.as_ref().eq_ignore_ascii_case(name),
+            NodeKind::Element { name: n, .. } => atom_str(n).eq_ignore_ascii_case(name),
             _ => false,
         }
     }
@@ -532,7 +532,7 @@ impl Document {
             NodeKind::Element { name: n, .. } => {
                 names
                     .iter()
-                    .any(|&name| n.as_ref().eq_ignore_ascii_case(name))
+                    .any(|&name| atom_str(n).eq_ignore_ascii_case(name))
             }
             _ => false,
         }
@@ -599,7 +599,7 @@ impl Document {
                 continue;
             };
             let tag_candidates = by_tag
-                .get(name.as_ref())
+                .get(atom_str(name))
                 .into_iter()
                 .flat_map(|parts| parts.iter().copied());
             if wildcard
@@ -786,7 +786,7 @@ impl Document {
         match &self.node(node).kind {
             NodeKind::Element { attrs, .. } => attrs
                 .iter()
-                .find(|(attr_name, _)| attr_name.as_ref().eq_ignore_ascii_case(name))
+                .find(|(attr_name, _)| atom_str(attr_name).eq_ignore_ascii_case(name))
                 .map(|(_, value)| value.as_str()),
             _ => None,
         }
@@ -796,7 +796,7 @@ impl Document {
         if let NodeKind::Element { attrs, .. } = &mut self.node_mut(node).kind {
             if let Some((_, existing)) = attrs
                 .iter_mut()
-                .find(|(attr_name, _)| attr_name.as_ref().eq_ignore_ascii_case(name))
+                .find(|(attr_name, _)| atom_str(attr_name).eq_ignore_ascii_case(name))
             {
                 *existing = value.to_string();
             } else {
@@ -807,7 +807,7 @@ impl Document {
 
     pub fn remove_attr(&mut self, node: NodeId, name: &str) {
         if let NodeKind::Element { attrs, .. } = &mut self.node_mut(node).kind {
-            attrs.retain(|(attr_name, _)| !attr_name.as_ref().eq_ignore_ascii_case(name));
+            attrs.retain(|(attr_name, _)| !atom_str(attr_name).eq_ignore_ascii_case(name));
         }
     }
 
@@ -1009,7 +1009,7 @@ impl Document {
     fn body_children_or_root_children(&self) -> SmallVec<[NodeId; 1]> {
         if let Some(body) = self
             .live_node_ids()
-            .find(|&id| matches!(&self.node(id).kind, NodeKind::Element { name, .. } if name.as_ref().eq_ignore_ascii_case("body")))
+            .find(|&id| matches!(&self.node(id).kind, NodeKind::Element { name, .. } if atom_str(name).eq_ignore_ascii_case("body")))
         {
             return self.node(body).children.clone();
         }
@@ -1133,7 +1133,7 @@ impl Document {
             return false;
         };
         if let Some(tag) = &selector.tag
-            && !name.as_ref().eq_ignore_ascii_case(tag)
+            && !atom_str(name).eq_ignore_ascii_case(tag)
         {
             return false;
         }
@@ -1141,7 +1141,7 @@ impl Document {
             && !attrs
                 .iter()
                 .any(|(aname, aval)| {
-                    aname.as_ref().eq_ignore_ascii_case("id") && aval == id.as_ref()
+                    atom_str(aname).eq_ignore_ascii_case("id") && aval == id.as_ref()
                 })
         {
             return false;
@@ -1149,7 +1149,7 @@ impl Document {
         if !selector.classes.is_empty() {
             for class in &selector.classes {
                 if !attrs.iter().any(|(aname, aval)| {
-                    aname.as_ref().eq_ignore_ascii_case("class")
+                    atom_str(aname).eq_ignore_ascii_case("class")
                         && aval
                             .split_whitespace()
                             .any(|value| value == class.as_ref())
@@ -1162,7 +1162,7 @@ impl Document {
             let matches = match attribute {
                 AttributeSelector::Presence(name) => attrs
                     .iter()
-                    .any(|(attr_name, _)| eq_ignore_case(attr_name.as_ref(), name)),
+                    .any(|(attr_name, _)| eq_ignore_case(atom_str(attr_name), name)),
                 AttributeSelector::Equals(name, value, case_insensitive) => {
                     attr_match(attrs, name, |actual| {
                         if *case_insensitive {
@@ -1256,7 +1256,7 @@ impl Document {
         }
         match &self.node(node).kind {
             NodeKind::Text(text) => out.push_str(text),
-            NodeKind::Element { name, .. } if name.as_ref().eq_ignore_ascii_case("br") => {
+            NodeKind::Element { name, .. } if atom_str(name).eq_ignore_ascii_case("br") => {
                 out.push('\n');
             }
             _ => {
@@ -1372,6 +1372,10 @@ fn eq_ignore_case(a: &str, b: &str) -> bool {
             .all(|(ac, bc)| ac.eq_ignore_ascii_case(&bc))
 }
 
+fn atom_str(atom: &LocalName) -> &str {
+    atom
+}
+
 fn starts_ascii_case_insensitive(value: &str, prefix: &str) -> bool {
     value
         .get(..prefix.len())
@@ -1391,7 +1395,7 @@ fn attr_match<F: FnMut(&str) -> bool>(
 ) -> bool {
     attrs
         .iter()
-        .any(|(aname, aval)| eq_ignore_case(aname.as_ref(), name) && predicate(aval))
+        .any(|(aname, aval)| eq_ignore_case(atom_str(aname), name) && predicate(aval))
 }
 
 fn is_void_element(name: &str) -> bool {
