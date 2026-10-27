@@ -630,8 +630,6 @@ fn is_linked_to_other_page(doc: &Document, el: NodeId, page_url: &str) -> bool {
         return false;
     }
 
-    // The lightweight selector parser does not support attribute-presence
-    // selectors reliably, so find the nearest anchor without `[href]`.
     let anchor = doc.closest(el, "a");
     if anchor.is_none() {
         return false;

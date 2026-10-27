@@ -196,7 +196,6 @@ fn unwrap_special_links(doc: &mut Document, content_id: NodeId) {
     for &id in &code_links {
         doc.unwrap(id);
     }
-    // Use plain "a" selector since [href] attribute presence matching is buggy
     let all_links = doc.query_selector_all_in_subtree(content_id, "a");
     for &id in &all_links {
         if let Some(href) = doc.get_attr(id, "href")

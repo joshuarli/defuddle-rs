@@ -25,3 +25,4 @@ Defuddle is a synchronous Rust library and CLI for extracting readable content f
 - Build prerequisites, fixtures, and verification: [testing](docs/testing.md).
 - Performance baseline workflow: [performance](docs/performance.md).
 - Upstream resync workflow and Rust mapping: [upstream-resync skill](.agents/skills/upstream-resync/SKILL.md).
+- Open tickets: [TODO](TODO.md). Draft decisions: [ignored options](docs/rfc/DEFR-1-ignored-options.md), [fixture patches](docs/rfc/DEFR-2-fixture-patches.md), [public surface](docs/rfc/DEFR-4-public-surface.md).

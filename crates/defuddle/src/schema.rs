@@ -26,9 +26,7 @@ pub fn extract_schema_org_data(doc: &Document) -> Vec<Value> {
                     items.push(decode_value_strings(data));
                 }
             }
-            Err(_e) => {
-                // Schema.org data parsing failures are non-fatal
-            }
+            Err(_) => {}
         }
     }
 

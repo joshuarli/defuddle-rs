@@ -185,11 +185,6 @@ impl Default for DefuddleResult {
     }
 }
 
-/// Bundles all configuration and input data for the content extraction pipeline.
-///
-/// Replaces the 14-parameter signatures of `parse_internal` / `parse_internal_once`.
-/// Boolean flags control which pipeline stages are active; reference fields hold
-/// the parsed metadata, schema data, and original HTML needed for retry logic.
 struct GenericPipelineConfig<'a> {
     source_html: &'a str,
     metadata: &'a Metadata,
@@ -534,7 +529,6 @@ fn parse_internal_once(
     config: &GenericPipelineConfig<'_>,
     diagnostics: &mut pipeline::Diagnostics,
 ) -> DefuddleResult {
-    // Find main content first
     let main_content = diagnostics.measure("main content", || {
         pipeline::extract_content(&mut doc, config.content_selector, config.debug)
     });

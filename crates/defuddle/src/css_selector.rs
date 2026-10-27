@@ -157,7 +157,6 @@ fn parse_attr(p: &mut cssparser::Parser<'_>) -> Option<Attr> {
     p.parse_nested_block(|pp| -> Result<Attr, cssparser::ParseError<()>> {
         let name = pp.expect_ident_cloned()?.as_ref().to_string();
         let mut ci = false;
-        // Convert token to tag value to release borrow
         let op: u8 = match pp.next() {
             Ok(cssparser::Token::CloseSquareBracket) | Err(..) => 0,
             Ok(cssparser::Token::Delim('=')) => 1,

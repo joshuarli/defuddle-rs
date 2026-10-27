@@ -2,15 +2,7 @@
 
 ## Commands
 
-Run workspace checks from the repository root:
-
-```sh
-cargo build --workspace
-cargo test --workspace
-cargo clippy --workspace --all-targets -- --deny warnings
-```
-
-The workspace's default members are `defuddle` and `defuddle-cli`; `--workspace` also includes the opt-in `defuddle-wasm` adapter. For focused core checks, use `cargo test -p defuddle`, `cargo test -p defuddle --test fixture_harness`, or `cargo test -p defuddle --test integration_tests`.
+Run the workspace build, test, and clippy commands in [AGENTS.md](../AGENTS.md). `--workspace` includes the opt-in `defuddle-wasm` adapter. The default members are `defuddle` and `defuddle-cli`. For a focused core check, use `cargo test -p defuddle`, `cargo test -p defuddle --test fixture_harness`, or `cargo test -p defuddle --test integration_tests`.
 
 ## Upstream fixtures
 

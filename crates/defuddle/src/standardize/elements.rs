@@ -471,9 +471,6 @@ pub(crate) fn convert_block_spans(doc: &mut Document, content_id: NodeId) {
 pub(crate) fn standardize_drop_caps(doc: &mut Document, content_id: NodeId) {
     let caps = doc.query_selector_all_in_subtree(content_id, r#"span[data-caps="initial"]"#);
     for id in caps {
-        // Since we can't easily insert text nodes between siblings in the current DOM,
-        // we just unwrap the span and remove the following <small>
-        // Simplified: just unwrap the span
         doc.unwrap(id);
     }
 }

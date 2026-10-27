@@ -6,7 +6,7 @@ The workspace contains the `defuddle` library, the `defuddle` command-line progr
 
 ## Availability
 
-The workspace crates are currently version `0.0.0`. Install the CLI from a checkout with:
+`defuddle`, `defuddle-cli`, and `defuddle-wasm` are version `0.0.0`. Vendored `htmd` is `0.5.6` and is not published from this repository. Install the CLI from a checkout with:
 
 ```sh
 cargo install --path crates/defuddle-cli
@@ -76,4 +76,4 @@ The `defuddle-wasm` crate exports `parse_page(page_html, page_url, extractor_nam
 
 ## Help and license
 
-Report problems at [the GitHub repository](https://github.com/joshuarli/defuddle-rs). Cargo manifests declare the project under the MIT license; this source tree does not include a `LICENSE` file.
+Report problems at [the GitHub repository](https://github.com/joshuarli/defuddle-rs). The `defuddle` crates declare the MIT license. This tree has no top-level `LICENSE` file. Vendored `htmd` is Apache-2.0; see [its license](crates/htmd/LICENSE).

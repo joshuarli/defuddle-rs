@@ -9,11 +9,9 @@ Source commit:
 ```
 
 Vendored contents:
+
 - `tests/upstream/defuddle/fixtures`
 - `tests/upstream/defuddle/expected`
 
-Snapshot counts at import:
-- HTML fixtures: 202
-- Markdown expected files: 202
-- HTML expected files: 3
+`fixture_harness_discovers_current_fixture_set` in [`crates/defuddle/tests/fixture_harness.rs`](../../crates/defuddle/tests/fixture_harness.rs) checks the current fixture and expected-file counts.
 
