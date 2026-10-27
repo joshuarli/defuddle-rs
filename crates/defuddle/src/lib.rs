@@ -75,11 +75,9 @@ pub use metadata::Metadata;
 pub struct DefuddleOptions {
     pub debug: bool,
     pub url: Option<String>,
-    pub markdown: bool,
     pub separate_markdown: bool,
     pub remove_exact_selectors: Option<bool>,
     pub remove_partial_selectors: Option<bool>,
-    pub remove_images: bool,
     pub remove_iframes: bool,
     pub remove_hidden_elements: Option<bool>,
     pub remove_low_scoring: Option<bool>,
@@ -88,7 +86,6 @@ pub struct DefuddleOptions {
     pub remove_content_patterns: Option<bool>,
     pub content_selector: Option<String>,
     pub extractor: Option<String>,
-    pub language: Option<String>,
     pub profile: bool,
 }
 

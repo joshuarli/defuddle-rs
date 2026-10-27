@@ -28,4 +28,4 @@ Treat `remove_images: true` as "drop every img". That is a new behavior, not a r
 
 ## Decision
 
-Pending.
+Removed `DefuddleOptions.markdown`, `remove_images`, and `language`. Removed `--lang` and its help and README lines; the flag is rejected. Markdown output stays `separate_markdown`. Image removal stays `remove_small_images`.

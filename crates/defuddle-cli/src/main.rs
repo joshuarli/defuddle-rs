@@ -30,7 +30,6 @@ fn run() -> Result<(), String> {
     let mut property: Option<String> = None;
     let mut output_path: Option<PathBuf> = None;
     let mut page_url: Option<String> = None;
-    let mut language: Option<String> = None;
     let mut debug = false;
     let mut extractor: Option<String> = None;
     let mut input_source: Option<String> = None;
@@ -71,15 +70,6 @@ fn run() -> Result<(), String> {
                         .map_err(|e| e.to_string())?
                         .into_string()
                         .map_err(|_| "invalid url value".to_string())?,
-                );
-            }
-            lexopt::Arg::Short('l') | lexopt::Arg::Long("lang") => {
-                language = Some(
-                    parser
-                        .value()
-                        .map_err(|e| e.to_string())?
-                        .into_string()
-                        .map_err(|_| "invalid lang value".to_string())?,
                 );
             }
             lexopt::Arg::Long("debug") => {
@@ -130,7 +120,6 @@ fn run() -> Result<(), String> {
         debug,
         extractor,
         separate_markdown: markdown,
-        language,
         ..Default::default()
     };
 
@@ -357,7 +346,6 @@ Options:
                           favicon, image, language, published, site, or content
   -o, --output <file>     Write output to file instead of stdout
   --url <url>             Set document URL for metadata resolution
-  -l, --lang <code>       Preferred language (BCP 47 tag)
   --debug                 Enable debug output
   --extractor <name>      Force a named site extractor (e.g. substack)
   -h, --help              Show this help

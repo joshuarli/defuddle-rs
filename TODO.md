@@ -1,16 +1,6 @@
 Prefix: DEFR
 Next: 10
 
-### DEFR-1 · P2 · Extraction options are stored and ignored
-
-- **Area:** Types
-- **Where:** `crates/defuddle/src/lib.rs:78`, `crates/defuddle/src/lib.rs:82`, `crates/defuddle/src/lib.rs:91`, `crates/defuddle-cli/src/main.rs:76`, `crates/defuddle/src/metadata.rs:468`, `README.md:67`
-- **Problem:** `parse_html` never reads `DefuddleOptions.markdown`, `remove_images`, or `language`. Markdown output is controlled only by `separate_markdown` (`lib.rs` site path and `parse_internal_once`). Image removal is only the small-image pass behind `remove_small_images`. `get_language` uses the document, schema, and meta tags, not the option. The CLI still accepts `--lang` and the README tells callers it sets a preferred BCP 47 language. Setting `markdown: true` or `remove_images: true` changes nothing, and `--lang fr` leaves `result.language` as the page language. No error is returned.
-- **Recommendation:** Delete `markdown` and `remove_images` until a caller needs them. For `language`, either thread the upstream selection rule into metadata or remove `--lang`, the field, and the README and help lines. Do not leave a flag that parses and is dropped.
-- **Fix with:** `api-surface-and-module-boundaries`
-- **Effort:** S
-- **Design:** [docs/rfc/DEFR-1-ignored-options.md](docs/rfc/DEFR-1-ignored-options.md)
-
 ### DEFR-2 · P3 · Fixture rewrites run on every extraction
 
 - **Area:** Architecture

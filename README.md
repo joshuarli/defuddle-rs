@@ -63,7 +63,6 @@ By default, the command writes cleaned HTML to standard output. `--markdown` wri
 | `-p`, `--property NAME` | Output one value: `title`, `author`, `description`, `domain`, `favicon`, `image`, `language`, `published`, `site`, or `content`. |
 | `-o`, `--output FILE` | Write output to a file. |
 | `--url URL` | Set the document URL for metadata and relative-link resolution. It does not fetch the URL. |
-| `-l`, `--lang CODE` | Set the preferred language using a BCP 47 tag. |
 | `--extractor NAME` | Force a site adapter: `hackernews`, `substack`, `reddit`, `github`, `gmail`, `chatgpt`, `mastodon`, or `twitter`. |
 | `--debug` | Enable extraction diagnostics, included by `--json`. |
 | `-h`, `--help` | Show command help. |

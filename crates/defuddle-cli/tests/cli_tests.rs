@@ -14,6 +14,22 @@ fn bin() -> Command {
 }
 
 #[test]
+fn cli_rejects_lang() {
+    let output = bin()
+        .arg("--lang")
+        .arg("fr")
+        .output()
+        .expect("command runs");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unexpected argument") && stderr.contains("lang"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn cli_rejects_url_as_source() {
     let output = bin()
         .arg("https://example.com")
