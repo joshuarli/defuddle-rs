@@ -662,12 +662,7 @@ fn collect_formatted_text(doc: &Document, node_id: crate::NodeId, result: &mut S
             result.push_str("</em>");
         }
         "a" => {
-            let href = doc.get_attr(node_id, "href").unwrap_or("");
-            let href = if href.eq_ignore_ascii_case("//claude.md") {
-                "https://claude.md/"
-            } else {
-                href
-            };
+            let href = escape_html(doc.get_attr(node_id, "href").unwrap_or(""));
             result.push_str(&format!("<a href=\"{href}\">"));
             for &child_id in doc.children(node_id) {
                 collect_formatted_text(doc, child_id, result);
@@ -896,6 +891,24 @@ mod tests {
             extraction.content_html.find("Self reply").unwrap() < extraction.content_html.len()
         );
         assert!(!extraction.content_html.contains("## Comments"));
+    }
+
+    #[test]
+    fn article_link_escapes_href_without_fixture_rewrite() {
+        let doc = parse(
+            r#"<div><a href="//claude.md">docs</a><a href="https://example.com/?q=&quot;>x">quoted</a></div>"#,
+        );
+        let root = doc.query_selector_all("div")[0];
+        let mut out = String::new();
+        for &child in doc.children(root) {
+            super::collect_formatted_text(&doc, child, &mut out);
+        }
+
+        assert!(out.contains(r#"<a href="//claude.md">docs</a>"#), "{out}");
+        assert!(
+            out.contains(r#"<a href="https://example.com/?q=&quot;&gt;x">quoted</a>"#),
+            "{out}"
+        );
     }
 
     #[test]
