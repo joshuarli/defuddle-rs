@@ -291,7 +291,7 @@ fn local_fixtures_extractors() {
             continue;
         }
 
-        for ext_name in extractors {
+        for ext_name in &extractors {
             let expected_html = fixtures_dir.join(format!("{stem}.{ext_name}.html"));
             let expected_md = fixtures_dir.join(format!("{stem}.{ext_name}.md"));
 

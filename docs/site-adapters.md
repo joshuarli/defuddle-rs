@@ -20,6 +20,6 @@ Adapter output bypasses generic page scoring and boilerplate removal, then passe
 ## Add an adapter
 
 1. Add a module under `crates/defuddle/src/extractors/` and implement `SiteAdapter::matches()` and `SiteAdapter::extract()`.
-2. Register its factory and name in `crates/defuddle/src/extractors/mod.rs`.
+2. Register its factory in the adapter table in `crates/defuddle/src/extractors/mod.rs`; `adapter_names()` is derived from that table.
 3. Return DOM-backed output. Build generated markup with the DOM builder or escape page-derived text.
 4. Add focused integration coverage, unsafe-attribute coverage, and a representative fixture where available.

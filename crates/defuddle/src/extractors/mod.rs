@@ -30,7 +30,45 @@ pub(crate) trait SiteAdapter {
     fn extract(&self, context: &mut ExtractionContext<'_>) -> SiteExtraction;
 }
 
-type AdapterCandidate = (&'static str, fn() -> Box<dyn SiteAdapter>);
+struct AdapterDef {
+    name: &'static str,
+    factory: fn() -> Box<dyn SiteAdapter>,
+}
+
+const ADAPTERS: &[AdapterDef] = &[
+    AdapterDef {
+        name: "hackernews",
+        factory: hackernews::adapter,
+    },
+    AdapterDef {
+        name: "substack",
+        factory: substack::adapter,
+    },
+    AdapterDef {
+        name: "reddit",
+        factory: reddit::adapter,
+    },
+    AdapterDef {
+        name: "github",
+        factory: github::adapter,
+    },
+    AdapterDef {
+        name: "gmail",
+        factory: gmail::adapter,
+    },
+    AdapterDef {
+        name: "chatgpt",
+        factory: chatgpt::adapter,
+    },
+    AdapterDef {
+        name: "mastodon",
+        factory: mastodon::adapter,
+    },
+    AdapterDef {
+        name: "twitter",
+        factory: twitter::adapter,
+    },
+];
 
 pub(crate) fn site_extraction_from_html(
     content_html: String,
@@ -48,21 +86,13 @@ pub(crate) fn find_site_adapter(
     context: &ExtractionContext<'_>,
     requested_name: Option<&str>,
 ) -> Option<(&'static str, Box<dyn SiteAdapter>)> {
-    let candidates: &[AdapterCandidate] = &[
-        ("hackernews", hackernews::adapter),
-        ("substack", substack::adapter),
-        ("reddit", reddit::adapter),
-        ("github", github::adapter),
-        ("gmail", gmail::adapter),
-        ("chatgpt", chatgpt::adapter),
-        ("mastodon", mastodon::adapter),
-        ("twitter", twitter::adapter),
-    ];
-    candidates.iter().find_map(|(name, factory)| {
-        if requested_name.is_some_and(|requested| !requested.eq_ignore_ascii_case(name)) {
+    ADAPTERS.iter().find_map(|adapter| {
+        if requested_name
+            .is_some_and(|requested| !requested.eq_ignore_ascii_case(adapter.name))
+        {
             return None;
         }
-        let domain_matches = match *name {
+        let domain_matches = match adapter.name {
             "hackernews" => context.page_url.contains("news.ycombinator.com"),
             "substack" => context.page_url.contains("substack.com"),
             "reddit" => context.page_url.contains("reddit.com"),
@@ -78,20 +108,26 @@ pub(crate) fn find_site_adapter(
         if requested_name.is_none() && !domain_matches {
             return None;
         }
-        let adapter = factory();
-        adapter.matches(context).then_some((*name, adapter))
+        let instance = (adapter.factory)();
+        instance
+            .matches(context)
+            .then_some((adapter.name, instance))
     })
 }
 
-pub fn adapter_names() -> &'static [&'static str] {
-    &[
-        "hackernews",
-        "substack",
-        "reddit",
-        "github",
-        "gmail",
-        "chatgpt",
-        "mastodon",
-        "twitter",
-    ]
+pub fn adapter_names() -> Vec<&'static str> {
+    ADAPTERS.iter().map(|adapter| adapter.name).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ADAPTERS;
+
+    #[test]
+    fn adapter_names_match_registry_order() {
+        let names = super::adapter_names();
+        let registry: Vec<&'static str> =
+            ADAPTERS.iter().map(|adapter| adapter.name).collect();
+        assert_eq!(names, registry);
+    }
 }
