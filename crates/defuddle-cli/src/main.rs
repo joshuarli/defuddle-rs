@@ -302,11 +302,18 @@ fn find_archive_entry(
     Ok(None)
 }
 
+const MAX_ARCHIVE_ENTRY_BYTES: u64 = 32 * 1024 * 1024;
+
 fn read_archive_entry(
     archive: &rawzip::ZipSliceArchive<&[u8]>,
     wayfinder: rawzip::ZipArchiveEntryWayfinder,
     method: rawzip::CompressionMethod,
 ) -> Result<Vec<u8>, String> {
+    if wayfinder.uncompressed_size_hint() > MAX_ARCHIVE_ENTRY_BYTES {
+        return Err(format!(
+            "archive entry exceeds {MAX_ARCHIVE_ENTRY_BYTES} byte limit"
+        ));
+    }
     let entry = archive
         .get_entry(wayfinder)
         .map_err(|error| error.to_string())?;
@@ -321,8 +328,14 @@ fn read_archive_entry(
     let mut reader = entry.verifying_reader(decoder);
     let mut contents = Vec::new();
     reader
+        .take(MAX_ARCHIVE_ENTRY_BYTES + 1)
         .read_to_end(&mut contents)
         .map_err(|error| error.to_string())?;
+    if contents.len() as u64 > MAX_ARCHIVE_ENTRY_BYTES {
+        return Err(format!(
+            "archive entry exceeds {MAX_ARCHIVE_ENTRY_BYTES} byte limit"
+        ));
+    }
     Ok(contents)
 }
 

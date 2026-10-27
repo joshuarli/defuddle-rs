@@ -231,3 +231,50 @@ fn cli_output_to_file() {
     assert!(temp.exists(), "output file should exist");
     let _ = fs::remove_file(&temp);
 }
+
+#[test]
+fn cli_rejects_oversize_single_file_entry() {
+    let mut zip_bytes = Vec::new();
+    {
+        let mut archive = rawzip::ZipArchiveWriter::new(&mut zip_bytes);
+        for (name, contents) in [
+            ("index.html", vec![b'0'; 33 * 1024 * 1024]),
+            (
+                "manifest.json",
+                br#"{"originalUrl":"https://example.com/archive"}"#.to_vec(),
+            ),
+        ] {
+            let (mut entry, config) = archive
+                .new_file(name)
+                .compression_method(rawzip::CompressionMethod::DEFLATE)
+                .start()
+                .unwrap();
+            let encoder = flate2::write::DeflateEncoder::new(
+                &mut entry,
+                flate2::Compression::default(),
+            );
+            let mut writer = config.wrap(encoder);
+            writer.write_all(&contents).unwrap();
+            let (encoder, descriptor) = writer.finish().unwrap();
+            encoder.finish().unwrap();
+            entry.finish(descriptor).unwrap();
+        }
+        archive.finish().unwrap();
+    }
+
+    let path = std::env::temp_dir().join(format!(
+        "defuddle-cli-oversize-single-file-{}.zip.html",
+        std::process::id()
+    ));
+    let mut input =
+        br#"<!doctype html><html data-sfz><sfz-extra-data></sfz-extra-data></html>"#.to_vec();
+    input.extend_from_slice(&zip_bytes);
+    fs::write(&path, input).unwrap();
+
+    let output = bin().arg("-j").arg(&path).output().expect("command runs");
+    let _ = fs::remove_file(&path);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("exceeds"), "{stderr}");
+}
