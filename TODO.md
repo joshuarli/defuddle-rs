@@ -57,15 +57,6 @@ Next: 10
 - **Fix with:** `os-boundaries`
 - **Effort:** S
 
-### DEFR-8 · P3 · Adapter names are a second list
-
-- **Area:** Config
-- **Where:** `crates/defuddle/src/extractors/mod.rs:51`, `crates/defuddle/src/extractors/mod.rs:86`
-- **Problem:** `find_site_adapter` and `adapter_names` each list the eight adapters. URL gates are a third copy in `find_site_adapter` and again in `docs/site-adapters.md`. Adding a factory without updating `adapter_names` hides it from `--extractor` help consumers and from `list_extractors`. Nothing fails when the slices diverge.
-- **Recommendation:** Drive names from the candidate slice. Keep the doc table, and test that `adapter_names()` equals the registry order.
-- **Fix with:** `single-source-of-truth`
-- **Effort:** S
-
 ### DEFR-9 · P4 · `make lint` rewrites the tree
 
 - **Area:** Build
