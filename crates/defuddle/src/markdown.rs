@@ -1735,11 +1735,6 @@ pub fn get_best_image_src(srcset: &str) -> Option<String> {
     }
 }
 
-/// Resolve the best image source for <img> elements with srcset.
-pub fn resolve_best_image_sources(html: &str) -> String {
-    preprocess_html_dom(html)
-}
-
 fn convert_inline_formatting<'a>(html: Cow<'a, str>) -> Cow<'a, str> {
     let re_mark =
         MARK_TAG_RE.get_or_init(|| regex_lite::Regex::new(r"<mark[^>]*>(.*?)</mark>").unwrap());
@@ -1747,11 +1742,6 @@ fn convert_inline_formatting<'a>(html: Cow<'a, str>) -> Cow<'a, str> {
         DEL_TAG_RE.get_or_init(|| regex_lite::Regex::new(r"</?(?:del|s|strike)\b[^>]*>").unwrap());
     let html = replace_all_if_changed(html, re_mark, "==$1==");
     replace_all_if_changed(html, re_del, "~~")
-}
-
-/// Convert the content of a DOM element to Markdown.
-pub fn content_to_markdown(doc: &Document, content_id: NodeId) -> String {
-    content_to_markdown_from_document(doc, content_id, None)
 }
 
 pub(crate) fn content_to_markdown_mut_with_diagnostics(
@@ -1826,30 +1816,6 @@ fn inner_html_from_outer_html<'a>(tag_name: &str, outer_html: &'a str) -> Option
     }
 
     Some(&outer_html[opening_end..closing_start])
-}
-
-fn content_to_markdown_from_document(
-    doc: &Document,
-    content_id: NodeId,
-    mut diagnostics: Option<&mut Diagnostics>,
-) -> String {
-    let needs_dom_preprocess = ["img", "table", "iframe"].iter().any(|selector| {
-        !doc.query_selector_all_in_subtree(content_id, selector)
-            .is_empty()
-    });
-    let html = measure_phase(&mut diagnostics, "markdown serialize", || {
-        if needs_dom_preprocess {
-            let (mut markdown_doc, root) = Document::clone_subtree(doc, content_id);
-            preprocess_markdown_dom(&mut markdown_doc, root);
-            markdown_doc.inner_html(root)
-        } else {
-            doc.inner_html(content_id)
-        }
-    });
-    let cleaned = measure_phase(&mut diagnostics, "markdown preprocess", || {
-        preprocess_html_text(&html)
-    });
-    convert_cleaned_html_to_markdown(&cleaned, &mut diagnostics)
 }
 
 pub fn normalize_origin_links(md: &str) -> String {
@@ -2012,5 +1978,68 @@ mod tests {
         assert!(fenced.contains("**outside**[^2]"));
         assert_eq!(postprocess_markdown("text[^1]"), "text [^1]");
         assert_eq!(postprocess_markdown("text[^1] ."), "text [^1].");
+    }
+
+    // Direct tests of the standalone markdown conversion function,
+    // mirroring tests/markdown.test.ts
+    mod markdown_conversion {
+        use super::*;
+
+        #[test]
+        fn wraps_link_destinations_with_spaces_in_angle_brackets() {
+            let html = r#"<article><p><a href="myapp:open shared page">Open page</a></p></article>"#;
+            let md = html_to_markdown(html);
+            assert!(md.contains("[Open page](<myapp:open shared page>)"));
+        }
+
+        #[test]
+        fn keeps_normal_link_destinations() {
+            let html = r#"<article><p><a href="https://example.com/page">Open page</a></p></article>"#;
+            let md = html_to_markdown(html);
+            assert!(md.contains("[Open page](https://example.com/page)"));
+        }
+
+        #[test]
+        fn omits_dangerous_link_destinations() {
+            let html = r#"<p><a href="javascript:alert(1)">Open page</a></p>"#;
+            let md = html_to_markdown(html);
+            assert!(!md.contains("javascript:"));
+            assert!(md.contains("Open page"));
+        }
+
+        #[test]
+        fn omits_image_alt_text_but_preserves_link_wrapping() {
+            let html = r#"<p>Hello world</p><a href="https://example.com/image"><img src="https://example.com/img.png" alt="photo"></a>"#;
+            let md = html_to_markdown(html);
+            assert!(md.contains("[![](https://example.com/img.png)](https://example.com/image)"));
+            assert!(!md.contains("photo"));
+        }
+
+        #[test]
+        fn removes_wbr_tags_without_spaces() {
+            let html = r#"<article><p>Super<wbr>cali<wbr>fragilistic</p></article>"#;
+            let md = html_to_markdown(html);
+            assert!(md.contains("Supercalifragilistic"));
+        }
+
+        #[test]
+        fn handles_wbr_inside_links() {
+            let html = r#"<p><a href="https://example.com">long<wbr>word</a></p>"#;
+            let md = html_to_markdown(html);
+            assert!(md.contains("longword"));
+        }
+
+        #[test]
+        fn converts_basic_tables() {
+            let html = r#"<article>
+                <table>
+                    <tr><th>A</th><th>B</th></tr>
+                    <tr><td>1</td><td>2</td></tr>
+                </table>
+            </article>"#;
+            let md = html_to_markdown(html);
+            assert!(md.contains("| A | B |"));
+            assert!(md.contains("| 1 | 2 |"));
+        }
     }
 }

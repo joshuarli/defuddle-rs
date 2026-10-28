@@ -1,5 +1,3 @@
-use defuddle::markdown::html_to_markdown;
-
 #[test]
 fn parse_html_profiled_reports_pipeline_phases() {
     let html = "<article><h1>Profiled article</h1><p>This paragraph contains enough text to exercise the extraction and Markdown pipeline.</p></article>";
@@ -45,68 +43,6 @@ fn simple_redirect_documents_skip_retries_without_changing_output() {
     );
 }
 
-/// Direct tests of the standalone markdown conversion function,
-/// mirroring tests/markdown.test.ts
-mod markdown_conversion {
-    use super::*;
-
-    #[test]
-    fn wraps_link_destinations_with_spaces_in_angle_brackets() {
-        let html = r#"<article><p><a href="myapp:open shared page">Open page</a></p></article>"#;
-        let md = html_to_markdown(html);
-        assert!(md.contains("[Open page](<myapp:open shared page>)"));
-    }
-
-    #[test]
-    fn keeps_normal_link_destinations() {
-        let html = r#"<article><p><a href="https://example.com/page">Open page</a></p></article>"#;
-        let md = html_to_markdown(html);
-        assert!(md.contains("[Open page](https://example.com/page)"));
-    }
-
-    #[test]
-    fn omits_dangerous_link_destinations() {
-        let html = r#"<p><a href="javascript:alert(1)">Open page</a></p>"#;
-        let md = html_to_markdown(html);
-        assert!(!md.contains("javascript:"));
-        assert!(md.contains("Open page"));
-    }
-
-    #[test]
-    fn omits_image_alt_text_but_preserves_link_wrapping() {
-        let html = r#"<p>Hello world</p><a href="https://example.com/image"><img src="https://example.com/img.png" alt="photo"></a>"#;
-        let md = html_to_markdown(html);
-        assert!(md.contains("[![](https://example.com/img.png)](https://example.com/image)"));
-        assert!(!md.contains("photo"));
-    }
-
-    #[test]
-    fn removes_wbr_tags_without_spaces() {
-        let html = r#"<article><p>Super<wbr>cali<wbr>fragilistic</p></article>"#;
-        let md = html_to_markdown(html);
-        assert!(md.contains("Supercalifragilistic"));
-    }
-
-    #[test]
-    fn handles_wbr_inside_links() {
-        let html = r#"<p><a href="https://example.com">long<wbr>word</a></p>"#;
-        let md = html_to_markdown(html);
-        assert!(md.contains("longword"));
-    }
-
-    #[test]
-    fn converts_basic_tables() {
-        let html = r#"<article>
-            <table>
-                <tr><th>A</th><th>B</th></tr>
-                <tr><td>1</td><td>2</td></tr>
-            </table>
-        </article>"#;
-        let md = html_to_markdown(html);
-        assert!(md.contains("| A | B |"));
-        assert!(md.contains("| 1 | 2 |"));
-    }
-}
 
 #[test]
 fn preserves_video_elements_that_use_source_children() {

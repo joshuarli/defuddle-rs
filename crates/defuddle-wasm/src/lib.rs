@@ -45,7 +45,7 @@ pub fn parse_page(
 
 #[wasm_bindgen]
 pub fn list_extractors() -> String {
-    defuddle::extractors::adapter_names().join("\n")
+    defuddle::adapter_names().join("\n")
 }
 
 #[cfg(test)]

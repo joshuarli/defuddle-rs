@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use defuddle::{DefuddleOptions, DefuddleResult, extractors, parse_html};
+use defuddle::{DefuddleOptions, DefuddleResult, adapter_names, parse_html};
 use walkdir::WalkDir;
 
 #[path = "common/fixture_url.rs"]
@@ -266,7 +266,7 @@ fn expected_dir() -> PathBuf {
 
 #[test]
 fn local_fixtures_extractors() {
-    let extractors = extractors::adapter_names();
+    let extractors = adapter_names();
 
     let fixtures_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let entries = fs::read_dir(&fixtures_dir).expect("tests/fixtures/ exists");

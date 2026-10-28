@@ -50,15 +50,15 @@ mod extraction_selectors;
 
 mod dom;
 
-pub mod content_utils;
+mod content_utils;
 mod css_selector;
-pub mod extractors;
+mod extractors;
 mod footnotes;
-pub mod markdown;
+mod markdown;
 mod metadata;
 mod pipeline;
 mod prune;
-pub mod sanitize;
+mod sanitize;
 mod schema;
 mod scoring;
 mod shadow_dom;
@@ -67,8 +67,11 @@ mod standardize;
 use miniserde::json::{Array, Object, Value};
 use miniserde::{Deserialize, Serialize};
 
-pub use dom::{Document, NodeId};
-pub use metadata::Metadata;
+pub use content_utils::is_absolute_url;
+pub use extractors::adapter_names;
+
+use dom::{Document, NodeId};
+use metadata::Metadata;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DefuddleOptions {

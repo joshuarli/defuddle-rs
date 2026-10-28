@@ -1250,29 +1250,6 @@ impl Document {
         }
     }
 
-    pub(crate) fn text_content_with_br_into(&self, node: NodeId, out: &mut String) {
-        if self.is_removed(node) {
-            return;
-        }
-        match &self.node(node).kind {
-            NodeKind::Text(text) => out.push_str(text),
-            NodeKind::Element { name, .. } if atom_str(name).eq_ignore_ascii_case("br") => {
-                out.push('\n');
-            }
-            _ => {
-                for child in self.node(node).children.iter().copied() {
-                    self.text_content_with_br_into(child, out);
-                }
-            }
-        }
-    }
-
-    pub fn text_content_with_br(&self, node: NodeId) -> String {
-        let mut out = String::new();
-        self.text_content_with_br_into(node, &mut out);
-        out
-    }
-
     pub fn replace_with_node(&mut self, target: NodeId, replacement: NodeId) {
         if target == self.root || self.is_removed(target) {
             return;
