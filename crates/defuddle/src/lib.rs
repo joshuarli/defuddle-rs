@@ -97,17 +97,8 @@ pub struct MetaTag {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct DebugRemoval {
-    pub step: String,
-    pub selector: Option<String>,
-    pub reason: Option<String>,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DebugInfo {
     pub content_selector: String,
-    pub removals: Vec<DebugRemoval>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -668,9 +659,8 @@ fn parse_internal_once(
         let word_count = pipeline::count_html_words(&extracted_html);
 
         let debug_info = debug_content_selector.map(|content_selector| DebugInfo {
-                content_selector,
-                removals: Vec::new(),
-            });
+            content_selector,
+        });
 
         let schema_val = if config.schema_org_data.is_empty() {
             Value::Array(Array::new())

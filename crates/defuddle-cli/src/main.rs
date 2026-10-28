@@ -325,7 +325,7 @@ fn read_archive_entry(
     } else {
         return Err(format!("unsupported compression method: {method:?}"));
     };
-    let mut reader = entry.verifying_reader(decoder);
+    let reader = entry.verifying_reader(decoder);
     let mut contents = Vec::new();
     reader
         .take(MAX_ARCHIVE_ENTRY_BYTES + 1)
@@ -359,7 +359,8 @@ Options:
                           favicon, image, language, published, site, or content
   -o, --output <file>     Write output to file instead of stdout
   --url <url>             Set document URL for metadata resolution
-  --debug                 Enable debug output
+  --debug                 Include the content selector in JSON output;
+                            set DEFUDDLE_PROFILE=1 for phase timings
   --extractor <name>      Force a named site extractor (e.g. substack)
   -h, --help              Show this help
 "#

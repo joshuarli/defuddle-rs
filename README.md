@@ -64,7 +64,7 @@ By default, the command writes cleaned HTML to standard output. `--markdown` wri
 | `-o`, `--output FILE` | Write output to a file. |
 | `--url URL` | Set the document URL for metadata and relative-link resolution. It does not fetch the URL. |
 | `--extractor NAME` | Force a site adapter: `hackernews`, `substack`, `reddit`, `github`, `gmail`, `chatgpt`, `mastodon`, or `twitter`. |
-| `--debug` | Enable extraction diagnostics, included by `--json`. |
+| `--debug` | Include the content selector in `--json` output. Set `DEFUDDLE_PROFILE=1` for phase timings. |
 | `-h`, `--help` | Show command help. |
 
 The built-in site adapters recognize Hacker News, Substack, Reddit, GitHub, Gmail, ChatGPT, Mastodon, and Twitter/X pages. Adapters work from the supplied HTML and do not fetch additional content.
