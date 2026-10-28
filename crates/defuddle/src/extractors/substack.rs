@@ -52,13 +52,7 @@ impl SiteAdapter for SubstackAdapter {
             SubstackMode::Note => {
                 let source = note_content_node(&context.doc);
                 let author = if metadata.author.is_empty() {
-                    metadata
-                        .title
-                        .rsplit(" (@")
-                        .next()
-                        .unwrap_or(&metadata.title)
-                        .trim()
-                        .to_string()
+                    strip_handle_suffix(&metadata.title)
                 } else {
                     metadata.author.clone()
                 };
@@ -193,6 +187,18 @@ fn metadata(doc: &Document) -> MetadataValues {
         author: content("meta[name=\"author\"]"),
         published: content("meta[property=\"article:published_time\"]"),
     }
+}
+
+fn strip_handle_suffix(title: &str) -> String {
+    let trimmed = title.trim_end();
+    if let Some(without_paren) = trimmed.strip_suffix(')')
+        && let Some(open) = without_paren.rfind("(@")
+        && !without_paren[open + 2..].contains(')')
+        && (open == 0 || without_paren[..open].ends_with(char::is_whitespace))
+    {
+        return without_paren[..open].trim_end().to_string();
+    }
+    title.to_string()
 }
 
 fn note_content_node(doc: &Document) -> Option<NodeId> {
@@ -433,6 +439,22 @@ pub fn register_prune(registry: &mut crate::prune::Registry) {
 }
 
 /// Check whether text looks like a standalone Substack date line.
+#[cfg(test)]
+mod tests {
+    use super::strip_handle_suffix;
+
+    #[test]
+    fn note_author_strips_trailing_handle() {
+        assert_eq!(strip_handle_suffix("Test User (@testuser)"), "Test User");
+        assert_eq!(
+            strip_handle_suffix("Test User (@testuser) "),
+            "Test User"
+        );
+        assert_eq!(strip_handle_suffix("Plain Title"), "Plain Title");
+        assert_eq!(strip_handle_suffix("Note (draft"), "Note (draft");
+    }
+}
+
 fn is_substack_date_text(text: &str) -> bool {
     const MONTHS: &[&str] = &[
         "January",

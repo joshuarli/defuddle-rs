@@ -9,7 +9,7 @@ exceptions = [
 
     # Tier A: One-company/unpopular formats
     { name = "elementor--archive-page", category = "site_extractor_out_of_scope", reason = "Elementor CMS page builder", required_capability = "Site-specific extractor", target = "out_of_scope", date_added = "2026-07-06" },
-    { name = "comments--mastodon.social-@user-12345678", category = "site_extractor_out_of_scope", reason = "Single Mastodon instance", required_capability = "Mastodon extractor", target = "out_of_scope", date_added = "2026-07-06" },
+    { name = "comments--mastodon.social-@user-12345678", category = "intentional_api_difference", reason = "Markdown output omits image alt text; adapter thread, card, and nesting output otherwise matches", required_capability = "Image alt text", target = "post_v1", date_added = "2026-10-28" },
     { name = "issues--296-oreilly-noteref-footnotes", category = "site_extractor_out_of_scope", reason = "O'Reilly platform footnotes", required_capability = "Site-specific footnote rules", target = "out_of_scope", date_added = "2026-07-06" },
 
     # Tier B: Niche rendering engines
@@ -58,8 +58,8 @@ exceptions = [
     { name = "thin-section-before-see-also", category = "intentional_api_difference", reason = "Thin section edge case", required_capability = "Section detection", target = "post_v1", date_added = "2026-07-06" },
     { name = "custom-elements--swiper-carousel", category = "site_extractor_out_of_scope", reason = "Swiper carousel library", required_capability = "Carousel extraction", target = "out_of_scope", date_added = "2026-07-06" },
     # Tier G: Edge cases and niche formats
-    { name = "general--substack-note", category = "site_extractor_out_of_scope", reason = "Substack Notes feature", required_capability = "Substack Notes extractor", target = "out_of_scope", date_added = "2026-07-06" },
-    { name = "general--substack-note-permalink", category = "site_extractor_out_of_scope", reason = "Substack Notes permalink", required_capability = "Substack Notes extractor", target = "out_of_scope", date_added = "2026-07-06" },
+    { name = "general--substack-note", category = "intentional_api_difference", reason = "Note og:image is not appended to note output; note text and author match", required_capability = "Substack Notes images", target = "post_v1", date_added = "2026-10-28" },
+    { name = "general--substack-note-permalink", category = "intentional_api_difference", reason = "Note og:image is not appended to note output; note text and author match", required_capability = "Substack Notes images", target = "post_v1", date_added = "2026-10-28" },
     { name = "general--substack-custom-domain", category = "intentional_api_difference", reason = "Custom-domain Substack requires explicit extractor selection", required_capability = "CLI extractor override", target = "post_v1", date_added = "2026-07-15" },
     { name = "general--svg-content-preservation", category = "intentional_api_difference", reason = "SVG content preservation edge case", required_capability = "SVG content handling", target = "post_v1", date_added = "2026-07-06" },
     { name = "general--svg-external-css-fallback", category = "intentional_api_difference", reason = "SVG CSS fallback edge case", required_capability = "SVG CSS handling", target = "post_v1", date_added = "2026-07-06" },
