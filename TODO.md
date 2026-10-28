@@ -39,24 +39,6 @@ Next: 10
 - **Fix with:** `isolate-effects`
 - **Effort:** M
 
-### DEFR-6 · P3 · SingleFile inflate has no size cap
-
-- **Area:** Security
-- **Where:** `crates/defuddle-cli/src/main.rs:316`
-- **Problem:** A file that contains the bytes `data-sfz` and `sfz-extra-data` is inflated with `read_to_end` and no uncompressed limit. A hostile archive can exhaust memory in any process that passes it to the CLI. The library path does not unzip.
-- **Recommendation:** Cap the uncompressed entry, using the archive's uncompressed size when `rawzip` exposes it, and reject entries over that cap before reading.
-- **Fix with:** `os-boundaries`
-- **Effort:** S
-
-### DEFR-7 · P3 · Twitter article links are interpolated into HTML
-
-- **Area:** Security
-- **Where:** `crates/defuddle/src/extractors/twitter.rs:671`, `crates/defuddle/src/lib.rs:372`
-- **Problem:** `collect_formatted_text` writes `href` into the markup with `format!` and no `escape_html`. A quote in the href closes the attribute. `site_result` parses that string and strips scripts, event handlers, and dangerous URLs, so this is not an unfiltered script sink. Elements the sanitizer keeps, including an `https` iframe while `remove_iframes` is left at its default, still survive. The same function special-cases `//claude.md` (see DEFR-2). Other adapters escape text or use the DOM builder.
-- **Recommendation:** Build the anchor with the DOM builder, or escape the href. Drop the `//claude.md` rewrite in the same change.
-- **Fix with:** `os-boundaries`
-- **Effort:** S
-
 ### DEFR-9 · P4 · `make lint` rewrites the tree
 
 - **Area:** Build
