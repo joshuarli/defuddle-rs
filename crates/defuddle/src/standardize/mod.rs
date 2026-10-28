@@ -11,7 +11,6 @@ mod whitespace;
 
 // Re-exports for external callers
 pub(crate) use callouts::convert_alert_elements;
-pub(crate) use images::get_best_src_url;
 pub(crate) use images::remove_small_images;
 pub(crate) use urls::resolve_urls;
 
@@ -30,24 +29,9 @@ use images::{
 use tables::{normalize_data_tables, unwrap_layout_tables};
 use whitespace::{move_inline_whitespace, remove_html_comments, standardize_spaces};
 
-pub fn standardize_content(
-    doc: &mut Document,
-    content_id: NodeId,
-    metadata_title: &str,
-    overrides: Option<&crate::overrides::PageOverrides>,
-) {
-    let se = overrides.map(|o| &o.standardize_exceptions);
-
-    if let Some(se) = se
-        && let Some(pre) = se.pre
-    {
-        pre(doc, content_id);
-    }
-
+pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_title: &str) {
     // Step order matches TypeScript standardizeContent()
-    if !se.is_some_and(|s| s.skip_drop_caps) {
-        standardize_drop_caps(doc, content_id);
-    }
+    standardize_drop_caps(doc, content_id);
     standardize_spaces(doc, content_id);
     move_inline_whitespace(doc, content_id);
     standardize_preformatted_elements(doc, content_id);
@@ -79,9 +63,7 @@ pub fn standardize_content(
     normalize_srcset_attributes(doc, content_id);
     remove_base64_placeholder_images(doc, content_id);
     remove_empty_video_elements(doc, content_id);
-    if !se.is_some_and(|s| s.skip_dedup_images) {
-        dedup_images(doc, content_id);
-    }
+    dedup_images(doc, content_id);
     remove_obsolete_elements(doc, content_id);
     remove_empty_elements(doc, content_id);
     remove_trailing_headings(doc, content_id);
@@ -91,12 +73,6 @@ pub fn standardize_content(
     convert_embedded_elements(doc, content_id);
     strip_extra_br_elements(doc, content_id);
     remove_empty_lines(doc, content_id);
-
-    if let Some(se) = se
-        && let Some(post) = se.post
-    {
-        post(doc, content_id);
-    }
 }
 
 /// Apply the attribute and spacer cleanup that is safe for HTML already built

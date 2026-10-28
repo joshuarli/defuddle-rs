@@ -56,7 +56,6 @@ pub mod extractors;
 mod footnotes;
 pub mod markdown;
 mod metadata;
-mod overrides;
 mod pipeline;
 mod prune;
 pub mod sanitize;
@@ -522,7 +521,6 @@ fn parse_internal_once(
     });
     let body_ids = doc.query_selector_all("body");
     let content_id = main_content.or_else(|| body_ids.first().copied());
-    let overrides = overrides::lookup_page_overrides(&config.metadata.title);
 
     if config.profile
         && let Some(content_id) = content_id {
@@ -540,9 +538,7 @@ fn parse_internal_once(
     });
 
     // Then apply removals
-    if (config.remove_exact || config.remove_partial)
-        && !overrides.as_ref().is_some_and(|o| o.skip_remove_selectors)
-    {
+    if config.remove_exact || config.remove_partial {
         diagnostics.measure("selector removal", || {
             if let Some(content) = content_id {
                 pipeline::remove_by_selector_protected(
@@ -557,7 +553,7 @@ fn parse_internal_once(
         });
     }
 
-    if config.remove_hidden && !overrides.as_ref().is_some_and(|o| o.skip_hidden_removal) {
+    if config.remove_hidden {
         diagnostics.measure("hidden removal", || {
             pipeline::remove_hidden_elements(&mut doc)
         });
@@ -565,34 +561,23 @@ fn parse_internal_once(
 
     if let Some(content) = content_id {
         // Remove low-scoring blocks based on link density
-        if config.remove_low_scoring && !overrides.as_ref().is_some_and(|o| o.skip_scoring) {
+        if config.remove_low_scoring {
             diagnostics.measure("generic scoring", || {
                 pipeline::score_and_remove(&mut doc, content)
             });
         }
 
         // Remove common boilerplate patterns
-        if config.remove_content_patterns
-            && !overrides.as_ref().is_some_and(|o| o.skip_content_patterns)
-        {
+        if config.remove_content_patterns {
             diagnostics.measure("content patterns", || {
                 pipeline::remove_content_patterns(&mut doc, content)
             });
         }
 
-        // Run page-specific DOM hook (e.g. lazy profile span removal)
-        if let Some(ref ov) = overrides
-            && let Some(hook) = ov.dom_hook
-        {
-            diagnostics.measure("page hook", || hook(&mut doc, content));
-        }
-
         // Remove metadata blocks adjacent to the first heading
-        if !overrides.as_ref().is_some_and(|o| o.skip_metadata_blocks) {
-            diagnostics.measure("metadata blocks", || {
-                pipeline::remove_metadata_blocks(&mut doc, content)
-            });
-        }
+        diagnostics.measure("metadata blocks", || {
+            pipeline::remove_metadata_blocks(&mut doc, content)
+        });
         diagnostics.measure("author sibling", || {
             pipeline::remove_author_sibling(&mut doc, content, &config.metadata.author)
         });
@@ -610,12 +595,7 @@ fn parse_internal_once(
 
         if config.do_standardize {
             diagnostics.measure("standardize", || {
-                standardize::standardize_content(
-                    &mut doc,
-                    content,
-                    &config.metadata.title,
-                    overrides.as_ref(),
-                );
+                standardize::standardize_content(&mut doc, content, &config.metadata.title);
                 standardize::resolve_urls(&mut doc, content, config.page_url);
             });
         }
@@ -625,33 +605,17 @@ fn parse_internal_once(
         }
         diagnostics.measure("sanitize", || sanitize::strip_unsafe_elements(&mut doc));
 
-        let mut extracted_html = diagnostics.measure("html serialize", || doc.outer_html(content));
-        if let Some(ref ov) = overrides
-            && let Some(post) = ov.custom_html_postprocess
-        {
-            extracted_html = post(&extracted_html);
-        }
+        let extracted_html = diagnostics.measure("html serialize", || doc.outer_html(content));
         let debug_content_selector =
             config.debug.then(|| element_selector(&doc, content));
         let md = if config.separate_markdown {
-            let serialized_outer_html = overrides
-                .as_ref()
-                .and_then(|overrides| overrides.custom_html_postprocess)
-                .is_none()
-                .then_some(extracted_html.as_str());
             let markdown_raw = markdown::content_to_markdown_mut_with_diagnostics(
                 &mut doc,
                 content,
-                serialized_outer_html,
+                Some(extracted_html.as_str()),
                 diagnostics,
             );
-            let mut markdown = markdown::normalize_origin_links(&markdown_raw)
-                .replace("Vox_\\(website) ", "Vox_\\(website\\) ");
-            if let Some(ref ov) = overrides
-                && let Some(post) = ov.custom_markdown_postprocess
-            {
-                markdown = post(&markdown);
-            }
+            let markdown = markdown::normalize_origin_links(&markdown_raw);
             Some(markdown)
         } else {
             None
