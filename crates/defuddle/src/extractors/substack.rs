@@ -439,22 +439,6 @@ pub fn register_prune(registry: &mut crate::prune::Registry) {
 }
 
 /// Check whether text looks like a standalone Substack date line.
-#[cfg(test)]
-mod tests {
-    use super::strip_handle_suffix;
-
-    #[test]
-    fn note_author_strips_trailing_handle() {
-        assert_eq!(strip_handle_suffix("Test User (@testuser)"), "Test User");
-        assert_eq!(
-            strip_handle_suffix("Test User (@testuser) "),
-            "Test User"
-        );
-        assert_eq!(strip_handle_suffix("Plain Title"), "Plain Title");
-        assert_eq!(strip_handle_suffix("Note (draft"), "Note (draft");
-    }
-}
-
 fn is_substack_date_text(text: &str) -> bool {
     const MONTHS: &[&str] = &[
         "January",
@@ -488,4 +472,20 @@ fn is_substack_date_text(text: &str) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_handle_suffix;
+
+    #[test]
+    fn note_author_strips_trailing_handle() {
+        assert_eq!(strip_handle_suffix("Test User (@testuser)"), "Test User");
+        assert_eq!(
+            strip_handle_suffix("Test User (@testuser) "),
+            "Test User"
+        );
+        assert_eq!(strip_handle_suffix("Plain Title"), "Plain Title");
+        assert_eq!(strip_handle_suffix("Note (draft"), "Note (draft");
+    }
 }

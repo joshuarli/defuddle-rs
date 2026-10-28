@@ -16,17 +16,14 @@ pub fn extract_schema_org_data(doc: &Document) -> Vec<Value> {
         }
 
         let json_content = clean_json_content(text);
-        match miniserde::json::from_str::<Value>(&json_content) {
-            Ok(data) => {
-                if let Some(graph) = object_value(&data, "@graph").and_then(as_array) {
-                    for item in graph {
-                        items.push(decode_value_strings(item.clone()));
-                    }
-                } else {
-                    items.push(decode_value_strings(data));
+        if let Ok(data) = miniserde::json::from_str::<Value>(&json_content) {
+            if let Some(graph) = object_value(&data, "@graph").and_then(as_array) {
+                for item in graph {
+                    items.push(decode_value_strings(item.clone()));
                 }
+            } else {
+                items.push(decode_value_strings(data));
             }
-            Err(_) => {}
         }
     }
 
