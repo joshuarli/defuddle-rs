@@ -7,7 +7,7 @@
 1. Parse HTML into the mutable `Document` tree and flatten declarative shadow-root templates.
 2. Run document-wide pruning, then extract schema data, meta tags, and metadata.
 3. If a site adapter matches, extract its content and pass it through sanitization and extractor-output standardization. This path bypasses generic content selection.
-4. Otherwise, select main content or the requested content selector, fall back to the body when needed, remove unwanted content, apply page overrides, resolve URLs, standardize the selected subtree, sanitize it, and serialize HTML.
+4. Otherwise, select main content or the requested content selector, fall back to the body when needed, remove unwanted content, resolve URLs, standardize the selected subtree, sanitize it, and serialize HTML.
 5. Convert the result to Markdown when requested.
 
 The generic pipeline retries short results with less aggressive pruning, reparsing the original HTML for each retry. See [`lib.rs`](../crates/defuddle/src/lib.rs) and [`pipeline.rs`](../crates/defuddle/src/pipeline.rs) for the implementation.
@@ -26,7 +26,7 @@ The generic pipeline retries short results with less aggressive pruning, reparsi
 | [`sanitize.rs`](../crates/defuddle/src/sanitize.rs) | Unsafe elements, attributes, and URL schemes. |
 | [`markdown.rs`](../crates/defuddle/src/markdown.rs) | HTML-to-Markdown conversion and Defuddle-specific normalization. |
 | [`analysis.rs`](../crates/defuddle/src/analysis.rs) | Structural snapshot diagnostics collected only when profiling is enabled. |
-| [`overrides.rs`](../crates/defuddle/src/overrides.rs), [`shadow_dom.rs`](../crates/defuddle/src/shadow_dom.rs) | Page-specific extraction exceptions and declarative shadow-root handling. |
+| [`shadow_dom.rs`](../crates/defuddle/src/shadow_dom.rs) | Declarative shadow-root handling. |
 | [`css_selector.rs`](../crates/defuddle/src/css_selector.rs), [`content_utils.rs`](../crates/defuddle/src/content_utils.rs), [`extraction_selectors.rs`](../crates/defuddle/src/extraction_selectors.rs) | Selector parsing, HTML/text helpers, and shared extraction selectors. |
 
 ## Boundaries
