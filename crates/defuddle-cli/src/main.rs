@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
 use std::process;
 
@@ -207,7 +207,7 @@ fn read_cli_input(input_source: &Option<String>) -> Result<CliInput, String> {
         }
         Some(path) => fs::read(path).map_err(|e| format!("Cannot read file {path}: {e}"))?,
         None => {
-            if atty::is(atty::Stream::Stdin) {
+            if io::stdin().is_terminal() {
                 return Err("No input provided. Pass an HTML file path, `-` for stdin, or pipe HTML to stdin.".to_string());
             }
             let mut buf = Vec::new();
