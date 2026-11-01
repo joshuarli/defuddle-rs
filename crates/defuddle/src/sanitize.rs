@@ -4,7 +4,7 @@ pub fn is_dangerous_url(url: &str) -> bool {
     is_dangerous_url_with_inline_image(url, true)
 }
 
-fn is_dangerous_url_with_inline_image(url: &str, allow_inline_image: bool) -> bool {
+pub(crate) fn is_dangerous_url_with_inline_image(url: &str, allow_inline_image: bool) -> bool {
     let normalized: String = url
         .chars()
         .filter(|c| !c.is_whitespace() && !c.is_control())

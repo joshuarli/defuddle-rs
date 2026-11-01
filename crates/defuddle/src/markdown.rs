@@ -35,6 +35,71 @@ fn format_markdown_link_destination(href: &str) -> Option<String> {
     })
 }
 
+fn is_valid_html_attribute_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first.is_ascii_alphabetic() || matches!(first, '_' | ':'))
+        && chars.all(|ch| {
+            ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | ':' | '-')
+        })
+}
+
+fn encode_markdown_unsafe(value: &str) -> Cow<'_, str> {
+    if !value
+        .chars()
+        .any(|ch| matches!(ch, '\n' | '\r' | '&' | '<' | '>' | '"' | '\'' | '`' | '\\' | '[' | ']'))
+    {
+        return Cow::Borrowed(value);
+    }
+    let mut encoded = String::with_capacity(value.len() + 16);
+    for ch in value.chars() {
+        match ch {
+            '\n' | '\r' | '&' | '<' | '>' | '"' | '\'' | '`' | '\\' | '[' | ']' => {
+                encoded.push_str(&format!("&#{};", ch as u32));
+            }
+            _ => encoded.push(ch),
+        }
+    }
+    Cow::Owned(encoded)
+}
+
+fn serialize_inert_iframe_attributes(attrs: &[html5ever::Attribute]) -> String {
+    let mut output = String::new();
+    for attr in attrs {
+        let name = attr.name.local.as_ref();
+        let lower = name.to_ascii_lowercase();
+        if !is_valid_html_attribute_name(name) || lower.starts_with("on") || lower == "srcdoc" {
+            continue;
+        }
+        let is_url_attribute =
+            matches!(lower.as_str(), "href" | "src" | "action" | "formaction" | "xlink:href");
+        if is_url_attribute
+            && crate::sanitize::is_dangerous_url_with_inline_image(
+                attr.value.as_ref(),
+                lower != "src",
+            )
+        {
+            continue;
+        }
+        output.push(' ');
+        output.push_str(name);
+        output.push_str("=\"");
+        output.push_str(&encode_markdown_unsafe(attr.value.as_ref()));
+        output.push('"');
+    }
+    output
+}
+
+fn conversion_failure_fallback(content: &str) -> String {
+    let longest_backtick_run = content.split(|ch| ch != '`').map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat((longest_backtick_run + 1).max(3));
+    format!(
+        "Partial conversion completed with errors. Original HTML:\n\n{fence}html\n{content}\n{fence}"
+    )
+}
+
 /// Convert HTML content to Markdown using htmd (Turndown.js-compatible) with
 /// custom element handlers matching the upstream Defuddle Turndown rules.
 pub fn html_to_markdown(html: &str) -> String {
@@ -67,7 +132,7 @@ fn convert_cleaned_html_to_markdown(
         Ok(md) => measure_phase(diagnostics, "markdown postprocess", || {
             postprocess_markdown(&md)
         }),
-        Err(_) => cleaned.to_string(),
+        Err(_) => conversion_failure_fallback(cleaned),
     }
 }
 
@@ -183,17 +248,7 @@ fn build_converter() -> HtmlToMarkdown {
                     markdown_translated: true,
                 })
             } else {
-                let attrs = el
-                    .attrs
-                    .iter()
-                    .map(|a| {
-                        format!(
-                            " {}=\"{}\"",
-                            a.name.local,
-                            crate::content_utils::escape_html(a.value.as_ref())
-                        )
-                    })
-                    .collect::<String>();
+                let attrs = serialize_inert_iframe_attributes(el.attrs);
                 Some(HandlerResult {
                     content: format!("<iframe{attrs}></iframe>"),
                     markdown_translated: true,
@@ -2005,6 +2060,58 @@ mod tests {
             let md = html_to_markdown(html);
             assert!(!md.contains("javascript:"));
             assert!(md.contains("Open page"));
+        }
+
+        #[test]
+        fn sanitizes_raw_iframe_attributes() {
+            let html = r#"<p>Text</p><iframe src="javascript:alert(1)" srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;" onload="alert(1)"></iframe>"#;
+            let md = html_to_markdown(html);
+            assert!(!md.contains("javascript:"));
+            assert!(!md.contains("srcdoc"));
+            assert!(!md.contains("onload"));
+            assert!(md.contains("<iframe></iframe>"));
+        }
+
+        #[test]
+        fn removes_data_urls_from_raw_iframe_sources() {
+            let html = r#"<p>Text</p><iframe src="data:image/svg+xml,&lt;svg onload=alert(1)&gt;"></iframe>"#;
+            let md = html_to_markdown(html);
+            assert!(!md.contains("data:image"));
+            assert!(md.contains("<iframe></iframe>"));
+        }
+
+        #[test]
+        fn keeps_safe_raw_iframe_attributes() {
+            let html = r#"<p>Text</p><iframe src="https://example.com/embed" width="100%" allowfullscreen=""></iframe>"#;
+            let md = html_to_markdown(html);
+            assert!(md.contains(
+                r#"<iframe src="https://example.com/embed" width="100%" allowfullscreen=""></iframe>"#
+            ));
+        }
+
+        #[test]
+        fn encodes_markdown_syntax_in_raw_iframe_attributes() {
+            let html = r#"<p>Text</p><iframe src="https://example.com/embed?a=1&amp;b=2" title="a&#10;&#10;[click](javascript:alert(1))" data-x="`\"></iframe>"#;
+            let md = html_to_markdown(html);
+            assert!(!md.contains("[click]"));
+            assert!(md.contains("a=1&#38;b=2"));
+            assert!(md.contains("&#10;&#10;&#91;click&#93;"));
+            assert!(md.contains("&#96;&#92;"));
+        }
+
+        #[test]
+        fn does_not_reassemble_dangerous_iframe_url_during_postprocessing() {
+            let html = r#"<p>Text</p><iframe src="java[](x)script:alert(1)"></iframe>"#;
+            let md = html_to_markdown(html);
+            assert!(!md.contains("javascript:"));
+            assert!(md.contains("java&#91;&#93;(x)script:alert(1)"));
+        }
+
+        #[test]
+        fn fences_raw_html_when_conversion_fails() {
+            let html = "<p>Text ``` </p><img src=x onerror=alert(1)>";
+            let fallback = conversion_failure_fallback(html);
+            assert!(fallback.contains("````html\n<p>Text ``` </p><img src=x onerror=alert(1)>\n````"));
         }
 
         #[test]

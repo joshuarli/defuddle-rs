@@ -2,7 +2,7 @@
 
 ## Baselines
 
-The Rust source resync covers upstream through `556d74e8c8fd68c49912d4b11a4ae9ec04d7b2b5`; the prior baseline was `49d14ecc4089696565c2479b2f57db72be199adc`. The companion YouTube extension was reviewed through the same upstream commit. Track these baselines separately when a resync covers only one owner.
+The Rust source resync covers upstream through `3e8bde9f5f855bc968e95837a750c5968a9fe639`; the prior baseline was `556d74e8c8fd68c49912d4b11a4ae9ec04d7b2b5`. The companion YouTube extension was reviewed through the same upstream commit. Track these baselines separately when a resync covers only one owner.
 
 The vendored fixture snapshot is independently pinned to `6c39f0959a2f566469a93a190b50e4b34bcf52c4`, recorded in `tests/upstream/SNAPSHOT.md`. Do not use it as the source resync baseline unless the Rust source baseline is intentionally reset.
 
