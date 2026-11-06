@@ -64,8 +64,8 @@ mod scoring;
 mod shadow_dom;
 mod standardize;
 
-use miniserde::json::{Array, Object, Value};
-use miniserde::{Deserialize, Serialize};
+use deser::Serialize;
+use deser_value::{Map, Seq, Value};
 
 pub use content_utils::is_absolute_url;
 pub use extractors::adapter_names;
@@ -73,7 +73,7 @@ pub use extractors::adapter_names;
 use dom::{Document, NodeId};
 use metadata::Metadata;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DefuddleOptions {
     pub debug: bool,
     pub url: Option<String>,
@@ -91,19 +91,19 @@ pub struct DefuddleOptions {
     pub profile: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub struct MetaTag {
     pub name: Option<String>,
     pub property: Option<String>,
     pub content: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub struct DebugInfo {
     pub content_selector: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DefuddleResult {
     pub content: String,
     pub content_markdown: Option<String>,
@@ -121,7 +121,11 @@ pub struct DefuddleResult {
     pub schema_org_data: Value,
     pub extractor_type: Option<String>,
     pub debug: Option<DebugInfo>,
-    pub variables: Option<Object>,
+    pub variables: Option<Map>,
+}
+
+fn schema_org_value(items: &[Value]) -> Value {
+    Value::from(items.iter().cloned().collect::<Seq>())
 }
 
 /// Timing data collected from one `parse_html()` pipeline execution.
@@ -167,7 +171,7 @@ impl Default for DefuddleResult {
             published: String::new(),
             author: String::new(),
             site: String::new(),
-            schema_org_data: Value::Array(Array::new()),
+            schema_org_data: Value::from(Seq::new()),
             extractor_type: None,
             debug: None,
             variables: None,
@@ -373,11 +377,7 @@ fn site_result(
             &mut context.diagnostics,
         ))
     });
-    let schema_org_data = if context.schema_org_data.is_empty() {
-        Value::Array(Array::new())
-    } else {
-        Value::Array(Array::from_iter(context.schema_org_data.iter().cloned()))
-    };
+    let schema_org_data = schema_org_value(context.schema_org_data);
 
     DefuddleResult {
         content: content_html,
@@ -407,11 +407,9 @@ fn site_result(
         variables: if variables.is_empty() {
             None
         } else {
-            Some(Object::from_iter(
-                variables
-                    .into_iter()
-                    .map(|(key, value)| (key, Value::String(value))),
-            ))
+            let mut entries: Vec<_> = variables.into_iter().collect();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            Some(entries.into_iter().collect::<Map>())
         },
         ..Default::default()
     }
@@ -629,11 +627,7 @@ fn parse_internal_once(
             content_selector,
         });
 
-        let schema_val = if config.schema_org_data.is_empty() {
-            Value::Array(Array::new())
-        } else {
-            Value::Array(Array::from_iter(config.schema_org_data.iter().cloned()))
-        };
+        let schema_val = schema_org_value(config.schema_org_data);
 
         // Schema text fallback: if schema.org has significantly longer text
         let content_md = if word_count < 50 {
@@ -673,11 +667,7 @@ fn parse_internal_once(
             ..<DefuddleResult as Default>::default()
         }
     } else {
-        let schema_val = if config.schema_org_data.is_empty() {
-            Value::Array(Array::new())
-        } else {
-            Value::Array(Array::from_iter(config.schema_org_data.iter().cloned()))
-        };
+        let schema_val = schema_org_value(config.schema_org_data);
 
         DefuddleResult {
             title: config.metadata.title.clone(),

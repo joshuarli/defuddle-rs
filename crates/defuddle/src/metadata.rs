@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use miniserde::json::Value;
+use deser_value::Value;
 
 use crate::content_utils::count_words;
 use crate::dom::{Document, NodeId};
@@ -221,52 +221,43 @@ fn search_schema(
     results: &mut Vec<String>,
 ) {
     if props.is_empty() {
-        match value {
-            Value::String(s) => {
-                results.push(s.clone());
-            }
-            Value::Object(obj) => {
-                if let Some(name) = obj.get("name").and_then(as_str) {
-                    results.push(name.to_string());
-                }
-            }
-            _ => {}
+        if let Some(text) = value.as_str() {
+            results.push(text.to_string());
+        } else if let Some(name) = value
+            .as_map()
+            .and_then(|obj| obj.get("name"))
+            .and_then(as_str)
+        {
+            results.push(name.to_string());
         }
         return;
     }
 
-    match value {
-        Value::String(_) if props.is_empty() => {
-            results.push(as_str(value).unwrap_or("").to_string());
-        }
-        Value::Array(arr) => {
-            let current = props[0];
-            if current.starts_with('[')
-                && current.ends_with(']')
-                && let Ok(idx) = current[1..current.len() - 1].parse::<usize>()
-            {
-                if let Some(item) = arr.get(idx) {
-                    search_schema(item, &props[1..], _full_path, is_exact, results);
-                }
-                return;
+    if let Some(arr) = value.as_seq() {
+        let current = props[0];
+        if current.starts_with('[')
+            && current.ends_with(']')
+            && let Ok(idx) = current[1..current.len() - 1].parse::<usize>()
+        {
+            if let Some(item) = arr.get(idx) {
+                search_schema(item, &props[1..], _full_path, is_exact, results);
             }
-            for item in arr {
-                search_schema(item, props, _full_path, is_exact, results);
-            }
+            return;
         }
-        Value::Object(obj) => {
-            let current = props[0];
-            if let Some(child) = obj.get(current) {
-                search_schema(child, &props[1..], current, true, results);
-            } else if !is_exact {
-                for val in obj.values() {
-                    if is_container(val) {
-                        search_schema(val, props, _full_path, false, results);
-                    }
+        for item in arr.iter() {
+            search_schema(item, props, _full_path, is_exact, results);
+        }
+    } else if let Some(obj) = value.as_map() {
+        let current = props[0];
+        if let Some(child) = obj.get(current) {
+            search_schema(child, &props[1..], current, true, results);
+        } else if !is_exact {
+            for val in obj.values() {
+                if is_container(val) {
+                    search_schema(val, props, _full_path, false, results);
                 }
             }
         }
-        _ => {}
     }
 }
 

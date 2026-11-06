@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use miniserde::json::Value;
+use deser_value::Value;
 
 pub fn fixture_url(html: &str, path: &Path) -> String {
     if let Some(start) = html.find("<!--")
@@ -8,9 +8,8 @@ pub fn fixture_url(html: &str, path: &Path) -> String {
     {
         let comment = html[start + 4..start + 4 + end_offset].trim();
         if comment.starts_with('{')
-            && let Ok(value) = miniserde::json::from_str::<Value>(comment)
-            && let Value::Object(object) = value
-            && let Some(Value::String(url)) = object.get("url")
+            && let Ok(value) = deser_json::from_str::<Value>(comment)
+            && let Some(url) = value.get("url").and_then(|url| url.as_str())
         {
             return url.to_string();
         }

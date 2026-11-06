@@ -157,7 +157,7 @@ fn run() -> Result<(), String> {
 
     if json_output {
         let mut out = out;
-        let json = miniserde::json::to_string(&parsed_page);
+        let json = deser_json::to_string(&parsed_page).map_err(|e| e.to_string())?;
         writeln!(out, "{json}").map_err(|e| e.to_string())?;
         return Ok(());
     }
@@ -250,24 +250,17 @@ fn read_single_file_cli_archive(bytes: &[u8]) -> Result<CliInput, String> {
             .and_then(|(wayfinder, method)| {
                 let bytes = read_archive_entry(&archive, wayfinder, method).ok()?;
                 let contents = String::from_utf8(bytes).ok()?;
-                let value = miniserde::json::from_str::<miniserde::json::Value>(&contents).ok()?;
-                let object = match value {
-                    miniserde::json::Value::Object(object) => object,
-                    _ => return None,
-                };
+                let value = deser_json::from_str::<deser_value::Value>(&contents).ok()?;
+                let object = value.as_map()?;
                 let index_name = object
                     .get("indexFilename")
-                    .and_then(|value| match value {
-                        miniserde::json::Value::String(value) => Some(value.clone()),
-                        _ => None,
-                    })
-                    .unwrap_or_else(|| "index.html".to_string());
-                let archive_url = object.get("originalUrl").and_then(|value| match value {
-                    miniserde::json::Value::String(value) if !value.is_empty() => {
-                        Some(value.clone())
-                    }
-                    _ => None,
-                });
+                    .and_then(|value| value.as_str())
+                    .map_or_else(|| "index.html".to_string(), str::to_string);
+                let archive_url = object
+                    .get("originalUrl")
+                    .and_then(|value| value.as_str())
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
                 Some((index_name, archive_url))
             });
 

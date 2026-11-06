@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use miniserde::Deserialize;
-use miniserde::json::Value;
+use deser::Deserialize;
+use deser_value::Value;
 
 use defuddle::{DefuddleOptions, parse_html};
 
@@ -344,9 +344,8 @@ fn fixture_url_from_path(html: &str, path: &Path) -> String {
     {
         let comment = html[start + 4..start + 4 + end_offset].trim();
         if comment.starts_with('{')
-            && let Ok(value) = miniserde::json::from_str::<Value>(comment)
-            && let Value::Object(object) = value
-            && let Some(Value::String(url)) = object.get("url")
+            && let Ok(value) = deser_json::from_str::<Value>(comment)
+            && let Some(url) = value.get("url").and_then(|url| url.as_str())
         {
             return url.to_string();
         }
@@ -364,5 +363,5 @@ fn parse_fixture_preamble(expected: &str) -> Option<ExpectedMetadata> {
     let json_start = expected.find("```json")? + 7;
     let json_end = expected[json_start..].find("```")?;
     let json_str = &expected[json_start..json_start + json_end];
-    miniserde::json::from_str::<ExpectedMetadata>(json_str).ok()
+    deser_json::from_str::<ExpectedMetadata>(json_str).ok()
 }

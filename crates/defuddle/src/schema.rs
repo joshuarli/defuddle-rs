@@ -1,4 +1,7 @@
-use miniserde::json::{Array, Value};
+use deser::Context;
+use deser::de::DuplicateKeys;
+use deser_json::DeserializerConfig;
+use deser_value::{Kind, Map, Seq, Value};
 
 use crate::dom::Document;
 
@@ -16,7 +19,7 @@ pub fn extract_schema_org_data(doc: &Document) -> Vec<Value> {
         }
 
         let json_content = clean_json_content(text);
-        if let Ok(data) = miniserde::json::from_str::<Value>(&json_content) {
+        if let Ok(data) = parse_json_value(&json_content) {
             if let Some(graph) = object_value(&data, "@graph").and_then(as_array) {
                 for item in graph {
                     items.push(decode_value_strings(item.clone()));
@@ -30,29 +33,27 @@ pub fn extract_schema_org_data(doc: &Document) -> Vec<Value> {
     items
 }
 
-pub(crate) fn as_array(value: &Value) -> Option<&Array> {
-    match value {
-        Value::Array(array) => Some(array),
-        _ => None,
-    }
+pub(crate) fn parse_json_value(text: &str) -> Result<Value, deser::Error> {
+    DeserializerConfig::builder()
+        .context(Context::with(DuplicateKeys::Last))
+        .build()
+        .from_str(text)
+}
+
+pub(crate) fn as_array(value: &Value) -> Option<&Seq> {
+    value.as_seq()
 }
 
 pub(crate) fn object_value<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
-    match value {
-        Value::Object(object) => object.get(key),
-        _ => None,
-    }
+    value.as_map().and_then(|object| object.get(key))
 }
 
 pub(crate) fn as_str(value: &Value) -> Option<&str> {
-    match value {
-        Value::String(string) => Some(string),
-        _ => None,
-    }
+    value.as_str()
 }
 
 pub(crate) fn is_container(value: &Value) -> bool {
-    matches!(value, Value::Array(_) | Value::Object(_))
+    value.as_seq().is_some() || value.as_map().is_some()
 }
 
 fn clean_json_content(content: &str) -> String {
@@ -80,15 +81,27 @@ fn clean_json_content(content: &str) -> String {
 }
 
 fn decode_value_strings(value: Value) -> Value {
-    match value {
-        Value::String(s) => Value::String(decode_html_entities(&s)),
-        Value::Array(arr) => Value::Array(arr.into_iter().map(decode_value_strings).collect()),
-        Value::Object(map) => Value::Object(
-            map.into_iter()
-                .map(|(k, v)| (k, decode_value_strings(v)))
-                .collect(),
+    match value.into_kind() {
+        Kind::Str(text) => Value::from(decode_html_entities(&text)),
+        Kind::Seq(items) => Value::from(
+            items
+                .into_vec()
+                .into_iter()
+                .map(decode_value_strings)
+                .collect::<Seq>(),
         ),
-        other => other,
+        Kind::Map(object) => {
+            let mut entries: Vec<(String, Value)> = object
+                .into_iter()
+                .filter_map(|(key, value)| {
+                    key.as_str()
+                        .map(|key| (key.to_string(), decode_value_strings(value)))
+                })
+                .collect();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            Value::from(entries.into_iter().collect::<Map>())
+        }
+        other => Value::from(other),
     }
 }
 

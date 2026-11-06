@@ -130,7 +130,7 @@ pub(crate) struct ExtractionContext<'a> {
     pub doc: Document,
     pub metadata: &'a Metadata,
     pub meta_tags: &'a [MetaTag],
-    pub schema_org_data: &'a [miniserde::json::Value],
+    pub schema_org_data: &'a [deser_value::Value],
     pub page_url: &'a str,
     pub defuddle_options: &'a DefuddleOptions,
     pub diagnostics: Diagnostics,

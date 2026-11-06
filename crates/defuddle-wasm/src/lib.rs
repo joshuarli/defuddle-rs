@@ -1,6 +1,6 @@
 use wasm_bindgen::prelude::*;
 
-#[derive(miniserde::Serialize)]
+#[derive(deser::Serialize)]
 struct WasmParseResult {
     content: String,
     content_markdown: Option<String>,
@@ -30,7 +30,7 @@ pub fn parse_page(
     let parsed_page = defuddle::parse_html(page_html, options)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
 
-    Ok(miniserde::json::to_string(&WasmParseResult {
+    deser_json::to_string(&WasmParseResult {
         content: parsed_page.content,
         content_markdown: parsed_page.content_markdown,
         title: parsed_page.title,
@@ -40,7 +40,8 @@ pub fn parse_page(
         site: parsed_page.site,
         domain: parsed_page.domain,
         extractor_type: parsed_page.extractor_type,
-    }))
+    })
+    .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 
 #[wasm_bindgen]

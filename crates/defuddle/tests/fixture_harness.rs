@@ -342,10 +342,10 @@ fn local_fixtures_extractors() {
 fn comparable_markdown(result: &DefuddleResult) -> String {
     let metadata = format!(
         "{{\n  \"title\": {},\n  \"author\": {},\n  \"site\": {},\n  \"published\": {}\n}}",
-        miniserde::json::to_string(&result.title),
-        miniserde::json::to_string(&result.author),
-        miniserde::json::to_string(&result.site),
-        miniserde::json::to_string(&result.published),
+        deser_json::to_string(&result.title).expect("string serializes"),
+        deser_json::to_string(&result.author).expect("string serializes"),
+        deser_json::to_string(&result.site).expect("string serializes"),
+        deser_json::to_string(&result.published).expect("string serializes"),
     );
     let content_markdown = result.content_markdown.as_deref().unwrap_or("");
     format!("```json\n{}\n```\n\n{}", metadata, content_markdown)

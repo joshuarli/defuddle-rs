@@ -328,8 +328,8 @@ fn substack_preload(doc: &Document) -> (String, String, String, String) {
                 }
             }
             let inner: String = chars[start..i].iter().collect();
-            if let Ok(json_str) = miniserde::json::from_str::<String>(&format!("\"{}\"", inner))
-                && let Ok(data) = miniserde::json::from_str::<miniserde::json::Value>(&json_str)
+            if let Ok(json_str) = deser_json::from_str::<String>(&format!("\"{}\"", inner))
+                && let Ok(data) = crate::schema::parse_json_value(&json_str)
                 && let Some(post) = crate::schema::object_value(&data, "feedData")
                     .and_then(|f| crate::schema::object_value(f, "initialPost"))
                     .and_then(|p| crate::schema::object_value(p, "post"))
