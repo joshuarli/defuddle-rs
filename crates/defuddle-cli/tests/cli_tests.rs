@@ -278,3 +278,54 @@ fn cli_rejects_oversize_single_file_entry() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("exceeds"), "{stderr}");
 }
+
+fn json_output_for(name: &str, url: &str, html: &str) -> String {
+    let path = std::env::temp_dir().join(format!("defuddle-cli-{name}-{}.html", std::process::id()));
+    fs::write(&path, html).unwrap();
+    let output = bin()
+        .arg("-j")
+        .arg("--url")
+        .arg(url)
+        .arg(&path)
+        .output()
+        .expect("command runs");
+    let _ = fs::remove_file(&path);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+    let (before, after) = stdout
+        .split_once("\"parse_time\":")
+        .expect("json carries parse_time");
+    let after = after.split_once(',').expect("parse_time is followed by a field").1;
+    format!("{before}\"parse_time\":0,{after}")
+}
+
+#[test]
+fn cli_json_output_keeps_wire_text() {
+    let html = r#"<html lang="en"><head><title>Wire &amp; Contract</title>
+<meta name="author" content="Ann &quot;A&quot; Lee">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"Tom &amp; Jerry","zeta":null,"alpha":[1,-2,1.10,1e3,0.5,true,false,"tab\there \u0001 é 😀   / \\ \""],"nested":{"b":{"d":2,"c":1},"a":18446744073709551615,"big":12345678901234567890,"over":123456789012345678901,"tiny":1.5e-7,"neg":-9223372036854775808},"dup":1,"dup":2,"author":{"@type":"Person","name":"Ann"}}</script>
+</head><body><article><h1>Wire</h1><p>Readable "quoted" content with é and 😀.</p></article></body></html>"#;
+
+    assert_eq!(
+        json_output_for("wire", "https://example.com/a", html),
+        r#"{"content":"<article><h2>Wire</h2><p>Readable \"quoted\" content with é and 😀.</p></article>","content_markdown":null,"title":"Tom & Jerry","description":"","domain":"example.com","favicon":"https://example.com/favicon.ico","image":"","language":"en","meta_tags":[{"name":"author","property":null,"content":"Ann \"A\" Lee"}],"parse_time":0,"published":"","author":"Ann \"A\" Lee","site":"Ann \"A\" Lee","schema_org_data":[{"@context":"https://schema.org","@type":"Article","alpha":[1,-2,1.1,1000.0,0.5,true,false,"tab\there \u0001 é 😀   / \\ \""],"author":{"@type":"Person","name":"Ann"},"dup":2,"headline":"Tom & Jerry","nested":{"a":18446744073709551615,"b":{"c":1,"d":2},"big":12345678901234567890,"neg":-9223372036854775808,"over":1.2345678901234567e+20,"tiny":1.5e-7},"zeta":null}],"extractor_type":null,"debug":null,"variables":null}
+"#
+    );
+}
+
+#[test]
+fn cli_json_output_sorts_extractor_variables() {
+    let html = r#"<html><head><title>Fallback - account@example.com - Gmail</title></head><body>
+<h2 class="hP">Project kickoff</h2>
+<div class="adn ads"><span class="gD" name="Alex Rivera" email="alex@example.com">Alex Rivera</span><span class="g3" title="May 13, 2026, 11:02 PM">date</span><div class="a3s"><div>Hello Jane.</div></div></div>
+</body></html>"#;
+
+    let json = json_output_for("variables", "https://mail.google.com/mail/u/0/", html);
+    assert!(
+        json.ends_with(
+            r#""extractor_type":"gmail","debug":null,"variables":{"messageCount":"1","postAuthor":"alex@example.com"}}
+"#
+        ),
+        "{json}"
+    );
+}

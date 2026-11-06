@@ -77,4 +77,16 @@ mod tests {
         assert!(!serialized_page.contains("schema_org_data"));
         assert!(!serialized_page.contains("meta_tags"));
     }
+
+    #[test]
+    fn json_text_is_stable() {
+        let page_html = "<html lang=\"en\"><head><title>Wire &amp; \"Contract\"</title></head><body><article><h1>Wire</h1><p>Caf\u{e9} \u{1F600} \\ / tab\there.</p></article></body></html>";
+        let serialized_page =
+            parse_page(page_html, "https://example.com/article", "").expect("parse succeeds");
+
+        assert_eq!(
+            serialized_page,
+            r###"{"content":"<article><h2>Wire</h2><p>Café 😀 \\ / tab here.</p></article>","content_markdown":"## Wire\n\nCafé 😀 \\\\ / tab here.","title":"Wire & \"Contract\"","author":"","description":"","published":"","site":"","domain":"example.com","extractor_type":null}"###
+        );
+    }
 }
