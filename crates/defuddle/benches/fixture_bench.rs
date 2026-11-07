@@ -1,6 +1,7 @@
-use std::{collections::BTreeMap, fs, path::PathBuf, time::Instant};
+use std::{fs, path::PathBuf, time::Instant};
 
 use defuddle::{DefuddleOptions, ParseProfile, parse_html, parse_html_profiled};
+use rustc_hash::FxHashMap;
 use rustybench::{AllocProfiler, Bencher, black_box};
 
 #[path = "../tests/common/fixture_url.rs"]
@@ -86,7 +87,7 @@ struct PhaseTotal {
     elapsed_nanos: u128,
 }
 
-fn add_profile(phases: &mut BTreeMap<&'static str, PhaseTotal>, profile: &ParseProfile) {
+fn add_profile(phases: &mut FxHashMap<&'static str, PhaseTotal>, profile: &ParseProfile) {
     for phase in &profile.phases {
         let total = phases.entry(phase.name).or_default();
         total.calls += 1;
@@ -96,7 +97,7 @@ fn add_profile(phases: &mut BTreeMap<&'static str, PhaseTotal>, profile: &ParseP
 
 fn report_phases(corpus: &Corpus) {
     let started = Instant::now();
-    let mut phases = BTreeMap::<&'static str, PhaseTotal>::new();
+    let mut phases = FxHashMap::<&'static str, PhaseTotal>::default();
     let mut output_markdown_bytes = 0;
 
     for page in &corpus.pages {
@@ -116,7 +117,10 @@ fn report_phases(corpus: &Corpus) {
     );
     println!("wall time: {:.3} ms", started.elapsed().as_secs_f64() * 1000.0);
     println!("phase                        total ms   avg/page ms   calls   share");
-    for (name, total) in phases {
+    // Hash iteration order is unspecified; sort explicitly to keep the report stable.
+    let mut ordered = phases.into_iter().collect::<Vec<_>>();
+    ordered.sort_unstable_by_key(|(name, _)| *name);
+    for (name, total) in ordered {
         println!(
             "{name:<28} {:>9.3}   {:>11.3}   {:>5}   {:>5.1}%",
             total.elapsed_nanos as f64 / 1_000_000.0,
