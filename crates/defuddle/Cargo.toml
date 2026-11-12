@@ -7,8 +7,8 @@ repository.workspace = true
 
 [dependencies]
 htmd = { version = "0.5.6", path = "../htmd" }
-html5ever = "0.39"
-markup5ever_rcdom = "0.39"
+html5ever = "0.40"
+markup5ever_rcdom = "0.40"
 regex-lite = "0.1.9"
 rustc-hash = "2.1.3"
 smallvec = "1.16.3"
