@@ -12,3 +12,6 @@ lint:
 
 publish:
 	$(STUFF) publish cargo $(foreach c,$(CRATES),-p $(c))
+
+publish-dry-run:
+	$(STUFF) publish cargo $(foreach c,$(CRATES),-p $(c)) --dry-run
