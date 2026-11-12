@@ -68,7 +68,7 @@ fn encode_markdown_unsafe(value: &str) -> Cow<'_, str> {
 fn serialize_inert_iframe_attributes(attrs: &[html5ever::Attribute]) -> String {
     let mut output = String::new();
     for attr in attrs {
-        let name = attr.name.local.as_ref();
+        let name = &*attr.name.local;
         let lower = name.to_ascii_lowercase();
         if !is_valid_html_attribute_name(name) || lower.starts_with("on") || lower == "srcdoc" {
             continue;
@@ -190,7 +190,7 @@ fn build_converter() -> HtmlToMarkdown {
             let href = el
                 .attrs
                 .iter()
-                .find(|a| a.name.local.as_ref() == "href")
+                .find(|a| &*a.name.local == "href")
                 .map(|a| a.value.as_ref())
                 .unwrap_or("");
             let children = _h.walk_children(el.node);
@@ -206,7 +206,7 @@ fn build_converter() -> HtmlToMarkdown {
                 let title = el
                     .attrs
                     .iter()
-                    .find(|a| a.name.local.as_ref() == "title")
+                    .find(|a| &*a.name.local == "title")
                     .map(|a| {
                         format!(
                             " \"{}\"",
@@ -239,7 +239,7 @@ fn build_converter() -> HtmlToMarkdown {
             let src = el
                 .attrs
                 .iter()
-                .find(|a| a.name.local.as_ref() == "src")
+                .find(|a| &*a.name.local == "src")
                 .map(|a| a.value.as_ref())
                 .unwrap_or("");
             if let Some(content) = crate::embeds::iframe_to_markdown(src) {
@@ -264,7 +264,7 @@ fn build_converter() -> HtmlToMarkdown {
             let id = el
                 .attrs
                 .iter()
-                .find(|a| a.name.local.as_ref() == "id")
+                .find(|a| &*a.name.local == "id")
                 .map(|a| a.value.as_ref())
                 .unwrap_or("");
             if let Some(fnref) = id.strip_prefix("fnref:") {
@@ -292,7 +292,7 @@ fn build_converter() -> HtmlToMarkdown {
                             attrs
                                 .borrow()
                                 .iter()
-                                .find(|attr| attr.name.local.as_ref() == "href")
+                                .find(|attr| &*attr.name.local == "href")
                                 .is_some_and(|attr| attr.value.as_ref().starts_with("#fnref:"))
                         } else {
                             false
@@ -316,7 +316,7 @@ fn build_converter() -> HtmlToMarkdown {
                 for child in &*node.children.borrow() {
                     collect_rcdom_markdown(child, &mut inner);
                 }
-                let tag = name.local.as_ref();
+                let tag = &*name.local;
                 match tag {
                     "em" | "i" => output.push_str(&format!("*{}*", inner.trim())),
                     "strong" | "b" => output.push_str(&format!("**{}**", inner.trim())),
@@ -325,7 +325,7 @@ fn build_converter() -> HtmlToMarkdown {
                         let mut first = true;
                         for child in &*node.children.borrow() {
                             if let markup5ever_rcdom::NodeData::Element { name, .. } = &child.data
-                                && name.local.as_ref() == "li"
+                                && &*name.local == "li"
                             {
                                 let mut item = String::new();
                                 collect_rcdom_markdown(child, &mut item);
@@ -345,12 +345,12 @@ fn build_converter() -> HtmlToMarkdown {
                         let attrs = attrs.borrow();
                         let href = attrs
                             .iter()
-                            .find(|attr| attr.name.local.as_ref() == "href")
+                            .find(|attr| &*attr.name.local == "href")
                             .map(|attr| attr.value.to_string())
                             .unwrap_or_default();
                         let title = attrs
                             .iter()
-                            .find(|attr| attr.name.local.as_ref() == "title")
+                            .find(|attr| &*attr.name.local == "title")
                             .map(|attr| attr.value.to_string())
                             .unwrap_or_default();
                         if title.is_empty() {
@@ -377,7 +377,7 @@ fn build_converter() -> HtmlToMarkdown {
             let is_footnotes = el
                 .attrs
                 .iter()
-                .any(|a| a.name.local.as_ref() == "id" && a.value.as_ref() == "footnotes");
+                .any(|a| &*a.name.local == "id" && a.value.as_ref() == "footnotes");
             if !is_footnotes {
                 return _h.fallback(el);
             }
@@ -385,7 +385,7 @@ fn build_converter() -> HtmlToMarkdown {
             let mut result = String::new();
             for child in &*el.node.children.borrow() {
                 if let markup5ever_rcdom::NodeData::Element { ref name, .. } = child.data
-                    && name.local.as_ref() == "ol"
+                    && &*name.local == "ol"
                 {
                     for li in &*child.children.borrow() {
                         if let markup5ever_rcdom::NodeData::Element {
@@ -393,12 +393,12 @@ fn build_converter() -> HtmlToMarkdown {
                             ref attrs,
                             ..
                         } = li.data
-                            && name.local.as_ref() == "li"
+                            && &*name.local == "li"
                         {
                             let li_attrs = attrs.borrow();
                             let lid = li_attrs
                                 .iter()
-                                .find(|a| a.name.local.as_ref() == "id")
+                                .find(|a| &*a.name.local == "id")
                                 .map(|a| a.value.as_ref())
                                 .unwrap_or("");
                             if let Some(num) = lid.strip_prefix("fn:") {
@@ -414,17 +414,17 @@ fn build_converter() -> HtmlToMarkdown {
                                             attrs,
                                             ..
                                         } => {
-                                            let tag = name.local.as_ref();
+                                            let tag = &*name.local;
                                             if tag == "a" {
                                                 let a_attrs = attrs.borrow();
                                                 let href = a_attrs
                                                     .iter()
-                                                    .find(|a| a.name.local.as_ref() == "href")
+                                                    .find(|a| &*a.name.local == "href")
                                                     .map(|a| a.value.as_ref())
                                                     .unwrap_or("");
                                                 let title = a_attrs
                                                     .iter()
-                                                    .find(|a| a.name.local.as_ref() == "title")
+                                                    .find(|a| &*a.name.local == "title")
                                                     .map(|a| a.value.as_ref())
                                                     .unwrap_or("");
                                                 if href.starts_with("#fnref:") {
@@ -500,9 +500,9 @@ fn build_converter() -> HtmlToMarkdown {
             let has_callout = el
                 .attrs
                 .iter()
-                .any(|a| a.name.local.as_ref() == "data-callout");
+                .any(|a| &*a.name.local == "data-callout");
             let has_callout_class = el.attrs.iter().any(|a| {
-                a.name.local.as_ref() == "class"
+                &*a.name.local == "class"
                     && a.value.as_ref().split_whitespace().any(|c| c == "callout")
             });
             if !has_callout || !has_callout_class {
@@ -512,14 +512,14 @@ fn build_converter() -> HtmlToMarkdown {
             let ct = el
                 .attrs
                 .iter()
-                .find(|a| a.name.local.as_ref() == "data-callout")
+                .find(|a| &*a.name.local == "data-callout")
                 .map(|a| a.value.as_ref())
                 .unwrap_or("note");
 
             let fold = el
                 .attrs
                 .iter()
-                .find(|a| a.name.local.as_ref() == "data-callout-fold")
+                .find(|a| &*a.name.local == "data-callout-fold")
                 .map(|a| a.value.as_ref())
                 .unwrap_or("");
             let fold_indicator = if fold == "-" || fold == "+" { fold } else { "" };
@@ -536,10 +536,10 @@ fn build_converter() -> HtmlToMarkdown {
                 } = child.data
                 {
                     let classes = attrs.borrow();
-                    if name.local.as_ref() == "div" {
+                    if &*name.local == "div" {
                         let class_str = classes
                             .iter()
-                            .find(|a| a.name.local.as_ref() == "class")
+                            .find(|a| &*a.name.local == "class")
                             .map(|a| a.value.as_ref())
                             .unwrap_or("");
                         if class_str.contains("callout-content") {
@@ -556,10 +556,10 @@ fn build_converter() -> HtmlToMarkdown {
                                     let tc_attrs = attrs.borrow();
                                     let tc_class = tc_attrs
                                         .iter()
-                                        .find(|a| a.name.local.as_ref() == "class")
+                                        .find(|a| &*a.name.local == "class")
                                         .map(|a| a.value.as_ref())
                                         .unwrap_or("");
-                                    if name.local.as_ref() == "div"
+                                    if &*name.local == "div"
                                         && tc_class.contains("callout-title-inner")
                                     {
                                         title = tc
