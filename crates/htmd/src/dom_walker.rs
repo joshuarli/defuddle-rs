@@ -144,7 +144,7 @@ pub(crate) fn walk_node(
 
 fn is_math_span(attrs: &[html5ever::Attribute]) -> bool {
     attrs.len() == 1
-        && attrs[0].name.local.as_ref() == "class"
+        && &*attrs[0].name.local == "class"
         && matches!(
             attrs[0].value.as_ref(),
             "math math-inline" | "math math-display"
@@ -214,7 +214,7 @@ pub(crate) fn walk_children(
     let mut trim_leading_spaces = !is_pre && is_parent_block_element;
     let tag = match &node.data {
         NodeData::Document => Some("html"),
-        NodeData::Element { name, .. } => Some(name.local.as_ref()),
+        NodeData::Element { name, .. } => Some(&*name.local),
         _ => None,
     };
     let mut markdown_translated = true;

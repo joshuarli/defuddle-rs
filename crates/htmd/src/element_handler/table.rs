@@ -43,7 +43,7 @@ pub(crate) fn table_handler(handlers: &dyn Handlers, element: Element) -> Option
     if let NodeData::Element { .. } = &element.node.data {
         for child in get_node_children(element.node) {
             if let NodeData::Element { name, .. } = &child.data {
-                let tag_name = name.local.as_ref();
+                let tag_name = &*name.local;
 
                 match tag_name {
                     "caption" => {
@@ -77,7 +77,7 @@ pub(crate) fn table_handler(handlers: &dyn Handlers, element: Element) -> Option
                     "tbody" | "tfoot" => {
                         for row_node in get_node_children(&child) {
                             if let NodeData::Element { name, .. } = &row_node.data
-                                && name.local.as_ref() == "tr"
+                                && &*name.local == "tr"
                             {
                                 // If no thead is found, use the first th row as header
                                 if !has_thead && headers.is_empty() {
@@ -186,7 +186,7 @@ fn has_explicit_headers(node: &Rc<markup5ever_rcdom::Node>) -> bool {
     fn visit(node: &Rc<markup5ever_rcdom::Node>, is_root: bool) -> bool {
         for child in get_node_children(node) {
             if let NodeData::Element { name, .. } = &child.data {
-                let tag_name = name.local.as_ref();
+                let tag_name = &*name.local;
                 if !is_root && tag_name == "table" {
                     continue;
                 }
@@ -230,7 +230,7 @@ fn extract_row_cells(
 
     for cell_node in get_node_children(row_node) {
         if let NodeData::Element { name, .. } = &cell_node.data
-            && name.local.as_ref() == cell_tag
+            && &*name.local == cell_tag
         {
             let Some(res) = handlers.handle(&cell_node) else {
                 continue;
