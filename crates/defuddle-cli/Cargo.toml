@@ -13,7 +13,7 @@ name = "defuddle"
 path = "src/main.rs"
 
 [dependencies]
-defuddle = { path = "../defuddle" }
+defuddle = { version = "0.0.0", path = "../defuddle" }
 dhat = { version = "0.3.3", optional = true }
 lexopt = "0.3.2"
 deser-json = { version = "0.10", default-features = false, features = ["speedups"] }
