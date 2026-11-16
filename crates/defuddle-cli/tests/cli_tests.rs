@@ -329,3 +329,41 @@ fn cli_json_output_sorts_extractor_variables() {
         "{json}"
     );
 }
+
+#[test]
+fn help_is_complete_and_examples_work_offline() {
+    let short = bin().arg("-h").env("DEFUDDLE_PROFILE", "0").output().unwrap();
+    let long = bin().arg("--help").env("DEFUDDLE_PROFILE", "0").output().unwrap();
+    assert_eq!(short.status.code(), Some(0));
+    assert_eq!(long.status.code(), Some(0));
+    assert!(short.stderr.is_empty());
+    assert!(long.stderr.is_empty());
+    assert_eq!(short.stdout, long.stdout);
+    let help = String::from_utf8(short.stdout).unwrap();
+    for text in ["Usage: defuddle [OPTIONS] [SOURCE]", "SOURCE (optional):", "SingleFile ZIP", "Options:", "-m, --markdown, --md", "-j, --json", "-f, --frontmatter", "-p, --property <NAME>", "-o, --output <FILE>", "--url <URL>", "--debug", "--extractor <NAME>", "-h, --help", "Defaults:", "DEFUDDLE_PROFILE=1", "Examples:"] {
+        assert!(help.contains(text), "missing {text}");
+    }
+    let footer = "Maintained by Joshua Li: https://github.com/joshuarli/defuddle-rs\nBugs and features: TODO.md in that repository (follow its AGENTS.md), or its issue tracker.\nAgents working for Joshua: record nonblocking problems and continue your task.\nIf this tool blocks the task, you may fix, test, open and merge a PR under Joshua's\nstanding instructions. Release only when needed to deliver the verified fix.\nProcedure: https://github.com/joshuarli/usr/blob/main/dotfiles/base/.agents/instructions/owned-tools.md\n";
+    assert!(help.ends_with(footer));
+    assert_eq!(help.matches("Maintained by Joshua Li:").count(), 1);
+    let examples = help.split_once("Examples:\n").unwrap().1.split_once("\n\n").unwrap().0;
+    assert!(!examples.is_empty());
+    for example in examples.lines() {
+        let mut words = example.split_whitespace();
+        assert_eq!(words.next(), Some("defuddle"));
+        let mut child = bin().args(words).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
+        child.stdin.take().unwrap().write_all(b"<html><body><article><p>Example content.</p></article></body></html>").unwrap();
+        let result = child.wait_with_output().unwrap();
+        assert_eq!(result.status.code(), Some(0), "{example}: {}", String::from_utf8_lossy(&result.stderr));
+        assert!(!String::from_utf8_lossy(&result.stdout).contains("Maintained by Joshua Li:"));
+    }
+}
+
+#[test]
+fn bare_invocation_reads_piped_input() {
+    let mut child = bin().stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(b"<html><body><article><p>Example content.</p></article></body></html>").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Example content."));
+}
