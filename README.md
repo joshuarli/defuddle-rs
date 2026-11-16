@@ -46,7 +46,7 @@ The optional URL supplies the page address for metadata and relative-link resolu
 
 ## Command line
 
-The `defuddle` program reads an HTML file or standard input. If the source argument is omitted, it reads standard input when input is piped. A SingleFile ZIP archive is also accepted.
+The `defuddle` program reads an HTML file or standard input. If the source argument is omitted, it reads standard input when input is piped. A SingleFile ZIP archive is also accepted. Run `defuddle --help` for the complete command reference and examples; help is printed to standard output without reading input.
 
 ```sh
 defuddle --markdown --url https://example.com/article article.html > article.md

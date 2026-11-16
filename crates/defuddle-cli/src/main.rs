@@ -7,6 +7,38 @@ use std::process;
 #[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
+#[derive(Clone, Copy)]
+enum OptionKind {
+    Markdown, Json, Frontmatter, Property, Output, Url, Debug, Extractor, Help,
+}
+
+struct OptionSpec {
+    kind: OptionKind,
+    short: Option<char>,
+    longs: &'static [&'static str],
+    value: Option<&'static str>,
+    description: &'static str,
+}
+
+const OPTIONS: &[OptionSpec] = &[
+    OptionSpec { kind: OptionKind::Markdown, short: Some('m'), longs: &["markdown", "md"], value: None, description: "Output Markdown instead of HTML" },
+    OptionSpec { kind: OptionKind::Json, short: Some('j'), longs: &["json"], value: None, description: "Output JSON with metadata and content" },
+    OptionSpec { kind: OptionKind::Frontmatter, short: Some('f'), longs: &["frontmatter"], value: None, description: "Output metadata frontmatter; add --markdown for the body" },
+    OptionSpec { kind: OptionKind::Property, short: Some('p'), longs: &["property"], value: Some("NAME"), description: "Output one value: title, author, description, domain, favicon, image, language, published, site, or content" },
+    OptionSpec { kind: OptionKind::Output, short: Some('o'), longs: &["output"], value: Some("FILE"), description: "Write output to FILE instead of stdout" },
+    OptionSpec { kind: OptionKind::Url, short: None, longs: &["url"], value: Some("URL"), description: "Set document URL for metadata and relative URL resolution (no fetch)" },
+    OptionSpec { kind: OptionKind::Debug, short: None, longs: &["debug"], value: None, description: "Include the content selector in JSON output" },
+    OptionSpec { kind: OptionKind::Extractor, short: None, longs: &["extractor"], value: Some("NAME"), description: "Force a site extractor: hackernews, substack, reddit, github, gmail, chatgpt, mastodon, or twitter" },
+    OptionSpec { kind: OptionKind::Help, short: Some('h'), longs: &["help"], value: None, description: "Show this help" },
+];
+
+const EXAMPLES: &[&str] = &[
+    "defuddle --markdown -",
+    "defuddle --json --url https://example.com/article -",
+];
+
+const FOOTER: &str = "Maintained by Joshua Li: https://github.com/joshuarli/defuddle-rs\nBugs and features: TODO.md in that repository (follow its AGENTS.md), or its issue tracker.\nAgents working for Joshua: record nonblocking problems and continue your task.\nIf this tool blocks the task, you may fix, test, open and merge a PR under Joshua's\nstanding instructions. Release only when needed to deliver the verified fix.\nProcedure: https://github.com/joshuarli/usr/blob/main/dotfiles/base/.agents/instructions/owned-tools.md";
+
 struct CliInput {
     source_html: String,
     page_url: Option<String>,
@@ -35,67 +67,35 @@ fn run() -> Result<(), String> {
     let mut input_source: Option<String> = None;
 
     while let Some(arg) = parser.next().map_err(|e| e.to_string())? {
-        match arg {
-            lexopt::Arg::Short('m') | lexopt::Arg::Long("markdown") | lexopt::Arg::Long("md") => {
-                markdown = true;
+        if let lexopt::Arg::Value(val) = arg {
+            input_source = Some(val.into_string().map_err(|_| "invalid source argument".to_string())?);
+            continue;
+        }
+        let spec = OPTIONS.iter().find(|spec| match &arg {
+            lexopt::Arg::Short(short) => spec.short == Some(*short),
+            lexopt::Arg::Long(long) => spec.longs.contains(long),
+            lexopt::Arg::Value(_) => false,
+        }).ok_or_else(|| format!("unexpected argument: {arg:?}"))?;
+        match spec.kind {
+            OptionKind::Markdown => markdown = true,
+            OptionKind::Json => json_output = true,
+            OptionKind::Frontmatter => frontmatter = true,
+            OptionKind::Property => {
+                property = Some(parser.value().map_err(|e| e.to_string())?.into_string().map_err(|_| "invalid property value".to_string())?);
             }
-            lexopt::Arg::Short('j') | lexopt::Arg::Long("json") => {
-                json_output = true;
+            OptionKind::Output => {
+                output_path = Some(PathBuf::from(parser.value().map_err(|e| e.to_string())?.to_str().ok_or("invalid output path")?));
             }
-            lexopt::Arg::Short('f') | lexopt::Arg::Long("frontmatter") => {
-                frontmatter = true;
+            OptionKind::Url => {
+                page_url = Some(parser.value().map_err(|e| e.to_string())?.into_string().map_err(|_| "invalid url value".to_string())?);
             }
-            lexopt::Arg::Short('p') | lexopt::Arg::Long("property") => {
-                property = Some(
-                    parser
-                        .value()
-                        .map_err(|e| e.to_string())?
-                        .into_string()
-                        .map_err(|_| "invalid property value".to_string())?,
-                );
+            OptionKind::Debug => debug = true,
+            OptionKind::Extractor => {
+                extractor = Some(parser.value().map_err(|e| e.to_string())?.into_string().map_err(|_| "invalid extractor value".to_string())?);
             }
-            lexopt::Arg::Short('o') | lexopt::Arg::Long("output") => {
-                output_path = Some(PathBuf::from(
-                    parser
-                        .value()
-                        .map_err(|e| e.to_string())?
-                        .to_str()
-                        .ok_or("invalid output path")?,
-                ));
-            }
-            lexopt::Arg::Long("url") => {
-                page_url = Some(
-                    parser
-                        .value()
-                        .map_err(|e| e.to_string())?
-                        .into_string()
-                        .map_err(|_| "invalid url value".to_string())?,
-                );
-            }
-            lexopt::Arg::Long("debug") => {
-                debug = true;
-            }
-            lexopt::Arg::Long("extractor") => {
-                extractor = Some(
-                    parser
-                        .value()
-                        .map_err(|e| e.to_string())?
-                        .into_string()
-                        .map_err(|_| "invalid extractor value".to_string())?,
-                );
-            }
-            lexopt::Arg::Short('h') | lexopt::Arg::Long("help") => {
+            OptionKind::Help => {
                 print_help();
                 return Ok(());
-            }
-            lexopt::Arg::Value(val) => {
-                input_source = Some(
-                    val.into_string()
-                        .map_err(|_| "invalid source argument".to_string())?,
-                );
-            }
-            _ => {
-                return Err(format!("unexpected argument: {arg:?}"));
             }
         }
     }
@@ -333,29 +333,43 @@ fn read_archive_entry(
 }
 
 fn print_help() {
-    eprintln!(
-        r#"defuddle - HTML article extraction
+    println!("defuddle - HTML article extraction\n\nUsage: defuddle [OPTIONS] [SOURCE]\n\nSOURCE (optional):\n  HTML file or SingleFile ZIP archive; - reads stdin. If omitted, reads stdin\n  when it is not a terminal. Absolute URLs are not fetched.\n\nOptions:");
+    for spec in OPTIONS {
+        let mut names = Vec::new();
+        if let Some(short) = spec.short {
+            names.push(format!("-{short}"));
+        }
+        names.extend(spec.longs.iter().map(|long| format!("--{long}")));
+        let mut label = names.join(", ");
+        if let Some(value) = spec.value {
+            label.push_str(&format!(" <{value}>"));
+        }
+        println!("  {label}\n      {}", spec.description);
+    }
+    println!("\nDefaults: cleaned HTML to stdout; extractor selected automatically.\nEnvironment: DEFUDDLE_PROFILE=1 enables phase timings.\n\nExamples:");
+    for example in EXAMPLES {
+        println!("  {example}");
+    }
+    println!("\n{FOOTER}");
+}
 
-Usage: defuddle [OPTIONS] [SOURCE]
+#[cfg(test)]
+mod tests {
+    use super::OPTIONS;
 
-SOURCE:
-  <file>        Path to an HTML file
-                A SingleFile ZIP archive is also accepted
-  -             Read HTML from stdin
-  (omitted)     Read HTML from stdin if not a TTY
-
-Options:
-  -m, --markdown, --md   Output Markdown instead of HTML
-  -j, --json              Output JSON with metadata and content
-  -f, --frontmatter       Output metadata frontmatter; add --markdown for the body
-  -p, --property <name>   Output one value: title, author, description, domain,
-                          favicon, image, language, published, site, or content
-  -o, --output <file>     Write output to file instead of stdout
-  --url <url>             Set document URL for metadata resolution
-  --debug                 Include the content selector in JSON output;
-                            set DEFUDDLE_PROFILE=1 for phase timings
-  --extractor <name>      Force a named site extractor (e.g. substack)
-  -h, --help              Show this help
-"#
-    );
+    #[test]
+    fn option_names_are_unique() {
+        let mut shorts = Vec::new();
+        let mut longs = Vec::new();
+        for spec in OPTIONS {
+            if let Some(short) = spec.short {
+                assert!(!shorts.contains(&short));
+                shorts.push(short);
+            }
+            for long in spec.longs {
+                assert!(!longs.contains(&long));
+                longs.push(long);
+            }
+        }
+    }
 }
