@@ -203,6 +203,34 @@ in the second. Both runs failed their exact assertions.
 Restoring the source passed all 18 binary cases and strict
 CLI Clippy.
 
+**Favicon metadata**
+
+At `557757c9`, a page with only a shortcut icon returned
+an empty favicon. The selector parser split the quoted
+attribute at the space. The extractor now reads the exact
+relationship value from the link element. The public cases
+check the declared icon priority, unchanged relative icon
+paths, HTTP and HTTPS origin fallback, and absent URLs.
+All 11 metadata cases, four fixture-harness cases and strict
+Clippy passed.
+
+Cargo-mutants 27.1.0 selected nine identities in the original
+`get_favicon` with `metadata_tests`. Four were caught, three
+survived and two were unviable. The fixed source at `aa9ecff1`
+selected ten after adding the explicit relationship check.
+All eight viable identities were caught. The two let-chain
+operator variants were unviable in both runs.
+
+Five readiness-qualified fixture-corpus pairs on macOS ARM64
+compared the release executables for the same 168 inputs.
+The HTML medians were 169.066 and 169.425 ms, with a baseline
+range of 161.219 to 239.967 ms. The Markdown medians were
+198.863 and 193.296 ms, with a baseline range of 189.546 to
+252.273 ms. Both candidate medians stayed within baseline
+variation. Peak live allocation stayed at 1,054,422 and
+2,007,678 bytes. The executable sizes were 3,839,568 and
+3,838,720 bytes. [Reproduce](docs/performance.md)
+
 ## Tickets
 
 
