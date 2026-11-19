@@ -5,396 +5,94 @@ Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/mai
 
 ## Report
 
-**Bench audit**
+DSLP-1 measured default revision `63a23ca89d409d2e211991d5bd8ebfc1dc349716`;
+its first parent is `9b165ada4cd93ff116b7c592413420ee3351aa61` and its
+second parent is `0c84fcf21709cb9894b569efccbf79c068da243b`. It is an
+ancestor of the report admission revision `4e8bfb1b21f339ab9afe3f11ff224d7d4e04b17b`.
+Merged PRs #15–#32 and #34–#36 retain the detailed evidence and history.
 
-The fixture harness benchmarks public `parse_html` for HTML and separate
-Markdown over 168 captured pages. It loads files outside timing, processes every
-page and consumes byte counts; fixture parity tests separately check expected
-output, with manifest exclusions. The driver self-test is Edit, one five-sample
-corpus pass is Change, and the original harness defaults are Full. Scenario's
-five interleaved baseline/candidate pairs remain a manual comparison; there is
-no automated Scenario workload. No sustained or platform matrix workload exists.
+**Scorecard**
 
-The October 2026 macOS anchor uses Rustybench 0.4.0, while the lock now pins
-0.5.0; its numbers are historical, not an interchangeable automatic gate.
-The scorecard comparisons use five interleaved pairs and host readiness checks;
-PR #33 is parked for that evidence. No benchmark enforces a budget, and the
-corpus's output lengths are not an oracle. The allocation profiler counts
-allocation traffic and live tracked heap in the benchmark process, not RSS,
-allocator overhead or a process-tree peak. Rustybench also reports process RSS
-on this host, but it is not a workload-tree peak. No CLI startup/I/O, archive or WASM
-journey, tail latency, disk I/O or artifact-size budget is measured. Missing
-performance evidence without a demonstrated regression is P3: DSLP-9 covers
-missing journeys; DSLP-10 covers correctness, comparison and attribution.
-
-Instrumented phase timings give coarse operation boundaries with overhead and
-must not be compared with timed samples. CPU sampling (Instruments or perf),
-allocation profiling and OS syscall/I/O tools are the cheapest attribution
-paths; none is collected automatically. The driver checks selection, tools,
-fixture count and cleanliness, lockfile and disk before launching anything;
-Cargo rebuilds sources. It reports uncontrolled cache and host readiness and
-saves statuses, exclusions and logs. It does not establish machine isolation,
-fixture authenticity beyond the checkout, or a regression verdict. No network
-service is involved. `make bench-corpus` preserves the former target.
-
-
-**Dead code (DSLP-5)**
-
-The native and wasm32 all-target scans found private-module `pub` items;
-their visibility is now crate-local. The actual public re-exports remain in
-`lib.rs`, the WASM bindings remain in `defuddle-wasm`, and the vendored htmd
-handler methods belong to the crate-private `ElementHandlers`. The shared
-fixture URL helper is called by the fixture harness and fixture benchmark.
-
-The analysis module's suppression is the one retained allowlist entry:
-profiling calls `AnalysisSnapshot::from_subtree`, `node_count`, `overlay`,
-and `checkpoint` from `parse_internal_once`; snapshot and overlay operations
-also have unit-test consumers. Four methods had no callers in production,
-tests, registration, manifests, docs or benchmarks: both `descendant_count`
-methods, `AnalysisSnapshot::root`, and `MutationOverlay::remove_attr`. They
-were removed. A forced warning scan also identified snapshot node fields,
-tag matching and overlay mutations: their readers are the snapshot and
-overlay unit tests, except `depth`, which is stored but never read. Changing
-snapshot or overlay layout would alter the measured profiling work; that
-machinery stays pending the public phase decision in DSLP-8. DOM test counters are used by
-the Hacker News adapter test; the fixture, CLI and adapter test helpers feed
-their respective tests. The compiler checked the remaining test targets.
-
-Cargo-machete 0.10.1 found no unused dependencies. The workspace test covers
-the library, fixture corpus, CLI, native WASM adapter and htmd; wasm32 was
-checked separately. The optional CLI allocation profiler was also checked.
-No extraction, CLI, library or WASM contract was changed. The structural
-debloat review found the profiling machinery as the owner decision above;
-the adapter registry, sanitization and retry paths serve documented behavior.
-
-**CLI input failure trial**
-
-At `207a73e2` on macOS ARM64, the public extraction and metadata
-contracts are exercised by `integration_tests`, `fixture_harness`, and
-`metadata_tests`. `cli_tests` checks output, archive errors and destination
-preservation; `cli_tty` checks missing terminal input. WASM adapter tests
-check exact JSON, extractor selection and enumeration; the browser fixture
-checks generated bindings. No reachable serializer error case has been
-established for the current string-only result; that path is unexercised.
-
-The existing CLI suite did not check an unreadable input file with an
-existing output destination. A single hand-injected mutant replaced the
-file read error with empty input. On the baseline all 22 CLI cases passed
-(one survivor, 110.72 s); the new boundary test failed on the mutant with
-status 0 instead of 1 (9.78 s). Restoring the source byte-for-byte passed
-all 23 CLI cases. This survivor group is dispositioned by the new test:
-it checks status 1, the diagnostic, empty stdout, and unchanged destination
-bytes. The one-runner trial cost 120.50 s; there were no timeouts or
-unviable mutants. This is a hand-selected fault, not a package sweep.
-
-`make coverage` with cargo-llvm-cov 0.9.1 reported 12,222 of 14,590
-lines and 3,029 of 4,666 branches covered before; after, 12,223 lines
-and the same 3,029 branches. The warm workspace baseline and candidate
-took 7.39 s and 5.43 s on a contended host; `perf-gate-ready` exited 75.
-Under the revised campaign policy a retained diff mutation lane is required
-only where the tools are mirrored; cargo-mutants is not on the crate mirror,
-so DSLP-4 closes on the contract map and the new boundary test.
-
-Ground (DSLP-1) measured default revision
-`63a23ca89d409d2e211991d5bd8ebfc1dc349716` on macOS ARM64.
-Both `make test` runs passed 161 cases. An empty target directory
-took 945.43 s and the warm repeat took 4.55 s. Warm
-`make lint` took 0.36 s. The host was busy, so these
-are observed command costs. The reported release workload is
-the existing public HTML and Markdown fixture benchmark.
-`perf-gate-ready` rejected the host for release measurements.
-The [verification guide](AGENTS.md#verification) records the
-public boundaries, consumers, vendored revisions and CI pins.
-Both ordinary default checks and the fleet test-workflow rule passed.
-[Default tests](https://github.com/joshuarli/defuddle-rs/actions/runs/43925764730) ·
-[Default lint](https://github.com/joshuarli/defuddle-rs/actions/runs/43925764944)
-
-**Strict-profile trial**
-
-At `9edcdb27`, Clippy 0.1.101 on nightly 2026-11-09
-checked all workspace targets. The table counts distinct
-locations in the three first-party crates, including inline
-and separate test code. Vendored htmd keeps its own policy.
-
-| Candidate | Locations | Decision |
-| --- | ---: | --- |
-| `redundant_clone` | 4 | Adopt for first-party crates. Each diagnostic identifies a value that can be moved. |
-| `unsafe_code` | 0 | No current violation. |
-| `match_wildcard_for_single_variants` | 0 | No current violation. |
-| `wildcard_enum_match_arm` | 13 | Reject. Examples include intentional fallbacks for node kinds that the operation skips. |
-| `cast_possible_truncation` | 2 | Reject. Elapsed milliseconds would need to exceed the range of u64. |
-| `cast_sign_loss` | 0 | No current first-party violation. |
-| `unwrap_used` | 41 | Reject. The run includes generated constants, fixed selectors, and test assertions. |
-| `expect_used` | 30 | Reject. The run includes fixed patterns and test assertions. |
-| `needless_pass_by_value` | 2 | Reject at this scope. The trial found private argument borrowing opportunities without a demonstrated contract error. |
-
-The candidate moves the already-owned HTML namespace, fallback
-Markdown, author text, and schema text. The public types stay the
-same. All 161 local workspace tests passed, including the
-fixture corpus, JSON-LD metadata cases, CLI cases, and the native
-WASM wrapper test. Strict Clippy passed.
-
-The fixture-corpus gate passed on Mac17,7 with macOS 27.2
-and nightly 2026-11-09. The exact comparison used baseline
-`9edcdb27becee47c5fe367b5c177953afdd25753` and candidate
-`b67578c20dafd8d369d8a9ccf1b3b0b1da370c26`. Both release
-executables used the locked Rustybench 0.5.0. Each timed pass
-parsed 168 HTML inputs and consumed the returned content.
-Five interleaved pairs each recorded five samples per side.
-All ten before and after pair checks passed. Background
-VM work remained active, and candidate ranges include outliers.
-
-| Output | Baseline median ms (range) | Candidate median ms (range) |
-| --- | ---: | ---: |
-| HTML | 160.037 (155.986–172.481) | 161.034 (154.717–204.903) |
-| Markdown | 194.460 (185.089–212.073) | 189.036 (183.161–241.847) |
-
-Both wall-time medians stayed within baseline variation. Peak
-tracked allocations were unchanged at 1,054,422 bytes for HTML
-and 2,007,678 bytes for Markdown. Bench executable sizes were
-3,838,960 and 3,839,584 bytes. [Reproduce](docs/performance.md)
-
-**Test tiers at the Types baseline**
-
-The local workspace run at `f20fa5c1` reported 161 tests.
-There were 87 core unit tests, 30 API integration cases, nine
-metadata cases, and four fixture-harness cases over 168 captured
-inputs. The CLI had one unit test and 15 binary tests. The native
-WASM wrapper had three tests, and vendored htmd had eight unit
-tests. Four doctests ran. The fixture and CLI suites took about
-0.92 s and 0.74 s respectively after compilation. The fixture-corpus
-benchmark remains the separate timed workload.
-
-The CLI checks now compare emitted JSON fields, exact Markdown,
-and the replaced destination file. They exercise implicit stdin,
-a dash, and the empty source argument. The empty TTY case was
-removed. With the ordinary Markdown write changed to emit zero
-characters, the CLI exited successfully and the exact stdout case
-failed. Restoring the write passed all 160 tests and strict Clippy.
-The retained mutation gate remains open under DSLP-4.
-
-**Workspace branch coverage**
-
-`make coverage` runs the locked workspace with cargo-llvm-cov 0.9.1
-and the pinned nightly's LLVM tools. Use
-`cargo llvm-cov report --branch --json --summary-only` for the
-machine-readable totals. The macOS ARM64 comparison uses the
-Types default `f20fa5c1` and the CLI checkpoint `57014178`.
-The instrumented suite ran 157 and 156 tests respectively,
-with vendored htmd included and doctests outside this report.
-
-Both runs covered 12,134 of 14,559 lines. Workspace branch
-coverage moved from 2,995 to 2,996 of 4,660. The CLI's entry
-module moved from 48 to 49 of 60 branches, with 229 of 301 lines
-covered on both revisions. The eight-case stdin and option
-forwarding mutation scope is separate.
-
-**Tests inventory at `eebba91a`**
-
-| Public boundary and consumer | Critical decisions and existing checks | Open evidence |
+| Measure | Before | After / disposition |
 | --- | --- | --- |
-| `parse_html` and `parse_html_profiled`, used by the CLI and WASM adapter | DOM preparation, short-result retry, extractor selection, sanitize before output, phase reporting. `integration_tests` exercises the public results. `fixture_harness` checks 168 captured inputs. | Select and disposition the critical decision regions. DSLP-6 tracks retry pruning. |
-| Extraction metadata used by both wire consumers | Document, Open Graph and JSON-LD precedence, author, dates, language and schema text. `metadata_tests` checks these values and corpus preambles. | URL precedence has a scoped mutation run. Wider metadata decisions and adapter selection remain open. |
-| CLI on macOS ARM64 and hosted Linux ARM64 | Source and option admission, SingleFile size limit, dispatch to the library, JSON and Markdown output, property handling and destination replacement. `cli_tests` runs the executable built by Cargo, and `cli_tty` exercises terminal stdin. | Wider exact error statuses and mutation scopes for archive and output handling. |
-| `parse_page` and `list_extractors` for WASM callers | Options to extraction, JSON result, and extractor enumeration. The adapter cases run natively and in Node's WASM runtime. Default CI checks the generated web bindings and iframe removal in headless Chrome. | Separate evidence for serializer error translation. |
+| First-party Rust source lines | 17,754 | 17,756 |
+| Separate test file lines | 2,757 | 3,245 |
+| Warm `make test` | 4.55 s at Ground | 5.43 s after #34 (7.39 s paired baseline); contended host |
+| Coverage, lines | 12,134/14,559 at Types | 12,223/14,590 after #34 |
+| Coverage, branches | 2,995/4,660 at Types | 3,029/4,666 after #34 |
+| Escape-hatch lines | 201 | 232; includes test assertions and inline tests |
+| Dead code | unmeasured | #35 removed four private methods, 44 lines; no dependencies removed; private-module visibility narrowed; one analysis allowlist retained |
+| Findings | DSLP-6 and DSLP-7 filed P2 | both fixed; three P3 tickets remain (DSLP-8–10); no open P1/P2 |
+| Performance | Ground host busy | qualified Types, retry and favicon comparisons within observed spread; overall gate deferred: host busy; #33 parked, #36 adds entrypoint |
+| Escaped regressions | not measured | no additional regression demonstrated by cumulative review; serializer error path remains unexercised |
 
-Run the ordinary suite with `make test`, strict lint with
-`make lint` and the coverage report with `make coverage`.
-Recheck the fixture-corpus budget only if extraction changes.
-The retained mutation command, whole-change selection,
-executed CI controls and paired gate cost remain open.
+Line counts are physical lines in tracked `crates/defuddle{,-cli,-wasm}/src/**/*.rs`
+and separate `tests` Rust, Python and HTML files, excluding vendored htmd;
+inline tests count as source. Escape hatches count matching lines in those
+same files with the deslop Rust expression. Coverage includes vendored htmd;
+its checkpoints are different revisions, not a controlled single-change comparison.
 
-**CLI option forwarding and stdin selection**
+Mutation results describe bounded trials, not a repository-wide score. CLI
+option forwarding and stdin: 5 caught / 3 missed / 0 timeout / 0 unviable
+before, 8 / 0 / 0 / 0 after. Favicon: 4 / 3 / 0 / 2 before, 8 / 0 / 0 / 2
+after, with changed identity sets. Redirects: 8 caught and 3 missed before,
+10 caught and 1 missed after. URL precedence: 6 caught and 1 unviable both
+times. Timeout counts for these latter scopes were not recorded. The unreadable-input
+hand fault survived the original CLI suite and was caught by the new boundary
+test, with no timeout or unviable fault; 110.72 s baseline plus 9.78 s control,
+about two runner-minutes. These separate scopes must not be added into a single
+mutation rate. Eight boundary groups gained evidence: option forwarding,
+stdin/output, destination preservation, terminal input, archive manifests,
+retry/redirect behavior, metadata, and WASM. Four user-visible defects were
+fixed: invalid-property truncation, retry pruning, shortcut favicon recognition,
+and plain HTML misclassified as a SingleFile archive. The latter two were
+discovered during test work rather than assigned a recorded priority.
 
-At the Types default `f20fa5c1`, the CLI suite caught five of
-eight cases. At `57014178`, exact Markdown output caught the
-deletion of the Markdown option passed to the library. The
-debug selector and Gmail override cases caught the remaining
-two option deletions at `3b6addc0`. The three lists of
-mutation identities match. The final result was eight caught,
-with zero misses, timeouts or unviable builds.
+**Steps and cost**
 
-Use cargo-mutants 27.1.0 on macOS ARM64 with nightly 2026-11-09.
-The first two runs used disposable copies. The last reused a
-warm target with `--in-place` in an isolated checkout. These
-runs establish outcomes for the matched scope, with different
-build conditions. Run the command in disposable scratch to
-reproduce the eight identities and tests.
+- Ground (#15): 161 tests; cold 945.43 s, warm 4.55 s; warm lint 0.36 s.
+  Default tests and lint and the fleet workflow rule passed; host readiness failed.
+- Diagnose (#16): reproduced and filed P2 retry pruning and output truncation
+  (DSLP-6 and DSLP-7); total wall and CI minutes were not recorded.
+- Types (#17): adopted `redundant_clone` at four sites; rejected noisy
+  candidates and retained public types. All 161 tests and strict Clippy passed;
+  five readiness-qualified fixture pairs found no regression beyond spread.
+  Total wall and CI minutes were not recorded.
+- Tests (#18–#32, #34): exact CLI output and forwarding, terminal input,
+  destination preservation, archive selection and errors, retry/redirect,
+  metadata precedence and favicon, and native, Node and Chromium WASM
+  boundaries gained tests and fault controls. Coverage and bounded mutation
+  results are above. The hand fault cost 120.50 runner-seconds; total hosted
+  trial and CI minutes were not recorded. `make test-wasm` covers runtime bindings;
+  serializer error translation has no established reachable error case.
+- Dead code (#35): compiler scans on native and wasm32 and cargo-machete
+  found the four removable methods and no unused dependencies. Profiling
+  snapshot machinery stays pending the owner decision in DSLP-8. Total wall
+  and CI minutes were not recorded.
+- Bench (#36): public `parse_html` corpus covers 168 captured pages; driver
+  self-test is Edit and five samples are Change. Scenario pairs are manual;
+  no CLI, archive or WASM workload, automated verdict, or process-tree memory
+  budget exists (DSLP-9 and DSLP-10). The historical Rustybench 0.4.0 anchor
+  is not directly comparable to the locked 0.5.0. #33 remains parked for
+  readiness-qualified evidence. Total wall and CI minutes were not recorded.
+- Report: reviewed the cumulative diff for extraction, CLI and WASM, including
+  callers and boundary tests. No new demonstrated finding or ticket resulted.
 
-```sh
-cargo mutants -p defuddle-cli --file crates/defuddle-cli/src/main.rs \
-  --re 'main\.rs:(119|122|201):' --baseline run --timeout 20 \
-  --build-timeout 300 --cargo-test-arg=--test --cargo-test-arg=cli_tests
-```
+**Method feedback**
 
-**Destination preservation**
+Require destination-preservation assertions on every failure before opening an
+output file: the invalid-property case escaped the initial CLI checks. Assert
+exact outputs and exercise retries, real terminals and generated WASM bindings;
+the faults showed those boundaries mattered. The quoted-space selector misfired
+for `shortcut icon`; explicit attribute matching repaired it. The strict-profile
+trial found no witness for several candidates; rejecting them avoided noisy
+rules. Coverage alone did not expose the unreadable-input behavior.
 
-At `8ea4e261`, a real CLI run with `--property typo` exited
-with status 1 and the expected diagnostic. The file under
-`--output` was truncated. Resolving the property before
-opening the destination preserves its existing bytes and
-keeps the input diagnostic. All 17 binary cases and strict
-CLI Clippy passed. This closes DSLP-7.
+**Shared-file gaps**
 
-**Terminal stdin**
-
-The Unix-only `cli_tty` test runs the built binary with a
-real terminal and no source. It requires the missing-input
-diagnostic and exit code 1 within five seconds. Disabling
-the terminal guard in scratch left the process waiting for
-input and the test failed at its deadline. Restoring the
-guard passed all 19 CLI tests.
-
-`laputa-ptytest` 0.4.0 is an MIT-licensed Unix test
-dependency. The lock adds the harness and four terminal
-dependencies. The existing locked versions and production
-dependency graph were preserved.
-
-**Document-wide pruning on retries**
-
-At `c18db995`, the short-article fixture triggered both generic
-retries and the selected result restored the removed footer.
-Both retries now reapply document-wide pruning when the initial
-parse removed content. The exact output contains only the
-article paragraph. All 31 integration cases, four fixture-harness
-cases and strict Clippy passed. This closes DSLP-6.
-
-The fixture-corpus benchmark compared the unchanged extraction
-baseline at `c18db995` with the extraction patch at `92142446`.
-The baseline executable was reused from the Types run after
-checking the exact library, fixture and lock inputs. On macOS
-ARM64 with nightly 2026-11-09 and Rustybench 0.5.0, all five
-interleaved pairs passed readiness. Each side used five samples
-per pair over the same 168 fixtures.
-
-| Output | Baseline median ms (range) | Candidate median ms (range) |
-| --- | ---: | ---: |
-| HTML | 200.527 (190.409–209.445) | 198.134 (181.118–215.365) |
-| Markdown | 232.056 (217.901–252.190) | 233.963 (224.076–248.748) |
-
-Both medians stayed within baseline variation. The median live
-peak was unchanged at 1,054,422 bytes for HTML and 2,007,678
-bytes for Markdown. Median cumulative allocated bytes rose by
-about 11 KiB per pass. The benchmark executables were
-3,839,584 and 3,839,568 bytes. [Reproduce](docs/performance.md)
-
-**SingleFile archive manifest**
-
-The stored-entry fixture supplies both the default index and
-a manifest-selected article. The CLI emits the exact chosen
-title and content and uses the archived URL unless the caller
-supplies `--url`. The existing Deflate file fixture and size
-limit case still run.
-
-Two scratch controls at `6c32f883` independently changed the
-manifest index lookup and URL selection. The new case observed
-the default index in the first control and the archived domain
-in the second. Both runs failed their exact assertions.
-Restoring the source passed all 18 binary cases and strict
-CLI Clippy.
-
-The CLI fixtures also check the default index with absent, malformed,
-non-object, non-string or non-UTF-8 manifest data. A missing named index
-or a non-UTF-8 index exits with status 1, empty stdout and the archive
-diagnostic. Changing the default index name and decoding invalid UTF-8
-lossily each failed the corresponding fixture. The source was restored
-byte for byte. All 20 CLI cases and strict Clippy passed.
-
-A plain HTML glossary containing both SingleFile marker names used to
-fail with a ZIP diagnostic. Archive admission now also requires a ZIP
-local header or end-of-directory signature. The CLI test preserves the
-HTML title and content. Empty and truncated marked ZIPs still report a
-ZIP diagnostic, and valid stored and deflated archives still decode.
-
-**Static archive redirects**
-
-The public profiled parser fixture checks zero retries for a single
-mixed-case refresh and nonempty direct link. Missing or repeated refreshes,
-a nested link, multiple links, empty link text and extra body text each
-retain both ordinary retries. `cargo test --locked -p defuddle --test
-integration_tests` passed all 32 cases, and strict Clippy passed.
-
-With `cargo-mutants` 27.1.0 scoped to `crates/defuddle/src/pipeline.rs`,
-`is_simple_redirect_document` and `integration_tests`, separate Cargo
-target directories ran the same 11 identities. The fixtures caught ten,
-up from eight. The combined body-and-anchor count guard still has one
-survivor. The production source was restored byte for byte.
-
-**Favicon metadata**
-
-At `557757c9`, a page with only a shortcut icon returned
-an empty favicon. The selector parser split the quoted
-attribute at the space. The extractor now reads the exact
-relationship value from the link element. The public cases
-check the declared icon priority, unchanged relative icon
-paths, HTTP and HTTPS origin fallback, and absent URLs.
-All 11 metadata cases, four fixture-harness cases and strict
-Clippy passed.
-
-Cargo-mutants 27.1.0 selected nine identities in the original
-`get_favicon` with `metadata_tests`. Four were caught, three
-survived and two were unviable. The fixed source at `aa9ecff1`
-selected ten after adding the explicit relationship check.
-All eight viable identities were caught. The two let-chain
-operator variants were unviable in both runs.
-
-Five readiness-qualified fixture-corpus pairs on macOS ARM64
-compared the release executables for the same 168 inputs.
-The HTML medians were 169.066 and 169.425 ms, with a baseline
-range of 161.219 to 239.967 ms. The Markdown medians were
-198.863 and 193.296 ms, with a baseline range of 189.546 to
-252.273 ms. Both candidate medians stayed within baseline
-variation. Peak live allocation stayed at 1,054,422 and
-2,007,678 bytes. The executable sizes were 3,839,568 and
-3,838,720 bytes. [Reproduce](docs/performance.md)
-
-**WASM runtime and web bindings**
-
-At `b08b13e0`, the WASM harness executed one adapter test.
-All four adapter tests now pass on the native host and in
-Node 26.12.0 with wasm-bindgen-test-runner 0.2.130. They
-exercise extracted output, exact Unicode JSON and extractor
-enumeration.
-
-The generated web bindings passed the loopback fixture in
-Chromium 155.0.8059.84. The fixture checks exact HTML and
-Markdown, domain and title, iframe removal, and adapter names.
-Turning off iframe removal in an isolated build left the
-iframe in the generated HTML and failed the browser fixture.
-The source was restored byte for byte and rebuilt. Strict
-adapter Clippy passed.
-`make test-wasm` runs both runtime checks. The headless
-fixture runner passed with the current bindings and exited
-nonzero with the earlier iframe-removal control. The CI
-job uses the same command and reports both runtime versions.
-[Reproduce](docs/testing.md#wasm-runtime)
-
-The explicit extractor test passes an empty URL to the WASM
-adapter and distinguishes the Gmail extraction from the generic
-fallback. Suppressing the extractor option in an isolated build
-changed the result to a null extractor and failed the Node test.
-The source was restored byte for byte. All five adapter cases
-passed natively and in Node, and strict adapter Clippy passed.
-
-The core parse path at `74aac451b` returns success for either
-extractor path and has no error-producing branch. The WASM
-wrapper still preserves the public error mapping. Its serializer
-error path remains unexercised.
-[WASM reproduction](docs/testing.md#wasm-runtime)
-
-**Document URL and publication date**
-
-`cargo test --locked -p defuddle --test metadata_tests` passed all
-13 cases. The new in-memory fixtures check URL and date source
-precedence, including a relative canonical URL and a related-link
-time that must be ignored. Removing the Twitter URL fallback and
-removing the related-link time guard each failed the corresponding
-fixture. Both source controls were restored byte for byte.
-
-With `cargo-mutants` 27.1.0 scoped to `extract_domain_and_url`
-and the `metadata_tests` target, both the baseline and candidate
-caught the same six identities and found one unviable. Strict
-Clippy passed on the metadata target.
+The stuff crate mirror does not serve cargo-mutants, so a retained mutation CI
+lane was not qualified; the shared registry needs that package before the lane
+can be established. Shared usr/stuff files were not edited.
 
 ## Tickets
 
