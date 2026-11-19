@@ -15,7 +15,7 @@ cargo install wasm-bindgen-cli --version 0.2.130 --locked
 make test-wasm CHROMIUM=chromium
 ```
 
-The test runs all four adapter cases in Node, builds the web
+The test runs the adapter cases in Node, builds the web
 bindings, then serves the browser fixture on loopback. The
 headless browser checks Unicode HTML and Markdown, domain,
 iframe removal, and the extractor list. CI uses the GitHub

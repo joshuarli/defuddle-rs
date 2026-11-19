@@ -106,7 +106,7 @@ forwarding mutation scope is separate.
 | `parse_html` and `parse_html_profiled`, used by the CLI and WASM adapter | DOM preparation, short-result retry, extractor selection, sanitize before output, phase reporting. `integration_tests` exercises the public results. `fixture_harness` checks 168 captured inputs. | Select and disposition the critical decision regions. DSLP-6 tracks retry pruning. |
 | Extraction metadata used by both wire consumers | Document, Open Graph and JSON-LD precedence, author, dates, language and schema text. `metadata_tests` checks these values and corpus preambles. | Metadata precedence and adapter selection have no mutation results yet. |
 | CLI on macOS ARM64 and hosted Linux ARM64 | Source and option admission, SingleFile size limit, dispatch to the library, JSON and Markdown output, property handling and destination replacement. `cli_tests` runs the executable built by Cargo, and `cli_tty` exercises terminal stdin. | Wider exact error statuses and mutation scopes for archive and output handling. |
-| `parse_page` and `list_extractors` for WASM callers | Options to extraction, JSON result, and extractor enumeration. Four tests run natively and in Node's WASM runtime. Chromium verifies the generated web bindings and iframe removal. | Error translation and a retained browser gate. |
+| `parse_page` and `list_extractors` for WASM callers | Options to extraction, JSON result, and extractor enumeration. The adapter cases run natively and in Node's WASM runtime. Default CI checks the generated web bindings and iframe removal in headless Chrome. | Separate evidence for serializer error translation. |
 
 Run the ordinary suite with `make test`, strict lint with
 `make lint` and the coverage report with `make coverage`.
@@ -251,6 +251,19 @@ fixture runner passed with the current bindings and exited
 nonzero with the earlier iframe-removal control. The CI
 job uses the same command and reports both runtime versions.
 [Reproduce](docs/testing.md#wasm-runtime)
+
+The explicit extractor test passes an empty URL to the WASM
+adapter and distinguishes the Gmail extraction from the generic
+fallback. Suppressing the extractor option in an isolated build
+changed the result to a null extractor and failed the Node test.
+The source was restored byte for byte. All five adapter cases
+passed natively and in Node, and strict adapter Clippy passed.
+
+The core parse path at `74aac451b` returns success for either
+extractor path and has no error-producing branch. The WASM
+wrapper still preserves the public error mapping. Its serializer
+error path remains unexercised.
+[WASM reproduction](docs/testing.md#wasm-runtime)
 
 ## Tickets
 

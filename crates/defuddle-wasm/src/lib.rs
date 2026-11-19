@@ -95,6 +95,24 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn honors_an_explicit_extractor_without_url_detection() {
+        let html = r#"<html><head><title>Meeting notes</title></head><body>
+<h2 class="hP">Project update</h2>
+<div class="adn ads"><span class="gD" name="Sam Example">Sam Example</span><div class="a3s"><div>Draft is ready.</div></div></div>
+</body></html>"#;
+
+        let generic = parse_page(html, "", "").expect("generic extraction succeeds");
+        assert!(generic.contains(r#""domain":"""#), "{generic}");
+        assert!(generic.contains(r#""extractor_type":null"#), "{generic}");
+
+        let extracted = parse_page(html, "", "gmail").expect("forced extraction succeeds");
+        assert!(extracted.contains(r#""extractor_type":"gmail""#), "{extracted}");
+        assert!(extracted.contains(r#""title":"Project update""#), "{extracted}");
+        assert!(extracted.contains("Draft is ready."), "{extracted}");
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn lists_supported_extractors() {
         assert_eq!(
             list_extractors(),
