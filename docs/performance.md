@@ -6,6 +6,31 @@ measures one sequential pass over the 168 fixtures, either with HTML output
 only or with separate Markdown output. Fixture URLs use the same helper as the
 fixture parity harness.
 
+## Tiered entrypoint
+
+`make bench-list` lists workload names, areas, commands and estimated costs.
+`make bench-check BENCH_ARGS='--name corpus'` checks only the selected
+workloads; `make bench BENCH_ARGS='--tier edit --dry-run'` prints the plan
+without creating files. `make bench` defaults to the Change ceiling. Set
+`BENCH_ARGS` to repeat `--name`, `--area`, or `--skip` selectors; names and
+areas are distinct, filters intersect, and skips take workload names. Unknown
+selectors and empty selections fail. Tiers are `edit`, `change`, `scenario`,
+and `full`; each is a ceiling. Scenario currently adds no automated workload:
+the five-pair comparison below remains manual. Full includes the original
+harness defaults and requires an explicit `--allow-full`. The unchanged old
+command is also available as `make bench-corpus`.
+
+The Edit driver self-test takes seconds and needs Python 3. The Change corpus
+needs the pinned Rust toolchain, Cargo, Cargo.lock, the clean vendored snapshot,
+and at least 1 GiB free; its build can take minutes. Cargo rebuilds stale
+artifacts. The driver checks fixture count and tracked modifications, but cannot
+independently authenticate the snapshot; its recorded revision is in
+`tests/upstream/SNAPSHOT.md`. No service or persistent benchmark process is
+required. Host readiness is informational, not a timing gate. Each actual run
+writes logs and a summary under `.work/bench/<date>_...`; completion is not a
+performance verdict. Use the readiness-qualified interleaved procedure below
+for comparisons, and keep phase instrumentation separate.
+
 ## Run the benchmark
 
 Build the locked fixture executable and run it with five samples of
