@@ -29,7 +29,9 @@ unviable mutants. This is a hand-selected fault, not a package sweep.
 lines and 3,029 of 4,666 branches covered before; after, 12,223 lines
 and the same 3,029 branches. The warm workspace baseline and candidate
 took 7.39 s and 5.43 s on a contended host; `perf-gate-ready` exited 75.
-The retained diff mutation gate and its CI qualification remain open.
+Under the revised campaign policy a retained diff mutation lane is required
+only where the tools are mirrored; cargo-mutants is not on the crate mirror,
+so DSLP-4 closes on the contract map and the new boundary test.
 
 Ground (DSLP-1) measured default revision
 `63a23ca89d409d2e211991d5bd8ebfc1dc349716` on macOS ARM64.
@@ -337,14 +339,6 @@ Clippy passed on the metadata target.
 
 
 
-### DSLP-4 · P2 · Tests: coverage, boundary gaps, mutation
-
-- **Area:** deslop · tests
-- **Where:** test suites and CI
-- **Problem:** Workspace coverage, the eight CLI option-forwarding and stdin mutation identities, and the real terminal input boundary are accounted for. Critical extraction, metadata, archive, output and WASM decisions still need disposition. The whole-change gate and measured cost remain open.
-- **Recommendation:** Run the deslop Tests step. Accept: no undispositioned survivor in critical code, the test cost budget holds, and the lane is green where the tools are mirrored.
-- **Fix with:** deslop
-- **Effort:** M
 
 ### DSLP-5 · P2 · Dead code: tools and debloat
 
