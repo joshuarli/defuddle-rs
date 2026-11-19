@@ -2,6 +2,8 @@
 
 Status: draft
 
+Current code: the DOM, extractor, Markdown, and sanitizer modules described below are private. `adapter_names` and `is_absolute_url` are re-exported at the crate root.
+
 ## Summary
 
 `defuddle` publishes its DOM, extractor modules, Markdown helpers, and sanitizer in addition to `parse_html`. The version is `0.0.0` and the crate is not on crates.io. Narrow the surface before the first release.

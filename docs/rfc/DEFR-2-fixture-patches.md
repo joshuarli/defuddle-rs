@@ -2,6 +2,8 @@
 
 Status: draft
 
+Current code: the title-keyed overrides and Vox replacement described below are absent. The `//CLAUDE.md` Markdown normalization remains in `crates/defuddle/src/markdown.rs`.
+
 ## Summary
 
 Three title-keyed overrides, one global Markdown replace, and one Twitter href rewrite compensate for specific fixtures during every extraction.

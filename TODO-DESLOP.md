@@ -1,5 +1,5 @@
 Prefix: DSLP
-Next: 6
+Next: 8
 
 Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/main/docs/campaigns/deslop.md), tier B). One agent works this file with the `deslop` skill: take the lowest-numbered open ticket whose area does not start with `Needs owner ·`. After DSLP-5, work the open P1 and P2 findings, then fill in `## Report` below.
 
@@ -22,14 +22,6 @@ Both ordinary default checks and the fleet test-workflow rule passed.
 ## Tickets
 
 
-### DSLP-2 · P2 · Diagnose: ultrareview into this backlog
-
-- **Area:** deslop · diagnose
-- **Where:** whole repository
-- **Problem:** No review has ranked this repository's risks for the deslop pass.
-- **Recommendation:** Run the deslop Diagnose step. Accept: the diff touches only docs, comments, and this file, and every finding names its Fix with.
-- **Fix with:** deslop
-- **Effort:** S
 
 ### DSLP-3 · P2 · Types: strict profile and typing findings
 
@@ -57,4 +49,24 @@ Both ordinary default checks and the fleet test-workflow rule passed.
 - **Recommendation:** Run the deslop Dead code step. Accept: tools clean or allowlisted with reasons; walk-backs filed as Needs owner tickets.
 - **Fix with:** deslop
 - **Effort:** M
+
+
+### DSLP-6 · P2 · Retry skips document-wide pruning
+
+- **Area:** extraction · retries
+- **Where:** crates/defuddle/src/lib.rs:259, crates/defuddle/src/lib.rs:465, crates/defuddle/src/extractors/substack.rs:412
+- **Problem:** Initial parsing runs the prune registry, but both short-result retries reparse the original HTML without it and can win on word count. Reproduce: printf %s '<html><body><article><p>Short article text.</p><div><hr></div><p>For More news and commentary visit our publication every day.</p><p>Subscribe to receive every new article and more special reports.</p></article></body></html>' | cargo run -q -p defuddle-cli -- --json; output includes both footer paragraphs even though the initial pruning rule removes them.
+- **Recommendation:** Apply the same document preparation to each retry before extraction, retaining the intentional retry option changes; cover the resulting public output with a short-page regression witness.
+- **Fix with:** root-cause
+- **Effort:** S
+
+
+### DSLP-7 · P2 · Invalid property can truncate the output file
+
+- **Area:** CLI · output
+- **Where:** crates/defuddle-cli/src/main.rs:133, crates/defuddle-cli/src/main.rs:139
+- **Problem:** File::create opens and truncates --output before the property name is validated; an unknown property then returns an error. With a scratch file containing nine bytes, piping a valid article into `defuddle --property typo --output "$scratch"` exits 1 with `unknown property` and leaves the file at zero bytes.
+- **Recommendation:** Validate the property and compute the selected output before opening the destination; add a CLI regression asserting a pre-existing destination survives invalid input.
+- **Fix with:** error-model
+- **Effort:** S
 

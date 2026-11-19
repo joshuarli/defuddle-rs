@@ -2,6 +2,8 @@
 
 Status: draft
 
+Current code: the Decision below is implemented; these fields and `--lang` are absent from the public options and CLI.
+
 ## Summary
 
 `DefuddleOptions.markdown`, `remove_images`, and `language` are public and unused. The CLI `--lang` flag only stores `language`. Markdown output follows `separate_markdown`. Image stripping follows `remove_small_images`.
