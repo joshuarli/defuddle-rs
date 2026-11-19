@@ -81,8 +81,24 @@ a dash, and the empty source argument. The empty TTY case was
 removed. With the ordinary Markdown write changed to emit zero
 characters, the CLI exited successfully and the exact stdout case
 failed. Restoring the write passed all 160 tests and strict Clippy.
-A real TTY fixture, branch coverage, and the retained mutation
-gate remain open under DSLP-4.
+A real TTY fixture and the retained mutation gate remain open
+under DSLP-4.
+
+**Workspace branch coverage**
+
+`make coverage` runs the locked workspace with cargo-llvm-cov 0.9.1
+and the pinned nightly's LLVM tools. Use
+`cargo llvm-cov report --branch --json --summary-only` for the
+machine-readable totals. The macOS ARM64 comparison uses the
+Types default `f20fa5c1` and the CLI checkpoint `57014178`.
+The instrumented suite ran 157 and 156 tests respectively,
+with vendored htmd included and doctests outside this report.
+
+Both runs covered 12,134 of 14,559 lines. Workspace branch
+coverage moved from 2,995 to 2,996 of 4,660. The CLI's entry
+module moved from 48 to 49 of 60 branches, with 229 of 301 lines
+covered on both revisions. The eight-case stdin and option
+forwarding mutation scope is separate.
 
 ## Tickets
 
