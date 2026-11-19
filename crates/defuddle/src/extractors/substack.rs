@@ -363,7 +363,7 @@ fn substack_preload(doc: &Document) -> (String, String, String, String) {
         "Substack".to_string(),
     )
 }
-pub fn register_prune(registry: &mut crate::prune::Registry) {
+pub(crate) fn register_prune(registry: &mut crate::prune::Registry) {
     registry.register(|doc| {
         let mut changed = false;
         let mut remove = |doc: &mut Document, id| {

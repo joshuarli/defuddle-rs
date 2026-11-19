@@ -49,7 +49,7 @@ const INLINE_REF_SELECTORS: &[&str] = &[
     "a.footnote[href^=\"#\"]",
 ];
 
-pub fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
+pub(crate) fn standardize_footnotes(doc: &mut Document, content_id: NodeId) {
     let mut definitions: FxHashMap<usize, String> = FxHashMap::default();
     let mut anchor_keys = collect_anchor_definitions(doc, content_id, &mut definitions);
     anchor_keys.extend(collect_labeled_section_keys(doc));

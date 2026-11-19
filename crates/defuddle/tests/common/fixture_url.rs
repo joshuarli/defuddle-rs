@@ -2,7 +2,7 @@ use std::path::Path;
 
 use deser_value::Value;
 
-pub fn fixture_url(html: &str, path: &Path) -> String {
+pub(crate) fn fixture_url(html: &str, path: &Path) -> String {
     if let Some(start) = html.find("<!--")
         && let Some(end_offset) = html[start + 4..].find("-->")
     {

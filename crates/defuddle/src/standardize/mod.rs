@@ -29,7 +29,7 @@ use images::{
 use tables::{normalize_data_tables, unwrap_layout_tables};
 use whitespace::{move_inline_whitespace, remove_html_comments, standardize_spaces};
 
-pub fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_title: &str) {
+pub(crate) fn standardize_content(doc: &mut Document, content_id: NodeId, metadata_title: &str) {
     // Step order matches TypeScript standardizeContent()
     standardize_drop_caps(doc, content_id);
     standardize_spaces(doc, content_id);

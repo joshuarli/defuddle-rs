@@ -28,7 +28,7 @@ pub(crate) fn is_extractor_class(token: &str) -> bool {
         || token.starts_with("posts-")
 }
 
-pub struct CommentData {
+pub(crate) struct CommentData {
     pub author: String,
     pub date: String,
     pub content: String,
@@ -37,7 +37,7 @@ pub struct CommentData {
     pub url: String,
 }
 
-pub fn build_comment(comment: &CommentData) -> String {
+pub(crate) fn build_comment(comment: &CommentData) -> String {
     let author = format!(
         "<span class=\"comment-author\"><strong>{}</strong></span>",
         crate::content_utils::escape_html(&comment.author)
@@ -69,7 +69,7 @@ pub fn build_comment(comment: &CommentData) -> String {
     )
 }
 
-pub fn build_comment_tree(comments: &[CommentData]) -> String {
+pub(crate) fn build_comment_tree(comments: &[CommentData]) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut blockquote_stack: Vec<u32> = Vec::new();
 
@@ -108,7 +108,7 @@ pub fn build_comment_tree(comments: &[CommentData]) -> String {
     parts.join("")
 }
 
-pub fn build_content_html(site: &str, post_content: &str, comments: &str) -> String {
+pub(crate) fn build_content_html(site: &str, post_content: &str, comments: &str) -> String {
     let comments_section = if comments.is_empty() {
         String::new()
     } else {

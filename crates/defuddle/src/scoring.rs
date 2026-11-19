@@ -78,12 +78,12 @@ const SOCIAL_PROFILE_PATTERNS: &[&str] = &[
     "mastodon.",
 ];
 
-pub fn score_element(doc: &Document, node: NodeId) -> f64 {
+pub(crate) fn score_element(doc: &Document, node: NodeId) -> f64 {
     let text = doc.text_content(node);
     score_element_with_text(doc, node, &text)
 }
 
-pub fn score_element_with_text(doc: &Document, node: NodeId, text: &str) -> f64 {
+pub(crate) fn score_element_with_text(doc: &Document, node: NodeId, text: &str) -> f64 {
     let mut score = 0.0;
     let words = count_words(text) as f64;
     if words == 0.0 {
@@ -147,7 +147,7 @@ fn for_each_descendant_tag(
     }
 }
 
-pub fn score_non_content_block_with_text(doc: &Document, node: NodeId, text: &str) -> f64 {
+pub(crate) fn score_non_content_block_with_text(doc: &Document, node: NodeId, text: &str) -> f64 {
     let words = count_words(text);
     if words < 3 {
         return 0.0;
@@ -283,7 +283,7 @@ pub fn score_non_content_block_with_text(doc: &Document, node: NodeId, text: &st
     score
 }
 
-pub fn find_main_content(doc: &Document, entry_point_selectors: &[&str]) -> Option<NodeId> {
+pub(crate) fn find_main_content(doc: &Document, entry_point_selectors: &[&str]) -> Option<NodeId> {
     let mut candidates: Vec<(NodeId, f64, usize)> = Vec::new();
     let mut text = String::new();
 

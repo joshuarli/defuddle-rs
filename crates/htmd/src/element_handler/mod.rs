@@ -108,7 +108,7 @@ pub(crate) struct ElementHandlers {
 }
 
 impl ElementHandlers {
-    pub fn new(options: Options) -> Self {
+    pub(crate) fn new(options: Options) -> Self {
         let mut handlers = Self {
             handlers: Vec::new(),
             tag_to_handler_indices: HashMap::new(),
@@ -234,7 +234,7 @@ impl ElementHandlers {
         handlers
     }
 
-    pub fn add_handler<Handler>(&mut self, tags: Vec<&str>, handler: Handler)
+    pub(crate) fn add_handler<Handler>(&mut self, tags: Vec<&str>, handler: Handler)
     where
         Handler: ElementHandler + 'static,
     {
@@ -251,7 +251,7 @@ impl ElementHandlers {
         }
     }
 
-    pub fn handle(
+    pub(crate) fn handle(
         &self,
         node: &Rc<Node>,
         tag: &str,

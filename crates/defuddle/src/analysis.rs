@@ -31,16 +31,6 @@ impl AnalysisFacts {
         self.has_gated_content |= child.has_gated_content;
         self.has_author_image_link |= child.has_author_image_link;
     }
-
-    pub(crate) fn descendant_count(
-        &self,
-        doc: &Document,
-        node: NodeId,
-        total: usize,
-        tag: &str,
-    ) -> usize {
-        total.saturating_sub(usize::from(doc.tag_name_is(node, tag)))
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -153,10 +143,6 @@ impl AnalysisSnapshot {
         snapshot
     }
 
-    pub(crate) fn root(&self) -> NodeId {
-        self.nodes[self.root].dom_id
-    }
-
     pub(crate) fn node_count(&self) -> usize {
         self.nodes.len()
     }
@@ -177,25 +163,6 @@ impl AnalysisSnapshot {
             .filter(|node| node.tag.matches(tag))
             .map(|node| node.dom_id)
             .collect()
-    }
-
-    pub(crate) fn descendant_count(&self, node: NodeId, tag: &str) -> Option<usize> {
-        let facts = self.facts(node)?;
-        let total = match tag {
-            "p" => facts.paragraph_count,
-            "a" => facts.link_count,
-            "ul" => facts.unordered_list_count,
-            "ol" => facts.ordered_list_count,
-            "img" => facts.image_count,
-            "table" => facts.table_count,
-            _ => return None,
-        };
-        let self_count = self
-            .lookup
-            .get(&node)
-            .and_then(|&index| self.nodes.get(index))
-            .is_some_and(|current| current.tag.matches(tag));
-        Some(total.saturating_sub(usize::from(self_count)))
     }
 
     pub(crate) fn overlay(&self) -> MutationOverlay<'_> {
@@ -356,17 +323,6 @@ impl<'a> MutationOverlay<'a> {
             previous,
         });
         self.attr_overrides.insert(key, Some(value.to_owned()));
-    }
-
-    pub(crate) fn remove_attr(&mut self, node: NodeId, name: &str) {
-        let key = (node, name.to_ascii_lowercase());
-        let previous = self.attr_overrides.get(&key).cloned();
-        self.log.push(OverlayMutation::Attribute {
-            node,
-            name: key.1.clone(),
-            previous,
-        });
-        self.attr_overrides.insert(key, None);
     }
 
     pub(crate) fn is_visible(&self, node: NodeId) -> bool {

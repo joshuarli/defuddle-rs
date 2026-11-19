@@ -1,9 +1,38 @@
 Prefix: DSLP
-Next: 8
+Next: 9
 
 Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/main/docs/campaigns/deslop.md), tier B). One agent works this file with the `deslop` skill: take the lowest-numbered open ticket whose area does not start with `Needs owner ·`. After DSLP-5, work the open P1 and P2 findings, then fill in `## Report` below.
 
 ## Report
+
+**Dead code (DSLP-5)**
+
+The native and wasm32 all-target scans found private-module `pub` items;
+their visibility is now crate-local. The actual public re-exports remain in
+`lib.rs`, the WASM bindings remain in `defuddle-wasm`, and the vendored htmd
+handler methods belong to the crate-private `ElementHandlers`. The shared
+fixture URL helper is called by the fixture harness and fixture benchmark.
+
+The analysis module's suppression is the one retained allowlist entry:
+profiling calls `AnalysisSnapshot::from_subtree`, `node_count`, `overlay`,
+and `checkpoint` from `parse_internal_once`; snapshot and overlay operations
+also have unit-test consumers. Four methods had no callers in production,
+tests, registration, manifests, docs or benchmarks: both `descendant_count`
+methods, `AnalysisSnapshot::root`, and `MutationOverlay::remove_attr`. They
+were removed. A forced warning scan also identified snapshot node fields,
+tag matching and overlay mutations: their readers are the snapshot and
+overlay unit tests, except `depth`, which is stored but never read. Changing
+snapshot or overlay layout would alter the measured profiling work; that
+machinery stays pending the public phase decision in DSLP-8. DOM test counters are used by
+the Hacker News adapter test; the fixture, CLI and adapter test helpers feed
+their respective tests. The compiler checked the remaining test targets.
+
+Cargo-machete 0.10.1 found no unused dependencies. The workspace test covers
+the library, fixture corpus, CLI, native WASM adapter and htmd; wasm32 was
+checked separately. The optional CLI allocation profiler was also checked.
+No extraction, CLI, library or WASM contract was changed. The structural
+debloat review found the profiling machinery as the owner decision above;
+the adapter registry, sanitization and retry paths serve documented behavior.
 
 **CLI input failure trial**
 
@@ -340,11 +369,12 @@ Clippy passed on the metadata target.
 
 
 
-### DSLP-5 · P2 · Dead code: tools and debloat
 
-- **Area:** deslop · dead code
-- **Where:** whole repository
-- **Problem:** No dead-code scan has run.
-- **Recommendation:** Run the deslop Dead code step. Accept: tools clean or allowlisted with reasons; walk-backs filed as Needs owner tickets.
-- **Fix with:** deslop
+### DSLP-8 · P3 · Decide whether to retire profiling snapshot machinery
+
+- **Area:** Needs owner · profiling
+- **Where:** crates/defuddle/src/lib.rs:525; crates/defuddle/src/analysis.rs
+- **Problem:** Profiling constructs a structural snapshot and empty mutation overlay solely to report their named timings; overlay mutation operations have only unit-test consumers. Maintaining this machinery costs code and profiling work, but removing it changes the phases exposed by parse_html_profiled when profile is enabled.
+- **Recommendation:** Decide whether consumers may lose the analysis snapshot and analysis overlay timing phases; if so remove the machinery and its isolated tests together.
+- **Fix with:** debloat
 - **Effort:** M

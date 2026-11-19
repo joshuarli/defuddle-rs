@@ -1,6 +1,6 @@
 use crate::dom::{Document, NodeId};
 
-pub fn resolve_urls(doc: &mut Document, content_id: NodeId, page_url: &str) {
+pub(crate) fn resolve_urls(doc: &mut Document, content_id: NodeId, page_url: &str) {
     if page_url.is_empty() {
         return;
     }

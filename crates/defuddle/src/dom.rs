@@ -35,7 +35,7 @@ fn parse_selector(selector: &str) -> ParsedSelector {
 }
 
 #[derive(Debug)]
-pub struct Document {
+pub(crate) struct Document {
     nodes: Vec<Node>,
     root: NodeId,
     selector_cache: RefCell<FxHashMap<String, Arc<ParsedSelector>>>,
@@ -104,7 +104,7 @@ impl Document {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct NodeId(pub usize);
+pub(crate) struct NodeId(pub usize);
 
 #[derive(Debug, Clone)]
 enum NodeKind {
@@ -409,7 +409,7 @@ impl NodeParent {
 }
 
 impl Document {
-    pub fn parse(html: &str) -> Self {
+    pub(crate) fn parse(html: &str) -> Self {
         #[cfg(test)]
         PARSE_COUNT.with(|count| count.set(count.get() + 1));
         let node_capacity = html
@@ -430,19 +430,19 @@ impl Document {
         html5ever::parse_document(sink, Default::default()).one(html)
     }
 
-    pub fn root(&self) -> NodeId {
+    pub(crate) fn root(&self) -> NodeId {
         self.root
     }
 
-    pub fn parent(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn parent(&self, node: NodeId) -> Option<NodeId> {
         self.node(node).parent.get()
     }
 
-    pub fn children(&self, node: NodeId) -> &[NodeId] {
+    pub(crate) fn children(&self, node: NodeId) -> &[NodeId] {
         &self.node(node).children
     }
 
-    pub fn append_node(&mut self, parent: NodeId, child: NodeId) {
+    pub(crate) fn append_node(&mut self, parent: NodeId, child: NodeId) {
         if self.is_removed(parent)
             || self.is_removed(child)
             || parent == child
@@ -459,7 +459,7 @@ impl Document {
         self.node_mut(parent).children.push(child);
     }
 
-    pub fn append_text(&mut self, parent: NodeId, text: &str) {
+    pub(crate) fn append_text(&mut self, parent: NodeId, text: &str) {
         if self.is_removed(parent) || text.is_empty() {
             return;
         }
@@ -509,7 +509,7 @@ impl Document {
         (document, root)
     }
 
-    pub fn tag_name(&self, node: NodeId) -> &str {
+    pub(crate) fn tag_name(&self, node: NodeId) -> &str {
         match &self.node(node).kind {
             NodeKind::Element { name, .. } => atom_str(name),
             _ => "",
@@ -518,7 +518,7 @@ impl Document {
 
     /// Case-insensitive tag name comparison. Returns true if the element's
     /// tag name equals `name` ignoring ASCII case.
-    pub fn tag_name_is(&self, node: NodeId, name: &str) -> bool {
+    pub(crate) fn tag_name_is(&self, node: NodeId, name: &str) -> bool {
         match &self.node(node).kind {
             NodeKind::Element { name: n, .. } => atom_str(n).eq_ignore_ascii_case(name),
             _ => false,
@@ -527,7 +527,7 @@ impl Document {
 
     /// Case-insensitive tag name check against multiple candidates.
     /// Returns true if the element's tag name matches any of `names`.
-    pub fn tag_name_is_any(&self, node: NodeId, names: &[&str]) -> bool {
+    pub(crate) fn tag_name_is_any(&self, node: NodeId, names: &[&str]) -> bool {
         match &self.node(node).kind {
             NodeKind::Element { name: n, .. } => {
                 names
@@ -538,23 +538,23 @@ impl Document {
         }
     }
 
-    pub fn is_comment(&self, node: NodeId) -> bool {
+    pub(crate) fn is_comment(&self, node: NodeId) -> bool {
         matches!(&self.node(node).kind, NodeKind::Comment(_))
     }
 
-    pub fn is_text(&self, node: NodeId) -> bool {
+    pub(crate) fn is_text(&self, node: NodeId) -> bool {
         matches!(&self.node(node).kind, NodeKind::Text(_))
     }
 
-    pub fn is_element(&self, node: NodeId) -> bool {
+    pub(crate) fn is_element(&self, node: NodeId) -> bool {
         matches!(&self.node(node).kind, NodeKind::Element { .. })
     }
 
-    pub fn is_removed(&self, node: NodeId) -> bool {
+    pub(crate) fn is_removed(&self, node: NodeId) -> bool {
         matches!(self.node(node).kind, NodeKind::Removed)
     }
 
-    pub fn query_selector_all(&self, selector: &str) -> Vec<NodeId> {
+    pub(crate) fn query_selector_all(&self, selector: &str) -> Vec<NodeId> {
         let mut results: Vec<NodeId> = Vec::new();
         self.query_selector_all_into(selector, &mut results);
         results
@@ -633,7 +633,7 @@ impl Document {
     }
 
     /// Like query_selector_all but only searches within a subtree.
-    pub fn query_selector_all_in_subtree(&self, root: NodeId, selector: &str) -> Vec<NodeId> {
+    pub(crate) fn query_selector_all_in_subtree(&self, root: NodeId, selector: &str) -> Vec<NodeId> {
         let mut results: Vec<NodeId> = Vec::new();
         self.query_selector_all_in_subtree_into(root, selector, &mut results);
         results
@@ -651,20 +651,20 @@ impl Document {
         }
     }
 
-    pub fn has_selector_in_subtree(&self, root: NodeId, selector: &str) -> bool {
+    pub(crate) fn has_selector_in_subtree(&self, root: NodeId, selector: &str) -> bool {
         self.parsed_selector(selector)
             .iter()
             .any(|parts| self.subtree_has_match(root, parts))
     }
 
-    pub fn count_selector_in_subtree(&self, root: NodeId, selector: &str) -> usize {
+    pub(crate) fn count_selector_in_subtree(&self, root: NodeId, selector: &str) -> usize {
         self.parsed_selector(selector)
             .iter()
             .map(|parts| self.subtree_match_count(root, parts))
             .sum()
     }
 
-    pub fn closest(&self, node: NodeId, selector: &str) -> Option<NodeId> {
+    pub(crate) fn closest(&self, node: NodeId, selector: &str) -> Option<NodeId> {
         let selector = crate::css_selector::parse_one(selector)?;
         let mut current = Some(node);
         while let Some(id) = current {
@@ -676,7 +676,7 @@ impl Document {
         None
     }
 
-    pub fn contains(&self, ancestor: NodeId, descendant: NodeId) -> bool {
+    pub(crate) fn contains(&self, ancestor: NodeId, descendant: NodeId) -> bool {
         let mut current = Some(descendant);
         while let Some(id) = current {
             if id == ancestor {
@@ -687,7 +687,7 @@ impl Document {
         false
     }
 
-    pub fn next_element_sibling(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn next_element_sibling(&self, node: NodeId) -> Option<NodeId> {
         if let Some(parent) = self.parent(node) {
             let children = self.children(parent);
             let pos = children.iter().position(|&c| c == node)?;
@@ -701,7 +701,7 @@ impl Document {
         }
     }
 
-    pub fn prev_element_sibling(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn prev_element_sibling(&self, node: NodeId) -> Option<NodeId> {
         let parent = self.parent(node)?;
         let children = self.children(parent);
         let pos = children.iter().position(|&c| c == node)?;
@@ -712,13 +712,13 @@ impl Document {
             .find(|id| self.is_element(*id))
     }
 
-    pub fn has_closest(&self, node: NodeId, selectors: &[&str]) -> bool {
+    pub(crate) fn has_closest(&self, node: NodeId, selectors: &[&str]) -> bool {
         selectors
             .iter()
             .any(|selector| self.closest(node, selector).is_some())
     }
 
-    pub fn text_content(&self, node: NodeId) -> String {
+    pub(crate) fn text_content(&self, node: NodeId) -> String {
         let mut out = String::new();
         self.text_content_into(node, &mut out);
         out
@@ -782,7 +782,7 @@ impl Document {
         }
     }
 
-    pub fn get_attr(&self, node: NodeId, name: &str) -> Option<&str> {
+    pub(crate) fn get_attr(&self, node: NodeId, name: &str) -> Option<&str> {
         match &self.node(node).kind {
             NodeKind::Element { attrs, .. } => attrs
                 .iter()
@@ -792,7 +792,7 @@ impl Document {
         }
     }
 
-    pub fn set_attr(&mut self, node: NodeId, name: &str, value: &str) {
+    pub(crate) fn set_attr(&mut self, node: NodeId, name: &str, value: &str) {
         if let NodeKind::Element { attrs, .. } = &mut self.node_mut(node).kind {
             if let Some((_, existing)) = attrs
                 .iter_mut()
@@ -805,7 +805,7 @@ impl Document {
         }
     }
 
-    pub fn remove_attr(&mut self, node: NodeId, name: &str) {
+    pub(crate) fn remove_attr(&mut self, node: NodeId, name: &str) {
         if let NodeKind::Element { attrs, .. } = &mut self.node_mut(node).kind {
             attrs.retain(|(attr_name, _)| !atom_str(attr_name).eq_ignore_ascii_case(name));
         }
@@ -834,7 +834,7 @@ impl Document {
     }
 
     /// Get all attribute names on an element.
-    pub fn attr_names(&self, node: NodeId) -> Vec<String> {
+    pub(crate) fn attr_names(&self, node: NodeId) -> Vec<String> {
         match &self.node(node).kind {
             NodeKind::Element { attrs, .. } => {
                 attrs.iter().map(|(name, _)| name.to_string()).collect()
@@ -844,21 +844,21 @@ impl Document {
     }
 
     /// Set the tag name of an element.
-    pub fn set_tag_name(&mut self, node: NodeId, new_name: &str) {
+    pub(crate) fn set_tag_name(&mut self, node: NodeId, new_name: &str) {
         if let NodeKind::Element { name, .. } = &mut self.node_mut(node).kind {
             *name = new_name.into();
         }
     }
 
     /// Set the text content of a text node.
-    pub fn set_text(&mut self, node: NodeId, text: &str) {
+    pub(crate) fn set_text(&mut self, node: NodeId, text: &str) {
         if let NodeKind::Text(content) = &mut self.node_mut(node).kind {
             *content = text.to_string();
         }
     }
 
     /// Get mutable text content of a text node.
-    pub fn text_content_mut(&mut self, node: NodeId) -> Option<&mut String> {
+    pub(crate) fn text_content_mut(&mut self, node: NodeId) -> Option<&mut String> {
         match &mut self.node_mut(node).kind {
             NodeKind::Text(content) => Some(content),
             _ => None,
@@ -866,7 +866,7 @@ impl Document {
     }
 
     /// Check if an element is an SVG element (or nested within one).
-    pub fn is_svg_element(&self, node: NodeId) -> bool {
+    pub(crate) fn is_svg_element(&self, node: NodeId) -> bool {
         let name = self.tag_name(node);
         name.eq_ignore_ascii_case("svg")
             || name.eq_ignore_ascii_case("g")
@@ -889,7 +889,7 @@ impl Document {
             || name.eq_ignore_ascii_case("radialGradient")
     }
 
-    pub fn remove(&mut self, node: NodeId) {
+    pub(crate) fn remove(&mut self, node: NodeId) {
         if node == self.root || self.is_removed(node) {
             return;
         }
@@ -901,7 +901,7 @@ impl Document {
         self.mark_removed(node);
     }
 
-    pub fn unwrap(&mut self, node: NodeId) {
+    pub(crate) fn unwrap(&mut self, node: NodeId) {
         if node == self.root || self.is_removed(node) {
             return;
         }
@@ -934,7 +934,7 @@ impl Document {
         self.mark_removed(node);
     }
 
-    pub fn append_html(&mut self, parent: NodeId, html: &str) {
+    pub(crate) fn append_html(&mut self, parent: NodeId, html: &str) {
         let fragment = Self::parse(html);
         let fragment_children = fragment.body_children_or_root_children();
         for child in fragment_children {
@@ -942,7 +942,7 @@ impl Document {
         }
     }
 
-    pub fn replace_with_html(&mut self, node: NodeId, html: &str) {
+    pub(crate) fn replace_with_html(&mut self, node: NodeId, html: &str) {
         if node == self.root || self.is_removed(node) {
             return;
         }
@@ -977,7 +977,7 @@ impl Document {
         self.mark_removed(node);
     }
 
-    pub fn outer_html(&self, node: NodeId) -> String {
+    pub(crate) fn outer_html(&self, node: NodeId) -> String {
         #[cfg(test)]
         SERIALIZE_COUNT.with(|count| count.set(count.get() + 1));
         let mut out = String::new();
@@ -985,7 +985,7 @@ impl Document {
         out
     }
 
-    pub fn inner_html(&self, node: NodeId) -> String {
+    pub(crate) fn inner_html(&self, node: NodeId) -> String {
         let mut out = String::new();
         for child in self.node(node).children.iter().copied() {
             self.serialize_node(child, &mut out);
@@ -1250,7 +1250,7 @@ impl Document {
         }
     }
 
-    pub fn replace_with_node(&mut self, target: NodeId, replacement: NodeId) {
+    pub(crate) fn replace_with_node(&mut self, target: NodeId, replacement: NodeId) {
         if target == self.root || self.is_removed(target) {
             return;
         }
