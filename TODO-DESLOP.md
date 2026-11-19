@@ -188,6 +188,21 @@ bytes for Markdown. Median cumulative allocated bytes rose by
 about 11 KiB per pass. The benchmark executables were
 3,839,584 and 3,839,568 bytes. [Reproduce](docs/performance.md)
 
+**SingleFile archive manifest**
+
+The stored-entry fixture supplies both the default index and
+a manifest-selected article. The CLI emits the exact chosen
+title and content and uses the archived URL unless the caller
+supplies `--url`. The existing Deflate file fixture and size
+limit case still run.
+
+Two scratch controls at `6c32f883` independently changed the
+manifest index lookup and URL selection. The new case observed
+the default index in the first control and the archived domain
+in the second. Both runs failed their exact assertions.
+Restoring the source passed all 18 binary cases and strict
+CLI Clippy.
+
 ## Tickets
 
 

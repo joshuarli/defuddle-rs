@@ -35,6 +35,13 @@ fn stdout_json(command: &mut assert_cmd::Command) -> deser_value::Value {
     deser_json::from_str(stdout).expect("valid JSON output")
 }
 
+fn single_file_document(zip_bytes: &[u8]) -> Vec<u8> {
+    let mut input =
+        br#"<!doctype html><html data-sfz><sfz-extra-data></sfz-extra-data></html>"#.to_vec();
+    input.extend_from_slice(zip_bytes);
+    input
+}
+
 #[test]
 fn cli_rejects_lang() {
     let output = bin()
@@ -197,10 +204,7 @@ fn cli_reads_single_file_zip_html() {
         "defuddle-cli-single-file-{}.zip.html",
         std::process::id()
     ));
-    let mut input =
-        br#"<!doctype html><html data-sfz><sfz-extra-data></sfz-extra-data></html>"#.to_vec();
-    input.extend_from_slice(&zip_bytes);
-    fs::write(&path, input).unwrap();
+    fs::write(&path, single_file_document(&zip_bytes)).unwrap();
 
     let output = bin().arg("-j").arg(&path).output().expect("command runs");
     let _ = fs::remove_file(&path);
@@ -209,6 +213,53 @@ fn cli_reads_single_file_zip_html() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Archived document"));
     assert!(stdout.contains("example.com"));
+}
+
+#[test]
+fn cli_single_file_manifest_selects_stored_entry_and_respects_url_override() {
+    let mut zip_bytes = Vec::new();
+    let mut archive = rawzip::ZipArchiveWriter::new(&mut zip_bytes);
+    for (name, contents) in [
+        ("index.html", b"<article><h1>Default index</h1></article>".as_slice()),
+        ("story.html", FIELD_NOTES_HTML),
+        (
+            "manifest.json",
+            br#"{"indexFilename":"story.html","originalUrl":"https://archive.example.org/notes"}"#.as_slice(),
+        ),
+    ] {
+        let (entry, config) = archive
+            .new_file(name)
+            .compression_method(rawzip::CompressionMethod::STORE)
+            .start()
+            .expect("start stored entry");
+        let mut writer = config.wrap(entry);
+        writer.write_all(contents).expect("write stored entry");
+        let (entry, descriptor) = writer.finish().expect("finish stored data");
+        entry.finish(descriptor).expect("finish stored entry");
+    }
+    archive.finish().expect("finish SingleFile ZIP");
+    let input = single_file_document(&zip_bytes);
+
+    for (args, domain) in [
+        (&[][..], "archive.example.org"),
+        (&["--url", "https://override.example.com/notes"][..], "override.example.com"),
+    ] {
+        let mut command = assert_cmd::Command::from_std(bin());
+        command
+            .write_stdin(input.clone())
+            .timeout(Duration::from_secs(10))
+            .args(["--json", "-"])
+            .args(args);
+        let value = stdout_json(&mut command);
+        let fields = value.as_map().expect("JSON object");
+        for (name, expected) in [
+            ("title", "Field Notes"),
+            ("domain", domain),
+            ("content", "<article><p>Read the <strong>field notes</strong> before the walk.</p></article>"),
+        ] {
+            assert_eq!(fields.get(name).and_then(|field| field.as_str()), Some(expected));
+        }
+    }
 }
 
 #[test]
@@ -360,10 +411,7 @@ fn cli_rejects_oversize_single_file_entry() {
         "defuddle-cli-oversize-single-file-{}.zip.html",
         std::process::id()
     ));
-    let mut input =
-        br#"<!doctype html><html data-sfz><sfz-extra-data></sfz-extra-data></html>"#.to_vec();
-    input.extend_from_slice(&zip_bytes);
-    fs::write(&path, input).unwrap();
+    fs::write(&path, single_file_document(&zip_bytes)).unwrap();
 
     let output = bin().arg("-j").arg(&path).output().expect("command runs");
     let _ = fs::remove_file(&path);
