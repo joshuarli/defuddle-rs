@@ -8,8 +8,21 @@ fixture parity harness.
 
 ## Run the benchmark
 
-Install the pinned runner, then capture five measured runs with five samples
-per run:
+Build the locked fixture executable and run it with five samples of
+one corpus pass each.
+
+```sh
+cargo bench --locked -p defuddle --bench fixture_bench -- \
+  --format json --threads 1 --sample-count 5 --sample-size 1
+```
+
+For a change comparison, build both revisions before timing. Warm
+up each executable, then alternate the two binaries across five
+pairs with readiness checks before and after the pairs. The adapter
+and sample options are built into the executable.
+
+The October baseline used the Rustybench 0.4.0 collector. Its original
+capture command follows.
 
 ```sh
 cargo install rustybench --version 0.4.0 --locked
