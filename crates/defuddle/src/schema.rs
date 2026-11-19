@@ -7,7 +7,7 @@ use crate::dom::Document;
 
 use crate::content_utils::decode_html_entities;
 
-pub fn extract_schema_org_data(doc: &Document) -> Vec<Value> {
+pub(crate) fn extract_schema_org_data(doc: &Document) -> Vec<Value> {
     let scripts: Vec<_> = doc.query_selector_all("script[type=\"application/ld+json\"]");
 
     let mut items = Vec::new();
@@ -105,7 +105,7 @@ fn decode_value_strings(value: Value) -> Value {
     }
 }
 
-pub fn collect_meta_tags(doc: &Document) -> Vec<(Option<String>, Option<String>, Option<String>)> {
+pub(crate) fn collect_meta_tags(doc: &Document) -> Vec<(Option<String>, Option<String>, Option<String>)> {
     let meta_ids = doc.query_selector_all("meta");
     let mut tags = Vec::new();
 

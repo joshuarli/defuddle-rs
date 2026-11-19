@@ -232,7 +232,7 @@ fn partial_pattern_index() -> &'static PartialPatternIndex {
     PARTIAL_PATTERN_INDEX.get_or_init(PartialPatternIndex::new)
 }
 
-pub fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial: bool) {
+pub(crate) fn remove_by_selector(doc: &mut Document, remove_exact: bool, remove_partial: bool) {
     remove_by_selector_impl(doc, remove_exact, remove_partial, None);
 }
 
@@ -534,7 +534,7 @@ fn find_ascii_case_insensitive(haystack: &str, pattern: &str) -> Option<usize> {
         .windows(pattern.len())
         .position(|window| window.eq_ignore_ascii_case(pattern.as_bytes()))
 }
-pub fn remove_hidden_elements(doc: &mut Document) {
+pub(crate) fn remove_hidden_elements(doc: &mut Document) {
     let all_elements = doc.query_selector_all("*");
     let mut to_remove = Vec::new();
 
@@ -608,7 +608,7 @@ pub fn remove_hidden_elements(doc: &mut Document) {
     }
 }
 /// Remove low-scoring elements based on link-density heuristics.
-pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
+pub(crate) fn score_and_remove(doc: &mut Document, content_id: NodeId) {
     // Process repeatedly since removals may create new low-scoring parents
     for _ in 0..3 {
         let mut to_remove = Vec::new();
@@ -678,7 +678,7 @@ pub fn score_and_remove(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-pub fn extract_content(
+pub(crate) fn extract_content(
     doc: &mut Document,
     content_selector: Option<&str>,
     _debug: bool,
@@ -769,7 +769,7 @@ fn remove_eyebrow_label(doc: &mut Document, content_id: NodeId) {
     doc.remove(prev);
 }
 
-pub fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
+pub(crate) fn remove_content_patterns(doc: &mut Document, content_id: NodeId) {
     let mut matches = Vec::new();
     let mut text = String::new();
 
@@ -1044,7 +1044,7 @@ fn is_heading_tag(doc: &Document, id: NodeId) -> bool {
 }
 
 /// Remove metadata blocks adjacent to the first heading (date, author info).
-pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
+pub(crate) fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
     // Find the first heading
     let first_h = doc
         .query_selector_all_in_subtree(content_id, "h1,h2")
@@ -1195,7 +1195,7 @@ pub fn remove_metadata_blocks(doc: &mut Document, content_id: NodeId) {
     }
 }
 
-pub fn remove_author_sibling(doc: &mut Document, content_id: NodeId, author: &str) {
+pub(crate) fn remove_author_sibling(doc: &mut Document, content_id: NodeId, author: &str) {
     if author.trim().is_empty() || author.split_whitespace().count() < 2 {
         return;
     }
@@ -1219,7 +1219,7 @@ pub fn remove_author_sibling(doc: &mut Document, content_id: NodeId, author: &st
     }
 }
 
-pub fn count_html_words(content: &str) -> usize {
+pub(crate) fn count_html_words(content: &str) -> usize {
     let mut text = String::with_capacity(content.len());
     let mut offset = 0;
     while offset < content.len() {

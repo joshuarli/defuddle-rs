@@ -102,7 +102,7 @@ fn conversion_failure_fallback(content: &str) -> String {
 
 /// Convert HTML content to Markdown using htmd (Turndown.js-compatible) with
 /// custom element handlers matching the upstream Defuddle Turndown rules.
-pub fn html_to_markdown(html: &str) -> String {
+pub(crate) fn html_to_markdown(html: &str) -> String {
     html_to_markdown_internal(html, None)
 }
 
@@ -1748,7 +1748,7 @@ fn convert_task_lists<'a>(html: Cow<'a, str>) -> Cow<'a, str> {
 
 /// Get the best image URL from a srcset attribute.
 /// Parses width descriptors (Nw) and returns the URL with the largest width.
-pub fn get_best_image_src(srcset: &str) -> Option<String> {
+pub(crate) fn get_best_image_src(srcset: &str) -> Option<String> {
     if srcset.is_empty() {
         return None;
     }
@@ -1873,7 +1873,7 @@ fn inner_html_from_outer_html<'a>(tag_name: &str, outer_html: &'a str) -> Option
     Some(&outer_html[opening_end..closing_start])
 }
 
-pub fn normalize_origin_links(md: &str) -> String {
+pub(crate) fn normalize_origin_links(md: &str) -> String {
     let mut md = Cow::Borrowed(md);
     if md.contains("](//CLAUDE.md)") {
         md = Cow::Owned(md.replace("](//CLAUDE.md)", "](https://claude.md/)"));

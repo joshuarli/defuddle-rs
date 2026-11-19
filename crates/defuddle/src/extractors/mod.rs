@@ -3,16 +3,16 @@ use rustc_hash::FxHashMap;
 use crate::dom::Document;
 use crate::pipeline::{ExtractedContent, ExtractionContext};
 
-pub mod chatgpt;
-pub mod comments;
+pub(crate) mod chatgpt;
+pub(crate) mod comments;
 mod dom_builder;
-pub mod github;
-pub mod gmail;
-pub mod hackernews;
-pub mod mastodon;
-pub mod reddit;
-pub mod substack;
-pub mod twitter;
+pub(crate) mod github;
+pub(crate) mod gmail;
+pub(crate) mod hackernews;
+pub(crate) mod mastodon;
+pub(crate) mod reddit;
+pub(crate) mod substack;
+pub(crate) mod twitter;
 
 pub(crate) struct HtmlExtraction {
     pub content_html: String,

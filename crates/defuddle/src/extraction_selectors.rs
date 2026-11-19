@@ -1,4 +1,4 @@
-pub const ENTRY_POINT_ELEMENTS: &[&str] = &[
+pub(crate) const ENTRY_POINT_ELEMENTS: &[&str] = &[
     "#post",
     ".post-content",
     ".post-body",
@@ -21,11 +21,11 @@ pub const ENTRY_POINT_ELEMENTS: &[&str] = &[
     "body",
 ];
 
-pub const BLOCK_ELEMENTS: &[&str] = &[
+pub(crate) const BLOCK_ELEMENTS: &[&str] = &[
     "div", "section", "article", "main", "aside", "header", "footer", "nav", "content",
 ];
 
-pub const EXACT_SELECTORS: &[&str] = &[
+pub(crate) const EXACT_SELECTORS: &[&str] = &[
     "script",
     "style",
     "meta",
@@ -199,7 +199,7 @@ pub const EXACT_SELECTORS: &[&str] = &[
     "[data-testid=\"issue-metadata-sticky\"]",
 ];
 
-pub const PARTIAL_SELECTORS: &[&str] = &[
+pub(crate) const PARTIAL_SELECTORS: &[&str] = &[
     "a-statement",
     "(?<!main-)access-wall",
     "activitypub",
@@ -727,7 +727,7 @@ pub const PARTIAL_SELECTORS: &[&str] = &[
 ];
 
 // Elements that are allowed to be empty (not removed during cleanup)
-pub const ALLOWED_EMPTY_ELEMENTS: &[&str] = &[
+pub(crate) const ALLOWED_EMPTY_ELEMENTS: &[&str] = &[
     "area", "audio", "base", "br", "circle", "col", "defs", "ellipse", "embed", "figure", "g",
     "hr", "iframe", "img", "input", "line", "link", "mask", "meta", "object", "param", "path",
     "pattern", "picture", "polygon", "polyline", "rect", "source", "stop", "svg", "td", "th",
@@ -735,7 +735,7 @@ pub const ALLOWED_EMPTY_ELEMENTS: &[&str] = &[
 ];
 
 // Attributes to keep during standardization
-pub const ALLOWED_ATTRIBUTES: &[&str] = &[
+pub(crate) const ALLOWED_ATTRIBUTES: &[&str] = &[
     "alt",
     "allow",
     "allowfullscreen",
@@ -771,7 +771,7 @@ pub const ALLOWED_ATTRIBUTES: &[&str] = &[
 ];
 
 // Inline elements that should not be unwrapped
-pub const INLINE_ELEMENTS: &[&str] = &[
+pub(crate) const INLINE_ELEMENTS: &[&str] = &[
     "a",
     "span",
     "strong",
@@ -797,7 +797,7 @@ pub const INLINE_ELEMENTS: &[&str] = &[
 ];
 
 // Block-level HTML elements (includes BLOCK_ELEMENTS + semantic content blocks)
-pub const BLOCK_LEVEL_ELEMENTS: &[&str] = &[
+pub(crate) const BLOCK_LEVEL_ELEMENTS: &[&str] = &[
     "div",
     "section",
     "article",
@@ -840,7 +840,7 @@ pub const BLOCK_LEVEL_ELEMENTS: &[&str] = &[
 ];
 
 // Elements that should not be unwrapped
-pub const PRESERVE_ELEMENTS: &[&str] = &[
+pub(crate) const PRESERVE_ELEMENTS: &[&str] = &[
     "pre",
     "code",
     "table",

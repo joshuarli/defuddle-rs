@@ -1,4 +1,4 @@
-pub fn count_words(text: &str) -> usize {
+pub(crate) fn count_words(text: &str) -> usize {
     if text.is_empty() {
         return 0;
     }
@@ -34,13 +34,13 @@ pub fn count_words(text: &str) -> usize {
     cjk_count + word_count
 }
 
-pub fn contains_ascii_case_insensitive(text: &str, needle: &str) -> bool {
+pub(crate) fn contains_ascii_case_insensitive(text: &str, needle: &str) -> bool {
     text.as_bytes()
         .windows(needle.len())
         .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
-pub fn normalize_whitespace_into(text: &str, out: &mut String) {
+pub(crate) fn normalize_whitespace_into(text: &str, out: &mut String) {
     out.clear();
     let leading_space = text.chars().next().is_some_and(char::is_whitespace);
     let trailing_space = text.chars().last().is_some_and(char::is_whitespace);
@@ -66,7 +66,7 @@ pub fn normalize_whitespace_into(text: &str, out: &mut String) {
 
 /// Canonicalize text for title/heading comparison: normalize smart quotes,
 /// dashes, ellipses, and whitespace; lowercase.
-pub fn normalize_text(text: &str) -> String {
+pub(crate) fn normalize_text(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     for ch in text.chars() {
         match ch {
@@ -97,7 +97,7 @@ pub fn normalize_text(text: &str) -> String {
 }
 
 /// Decode common HTML entities in a string.
-pub fn decode_html_entities(text: &str) -> String {
+pub(crate) fn decode_html_entities(text: &str) -> String {
     if !text.contains('&') {
         return text.to_string();
     }
@@ -180,7 +180,7 @@ pub fn decode_html_entities(text: &str) -> String {
 }
 
 /// Escape HTML special characters.
-pub fn escape_html(text: &str) -> String {
+pub(crate) fn escape_html(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     for ch in text.chars() {
         match ch {
@@ -195,7 +195,7 @@ pub fn escape_html(text: &str) -> String {
 }
 
 /// Extract the domain from a URL, stripping protocol, www prefix, port, and path.
-pub fn extract_domain(url: &str) -> String {
+pub(crate) fn extract_domain(url: &str) -> String {
     let stripped = url
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))
@@ -214,7 +214,7 @@ pub fn is_absolute_url(url: &str) -> bool {
     url.starts_with("http://") || url.starts_with("https://")
 }
 
-pub fn extract_date(iso_date: &str) -> String {
+pub(crate) fn extract_date(iso_date: &str) -> String {
     iso_date.split('T').next().unwrap_or("").to_string()
 }
 

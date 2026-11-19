@@ -16,7 +16,7 @@ static MONTH_DAY_YEAR_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static AUTHOR_URL_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 
 #[derive(Default)]
-pub struct Metadata {
+pub(crate) struct Metadata {
     pub title: String,
     pub description: String,
     pub domain: String,
@@ -28,7 +28,7 @@ pub struct Metadata {
     pub site: String,
 }
 
-pub fn extract_metadata(
+pub(crate) fn extract_metadata(
     doc: &Document,
     schema_org_data: &[Value],
     meta_tags: &MetaTags,
