@@ -16,7 +16,8 @@ Defuddle is a synchronous Rust library and CLI for extracting readable content f
 - CLI flags, input files, JSON, Markdown, frontmatter and success/failure status are exercised by `crates/defuddle-cli/tests/cli_tests.rs`; exact error exit codes are not comprehensively tested. WASM JSON and extractor listing have native tests in `crates/defuddle-wasm/src/lib.rs`; browser execution is unverified. There are no network endpoints.
 - For CLI-only changes, `cargo test --locked -p defuddle-cli --test cli_tests`
   checks the built binary's exit status, stdin, output formats, and destination files.
-  Terminal stdin without a source still needs a PTY fixture.
+  On Unix, `cargo test --locked -p defuddle-cli --test cli_tty` checks the
+  missing-input diagnostic and exit status with terminal stdin.
 - `make coverage` uses cargo-llvm-cov 0.9.1 and the pinned
   nightly's LLVM tools to report workspace line and branch coverage.
 - Use the public `parse_html()` fixture-corpus workload for extraction hot-path changes. The fixture executable uses the Rustybench version in `Cargo.lock`. [Performance](docs/performance.md)
