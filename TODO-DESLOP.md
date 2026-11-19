@@ -246,6 +246,10 @@ Turning off iframe removal in an isolated build left the
 iframe in the generated HTML and failed the browser fixture.
 The source was restored byte for byte and rebuilt. Strict
 adapter Clippy passed.
+`make test-wasm` runs both runtime checks. The headless
+fixture runner passed with the current bindings and exited
+nonzero with the earlier iframe-removal control. The CI
+job uses the same command and reports both runtime versions.
 [Reproduce](docs/testing.md#wasm-runtime)
 
 ## Tickets
