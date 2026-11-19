@@ -255,10 +255,42 @@ fn metadata_favicon_detection() {
     )
     .expect("parse succeeds");
 
-    assert!(
-        result.favicon.contains("favicon"),
-        "favicon should reference a favicon resource"
-    );
+    assert_eq!(result.favicon, "/favicon.png");
+}
+
+#[test]
+fn metadata_favicon_uses_the_declared_icon_priority() {
+    let regular = r#"<link rel="icon" href="/regular.svg">"#;
+    let shortcut = r#"<link rel="shortcut icon" href="/shortcut.ico">"#;
+    let open_graph = r#"<meta property="og:image:favicon" content="https://assets.example.com/og.svg">"#;
+    for (head, expected) in [
+        (format!("{shortcut}{regular}{open_graph}"), "https://assets.example.com/og.svg"),
+        (format!("{shortcut}{regular}"), "/regular.svg"),
+        (shortcut.to_string(), "/shortcut.ico"),
+    ] {
+        let html = format!("<html><head>{head}</head><body><article><p>Read the field notes.</p></article></body></html>");
+        let result = parse_html(&html, DefuddleOptions::default()).expect("parse succeeds");
+        assert_eq!(result.favicon, expected);
+    }
+}
+
+#[test]
+fn metadata_favicon_falls_back_to_the_document_origin() {
+    let html = "<article><p>Read the field notes.</p></article>";
+    for (url, expected) in [
+        (Some("https://example.com/notes/field"), "https://example.com/favicon.ico"),
+        (Some("http://example.com/notes/field"), "http://example.com/favicon.ico"),
+        (Some("https://example.com"), "https://example.com/favicon.ico"),
+        (Some("notes.html"), ""),
+        (None, ""),
+    ] {
+        let result = parse_html(
+            html,
+            DefuddleOptions { url: url.map(str::to_string), ..DefuddleOptions::default() },
+        )
+        .expect("parse succeeds");
+        assert_eq!(result.favicon, expected, "document URL {url:?}");
+    }
 }
 
 #[test]
