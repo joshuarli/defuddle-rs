@@ -215,18 +215,10 @@ fn cli_reads_single_file_zip_html() {
     assert!(stdout.contains("example.com"));
 }
 
-#[test]
-fn cli_single_file_manifest_selects_stored_entry_and_respects_url_override() {
+fn stored_single_file(entries: &[(&str, &[u8])]) -> Vec<u8> {
     let mut zip_bytes = Vec::new();
     let mut archive = rawzip::ZipArchiveWriter::new(&mut zip_bytes);
-    for (name, contents) in [
-        ("index.html", b"<article><h1>Default index</h1></article>".as_slice()),
-        ("story.html", FIELD_NOTES_HTML),
-        (
-            "manifest.json",
-            br#"{"indexFilename":"story.html","originalUrl":"https://archive.example.org/notes"}"#.as_slice(),
-        ),
-    ] {
+    for &(name, contents) in entries {
         let (entry, config) = archive
             .new_file(name)
             .compression_method(rawzip::CompressionMethod::STORE)
@@ -238,7 +230,19 @@ fn cli_single_file_manifest_selects_stored_entry_and_respects_url_override() {
         entry.finish(descriptor).expect("finish stored entry");
     }
     archive.finish().expect("finish SingleFile ZIP");
-    let input = single_file_document(&zip_bytes);
+    single_file_document(&zip_bytes)
+}
+
+#[test]
+fn cli_single_file_manifest_selects_stored_entry_and_respects_url_override() {
+    let input = stored_single_file(&[
+        ("index.html", b"<article><h1>Default index</h1></article>"),
+        ("story.html", FIELD_NOTES_HTML),
+        (
+            "manifest.json",
+            br#"{"indexFilename":"story.html","originalUrl":"https://archive.example.org/notes"}"#,
+        ),
+    ]);
 
     for (args, domain) in [
         (&[][..], "archive.example.org"),
@@ -259,6 +263,56 @@ fn cli_single_file_manifest_selects_stored_entry_and_respects_url_override() {
         ] {
             assert_eq!(fields.get(name).and_then(|field| field.as_str()), Some(expected));
         }
+    }
+}
+
+#[test]
+fn cli_single_file_falls_back_to_the_default_index_for_an_unusable_manifest() {
+    for manifest in [
+        None,
+        Some(b"{".as_slice()),
+        Some(b"[]".as_slice()),
+        Some(br#"{"indexFilename":false,"originalUrl":""}"#.as_slice()),
+        Some([0xff].as_slice()),
+    ] {
+        let mut entries = vec![("index.html", FIELD_NOTES_HTML)];
+        if let Some(contents) = manifest {
+            entries.push(("manifest.json", contents));
+        }
+        let mut command = assert_cmd::Command::from_std(bin());
+        command
+            .write_stdin(stored_single_file(&entries))
+            .timeout(Duration::from_secs(10))
+            .args(["--json", "-"]);
+        let value = stdout_json(&mut command);
+        let fields = value.as_map().expect("JSON object");
+        assert_eq!(fields.get("title").and_then(|field| field.as_str()), Some("Field Notes"));
+        assert_eq!(fields.get("domain").and_then(|field| field.as_str()), Some(""));
+    }
+}
+
+#[test]
+fn cli_single_file_invalid_index_fails_without_stdout() {
+    let cases = [
+        (
+            stored_single_file(&[("manifest.json", br#"{"indexFilename":"missing.html"}"#)]),
+            "defuddle: SingleFile archive does not contain missing.html\n",
+        ),
+        (
+            stored_single_file(&[("index.html", &[0xff])]),
+            "defuddle: SingleFile index is not valid UTF-8:",
+        ),
+    ];
+    for (input, diagnostic) in cases {
+        let result = assert_cmd::Command::from_std(bin())
+            .write_stdin(input)
+            .timeout(Duration::from_secs(10))
+            .args(["--json", "-"])
+            .assert()
+            .code(1)
+            .stdout("");
+        let stderr = std::str::from_utf8(&result.get_output().stderr).expect("UTF-8 diagnostic");
+        assert!(stderr.starts_with(diagnostic), "{stderr}");
     }
 }
 
