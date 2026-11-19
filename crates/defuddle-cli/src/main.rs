@@ -130,14 +130,8 @@ fn run() -> Result<(), String> {
         parsed_page.extractor_type.as_deref().unwrap_or("generic")
     );
 
-    let out: Box<dyn Write> = if let Some(ref path) = output_path {
-        Box::new(fs::File::create(path).map_err(|e| format!("Cannot open output file: {e}"))?)
-    } else {
-        Box::new(io::stdout())
-    };
-
-    if let Some(ref prop) = property {
-        let value = match prop.as_str() {
+    let property_value = match property.as_deref() {
+        Some(prop) => Some(match prop {
             "title" => &parsed_page.title,
             "author" => &parsed_page.author,
             "description" => &parsed_page.description,
@@ -149,7 +143,17 @@ fn run() -> Result<(), String> {
             "site" => &parsed_page.site,
             "content" => &parsed_page.content,
             other => return Err(format!("unknown property: {other}")),
-        };
+        }),
+        None => None,
+    };
+
+    let out: Box<dyn Write> = if let Some(ref path) = output_path {
+        Box::new(fs::File::create(path).map_err(|e| format!("Cannot open output file: {e}"))?)
+    } else {
+        Box::new(io::stdout())
+    };
+
+    if let Some(value) = property_value {
         let mut out = out;
         writeln!(out, "{value}").map_err(|e| e.to_string())?;
         return Ok(());
