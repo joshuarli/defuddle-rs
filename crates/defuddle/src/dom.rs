@@ -241,7 +241,7 @@ impl TreeSink for ParseSink {
     fn elem_name<'a>(&'a self, target: &'a NodeId) -> OwnedElemName {
         let document = self.document.borrow();
         OwnedElemName {
-            namespace: html5ever::ns!(html).clone(),
+            namespace: html5ever::ns!(html),
             local: document.tag_name(*target).into(),
         }
     }

@@ -19,18 +19,55 @@ Both ordinary default checks and the fleet test-workflow rule passed.
 [Default tests](https://github.com/joshuarli/defuddle-rs/actions/runs/43925764730) ·
 [Default lint](https://github.com/joshuarli/defuddle-rs/actions/runs/43925764944)
 
+**Strict-profile trial**
+
+At `9edcdb27`, Clippy 0.1.101 on nightly 2026-11-09
+checked all workspace targets. The table counts distinct
+locations in the three first-party crates, including inline
+and separate test code. Vendored htmd keeps its own policy.
+
+| Candidate | Locations | Decision |
+| --- | ---: | --- |
+| `redundant_clone` | 4 | Adopt for first-party crates. Each diagnostic identifies a value that can be moved. |
+| `unsafe_code` | 0 | No current violation. |
+| `match_wildcard_for_single_variants` | 0 | No current violation. |
+| `wildcard_enum_match_arm` | 13 | Reject. Examples include intentional fallbacks for node kinds that the operation skips. |
+| `cast_possible_truncation` | 2 | Reject. Elapsed milliseconds would need to exceed the range of u64. |
+| `cast_sign_loss` | 0 | No current first-party violation. |
+| `unwrap_used` | 41 | Reject. The run includes generated constants, fixed selectors, and test assertions. |
+| `expect_used` | 30 | Reject. The run includes fixed patterns and test assertions. |
+| `needless_pass_by_value` | 2 | Reject at this scope. The trial found private argument borrowing opportunities without a demonstrated contract error. |
+
+The candidate moves the already-owned HTML namespace, fallback
+Markdown, author text, and schema text. The public types stay the
+same. All 161 local workspace tests passed, including the
+fixture corpus, JSON-LD metadata cases, CLI cases, and the native
+WASM wrapper test. Strict Clippy passed.
+
+The fixture-corpus gate passed on Mac17,7 with macOS 27.2
+and nightly 2026-11-09. The exact comparison used baseline
+`9edcdb27becee47c5fe367b5c177953afdd25753` and candidate
+`b67578c20dafd8d369d8a9ccf1b3b0b1da370c26`. Both release
+executables used the locked Rustybench 0.5.0. Each timed pass
+parsed 168 HTML inputs and consumed the returned content.
+Five interleaved pairs each recorded five samples per side.
+All ten before and after pair checks passed. Background
+VM work remained active, and candidate ranges include outliers.
+
+| Output | Baseline median ms (range) | Candidate median ms (range) |
+| --- | ---: | ---: |
+| HTML | 160.037 (155.986–172.481) | 161.034 (154.717–204.903) |
+| Markdown | 194.460 (185.089–212.073) | 189.036 (183.161–241.847) |
+
+Both wall-time medians stayed within baseline variation. Peak
+tracked allocations were unchanged at 1,054,422 bytes for HTML
+and 2,007,678 bytes for Markdown. Bench executable sizes were
+3,838,960 and 3,839,584 bytes. [Reproduce](docs/performance.md)
+
 ## Tickets
 
 
 
-### DSLP-3 · P2 · Types: strict profile and typing findings
-
-- **Area:** deslop · types
-- **Where:** type checker and lint configuration; Rust sources
-- **Problem:** The strict-profile candidates in the deslop skill's tools reference have not been measured here.
-- **Recommendation:** Run the deslop Types step. Accept: clean at the adopted profile, escape hatches not increased, witnesses recorded.
-- **Fix with:** deslop
-- **Effort:** M
 
 ### DSLP-4 · P2 · Tests: coverage, boundary gaps, mutation
 

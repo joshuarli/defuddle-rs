@@ -631,7 +631,7 @@ fn parse_internal_once(
 
         // Schema text fallback: if schema.org has significantly longer text
         let content_md = if word_count < 50 {
-            let mut best_md = md.clone();
+            let mut best_md = md;
             for item in config.schema_org_data {
                 if let Some(text) =
                     crate::schema::object_value(item, "text").and_then(crate::schema::as_str)
