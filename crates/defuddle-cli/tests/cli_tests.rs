@@ -300,6 +300,33 @@ fn cli_output_to_file() {
 }
 
 #[test]
+fn cli_invalid_property_preserves_destination() {
+    let destination = std::env::temp_dir().join(format!(
+        "defuddle-cli-invalid-property-{}.txt",
+        std::process::id()
+    ));
+    let original = b"existing output\n";
+    fs::File::create_new(&destination)
+        .expect("create output fixture")
+        .write_all(original)
+        .expect("write output fixture");
+
+    let mut command = field_notes_stdin();
+    let result = command
+        .args(["--property", "typo", "--output"])
+        .arg(&destination)
+        .assert();
+    let contents = fs::read(&destination);
+    fs::remove_file(&destination).expect("remove output fixture");
+
+    result
+        .code(1)
+        .stdout("")
+        .stderr(predicates::str::ends_with("defuddle: unknown property: typo\n"));
+    assert_eq!(contents.expect("read output fixture"), original);
+}
+
+#[test]
 fn cli_rejects_oversize_single_file_entry() {
     let mut zip_bytes = Vec::new();
     {
