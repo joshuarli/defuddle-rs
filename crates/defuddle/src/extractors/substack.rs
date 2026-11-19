@@ -365,23 +365,28 @@ fn substack_preload(doc: &Document) -> (String, String, String, String) {
 }
 pub fn register_prune(registry: &mut crate::prune::Registry) {
     registry.register(|doc| {
-        for id in doc.query_selector_all("button[aria-label=\"Link\"]") {
+        let mut changed = false;
+        let mut remove = |doc: &mut Document, id| {
             doc.remove(id);
+            changed = true;
+        };
+        for id in doc.query_selector_all("button[aria-label=\"Link\"]") {
+            remove(doc, id);
         }
         for id in doc.query_selector_all("button[class*=\"icon-container restack-image\"]") {
-            doc.remove(id);
+            remove(doc, id);
         }
         for id in doc.query_selector_all("button[class*=\"icon-container view-image\"]") {
-            doc.remove(id);
+            remove(doc, id);
         }
         for id in doc.query_selector_all("p[class*=\"button-wrapper\"]") {
-            doc.remove(id);
+            remove(doc, id);
         }
         for id in doc.query_selector_all("div[data-component-name=\"SubscribeWidgetToDOM\"]") {
-            doc.remove(id);
+            remove(doc, id);
         }
         for id in doc.query_selector_all("div[data-component-name=\"DigestPostEmbed\"]") {
-            doc.remove(id);
+            remove(doc, id);
         }
         for id in doc.query_selector_all("a") {
             if doc
@@ -389,7 +394,7 @@ pub fn register_prune(registry: &mut crate::prune::Registry) {
                 .trim()
                 .eq_ignore_ascii_case("Read full story")
             {
-                doc.remove(id);
+                remove(doc, id);
             }
         }
         // Remove standalone date divs (e.g. "<div>December 14, 2023</div>").
@@ -406,7 +411,7 @@ pub fn register_prune(registry: &mut crate::prune::Registry) {
             }
             let text = doc.text_content(id).trim().to_string();
             if is_substack_date_text(&text) {
-                doc.remove(id);
+                remove(doc, id);
             }
         }
         // Remove "For More …" footer sections.
@@ -428,13 +433,14 @@ pub fn register_prune(registry: &mut crate::prune::Registry) {
                         let children = doc.children(parent).to_vec();
                         if let Some(start_pos) = children.iter().position(|&c| c == remove_from) {
                             for sibling in children.into_iter().skip(start_pos) {
-                                doc.remove(sibling);
+                                remove(doc, sibling);
                             }
                         }
                     }
                 }
             }
         }
+        changed
     });
 }
 

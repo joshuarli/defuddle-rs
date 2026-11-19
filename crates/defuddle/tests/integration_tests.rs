@@ -22,6 +22,17 @@ fn parse_html_profiled_reports_pipeline_phases() {
 }
 
 #[test]
+fn short_article_retries_preserve_document_pruning() {
+    let html = "<html><body><article><p>Short article text.</p><div><hr></div><p>For More news and commentary visit our publication every day.</p><p>Subscribe to receive every new article and more special reports.</p></article></body></html>";
+    let (result, profile) =
+        defuddle::parse_html_profiled(html, defuddle::DefuddleOptions::default())
+            .expect("profiled parse succeeds");
+
+    assert_eq!(profile.retry_count, 2);
+    assert_eq!(result.content, "<article><p>Short article text.</p></article>");
+}
+
+#[test]
 fn simple_redirect_documents_skip_retries_without_changing_output() {
     let html = r#"<html><head><title>Coenzymes and cofactors</title><meta http-equiv="refresh" content="0;URL='./Enzyme#Cofactors_and_coenzymes'"></head><body><a href="./Enzyme#Cofactors_and_coenzymes">Coenzymes and cofactors</a></body></html>"#;
     let (result, profile) = defuddle::parse_html_profiled(
