@@ -81,8 +81,7 @@ a dash, and the empty source argument. The empty TTY case was
 removed. With the ordinary Markdown write changed to emit zero
 characters, the CLI exited successfully and the exact stdout case
 failed. Restoring the write passed all 160 tests and strict Clippy.
-A real TTY fixture and the retained mutation gate remain open
-under DSLP-4.
+The retained mutation gate remains open under DSLP-4.
 
 **Workspace branch coverage**
 
@@ -106,7 +105,7 @@ forwarding mutation scope is separate.
 | --- | --- | --- |
 | `parse_html` and `parse_html_profiled`, used by the CLI and WASM adapter | DOM preparation, short-result retry, extractor selection, sanitize before output, phase reporting. `integration_tests` exercises the public results. `fixture_harness` checks 168 captured inputs. | Select and disposition the critical decision regions. DSLP-6 tracks retry pruning. |
 | Extraction metadata used by both wire consumers | Document, Open Graph and JSON-LD precedence, author, dates, language and schema text. `metadata_tests` checks these values and corpus preambles. | Metadata precedence and adapter selection have no mutation results yet. |
-| CLI on macOS ARM64 and hosted Linux ARM64 | Source and option admission, SingleFile size limit, dispatch to the library, JSON and Markdown output, property handling and destination replacement. `cli_tests` runs the executable built by Cargo. | Real terminal stdin, exact error statuses and property failure before opening a destination (DSLP-7). The focused mutation scope covers only stdin selection and option forwarding. |
+| CLI on macOS ARM64 and hosted Linux ARM64 | Source and option admission, SingleFile size limit, dispatch to the library, JSON and Markdown output, property handling and destination replacement. `cli_tests` runs the executable built by Cargo, and `cli_tty` exercises terminal stdin. | Wider exact error statuses and mutation scopes for archive and output handling. |
 | `parse_page` and `list_extractors` for WASM callers | Options to extraction, JSON result, and extractor enumeration. Three native adapter tests cover successful output and listing. | A real WASM browser run and the error boundary remain unverified. |
 
 Run the ordinary suite with `make test`, strict lint with
@@ -147,6 +146,20 @@ opening the destination preserves its existing bytes and
 keeps the input diagnostic. All 17 binary cases and strict
 CLI Clippy passed. This closes DSLP-7.
 
+**Terminal stdin**
+
+The Unix-only `cli_tty` test runs the built binary with a
+real terminal and no source. It requires the missing-input
+diagnostic and exit code 1 within five seconds. Disabling
+the terminal guard in scratch left the process waiting for
+input and the test failed at its deadline. Restoring the
+guard passed all 19 CLI tests.
+
+`laputa-ptytest` 0.4.0 is an MIT-licensed Unix test
+dependency. The lock adds the harness and four terminal
+dependencies. The existing locked versions and production
+dependency graph were preserved.
+
 ## Tickets
 
 
@@ -156,7 +169,7 @@ CLI Clippy passed. This closes DSLP-7.
 
 - **Area:** deslop · tests
 - **Where:** test suites and CI
-- **Problem:** Workspace coverage and eight CLI option-forwarding and stdin mutation identities are accounted for. Critical extraction, metadata, archive, output and WASM decisions still need disposition. The real terminal input boundary, whole-change gate and measured cost remain open.
+- **Problem:** Workspace coverage, the eight CLI option-forwarding and stdin mutation identities, and the real terminal input boundary are accounted for. Critical extraction, metadata, archive, output and WASM decisions still need disposition. The whole-change gate and measured cost remain open.
 - **Recommendation:** Run the deslop Tests step. Accept: no undispositioned survivor in critical code, the test cost budget holds, and the lane is green where the tools are mirrored.
 - **Fix with:** deslop
 - **Effort:** M

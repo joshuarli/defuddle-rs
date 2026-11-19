@@ -27,3 +27,6 @@ workspace = true
 [dev-dependencies]
 assert_cmd = "2.2.2"
 predicates = "3.1.4"
+
+[target.'cfg(unix)'.dev-dependencies]
+laputa-ptytest = "0.4.0"
