@@ -17,6 +17,8 @@ Defuddle is a synchronous Rust library and CLI for extracting readable content f
 - For CLI-only changes, `cargo test --locked -p defuddle-cli --test cli_tests`
   checks the built binary's exit status, stdin, output formats, and destination files.
   Terminal stdin without a source still needs a PTY fixture.
+- `make coverage` uses cargo-llvm-cov 0.9.1 and the pinned
+  nightly's LLVM tools to report workspace line and branch coverage.
 - Use the public `parse_html()` fixture-corpus workload for extraction hot-path changes. The fixture executable uses the Rustybench version in `Cargo.lock`. [Performance](docs/performance.md)
 - Vendored fixtures: [kepano/defuddle](https://github.com/kepano/defuddle) at `6c39f0959a2f566469a93a190b50e4b34bcf52c4` ([snapshot](tests/upstream/SNAPSHOT.md)); vendored [htmd](https://github.com/letmutex/htmd) 0.5.6 ([README](crates/htmd/README.md)).
 - The default CI and lint runs passed, and the fleet's test-workflow rule found no violations. The test workflow selects nightly 2026-09-15. The local pin is nightly 2026-11-09.
