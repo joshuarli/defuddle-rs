@@ -2,6 +2,10 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
+
+const FIELD_NOTES_HTML: &[u8] = br#"<html lang="en"><head><title>Field Notes</title></head><body><article><p>Read the <strong>field notes</strong> before the walk.</p></article></body></html>"#;
+const FIELD_NOTES_MARKDOWN: &str = "Read the **field notes** before the walk.";
 
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -11,6 +15,14 @@ fn fixture_dir() -> PathBuf {
 
 fn bin() -> Command {
     Command::new(env!("CARGO_BIN_EXE_defuddle"))
+}
+
+fn field_notes_stdin() -> assert_cmd::Command {
+    let mut command = assert_cmd::Command::from_std(bin());
+    command
+        .write_stdin(FIELD_NOTES_HTML)
+        .timeout(Duration::from_secs(10));
+    command
 }
 
 #[test]
@@ -43,20 +55,32 @@ fn cli_rejects_url_as_source() {
 
 #[test]
 fn cli_reads_stdin() {
-    let fixture = fixture_dir().join("general--stephango.com-buy-wisely.html");
-    let output = bin()
-        .arg("--url")
-        .arg("https://stephango.com/buy-wisely")
-        .arg("-j")
-        .arg("-")
-        .stdin(fs::File::open(&fixture).expect("fixture opens"))
-        .output()
-        .expect("command runs");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("\"title\""));
-    assert!(stdout.contains("\"domain\""));
+    for source in [None, Some("-"), Some("")] {
+        let mut command = field_notes_stdin();
+        command.args(["--url", "https://example.com/field-notes", "-j"]);
+        if let Some(source) = source {
+            command.arg(source);
+        }
+        let result = command.assert().success();
+        let stdout = std::str::from_utf8(&result.get_output().stdout).expect("UTF-8 JSON output");
+        let value: deser_value::Value = deser_json::from_str(stdout).expect("valid JSON output");
+        let fields = value.as_map().expect("JSON object");
+        for (key, expected) in [
+            ("title", "Field Notes"),
+            ("domain", "example.com"),
+            ("language", "en"),
+            (
+                "content",
+                "<article><p>Read the <strong>field notes</strong> before the walk.</p></article>",
+            ),
+        ] {
+            assert_eq!(
+                fields.get(key).and_then(|field| field.as_str()),
+                Some(expected),
+                "field {key} for source {source:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -128,16 +152,11 @@ fn cli_reads_single_file_zip_html() {
 
 #[test]
 fn cli_outputs_markdown() {
-    let fixture = fixture_dir().join("general--stephango.com-buy-wisely.html");
-    let output = bin()
-        .arg("--url")
-        .arg("https://stephango.com/buy-wisely")
-        .arg("-m")
-        .arg(fixture.to_str().unwrap())
-        .output()
-        .expect("command runs");
-
-    assert!(output.status.success());
+    field_notes_stdin()
+        .args(["-m", "-"])
+        .assert()
+        .success()
+        .stdout(FIELD_NOTES_MARKDOWN);
 }
 
 #[test]
@@ -197,39 +216,26 @@ fn cli_property_output() {
 }
 
 #[test]
-fn cli_error_on_tty_with_no_input() {
-    // This test only runs if we're not piping stdin
-    // Skip if running in CI where stdin might not be a TTY
-}
-
-#[test]
 fn cli_output_to_file() {
-    let temp = std::env::temp_dir().join("defuddle-cli-test-output.md");
-    let html = "<html><head><title>Test</title></head><body><p>Hello</p></body></html>";
+    let destination = std::env::temp_dir().join(format!(
+        "defuddle-cli-test-output-{}.md",
+        std::process::id()
+    ));
+    let mut old_contents = fs::File::create_new(&destination).expect("create isolated output fixture");
+    old_contents.write_all(b"old contents").expect("write fixture");
+    drop(old_contents);
 
-    let mut child = bin()
-        .arg("--url")
-        .arg("https://example.com")
+    let result = field_notes_stdin()
         .arg("-m")
-        .arg("-o")
-        .arg(temp.to_str().unwrap())
+        .arg("--output")
+        .arg(&destination)
         .arg("-")
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .expect("command spawns");
+        .assert();
+    let contents = fs::read(&destination);
+    fs::remove_file(&destination).expect("remove output fixture");
 
-    use std::io::Write;
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(html.as_bytes())
-        .unwrap();
-    let output = child.wait_with_output().expect("command completes");
-
-    assert!(output.status.success());
-    assert!(temp.exists(), "output file should exist");
-    let _ = fs::remove_file(&temp);
+    result.success().stdout("");
+    assert_eq!(contents.expect("read output fixture"), FIELD_NOTES_MARKDOWN.as_bytes());
 }
 
 #[test]

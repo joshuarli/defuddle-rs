@@ -64,6 +64,26 @@ tracked allocations were unchanged at 1,054,422 bytes for HTML
 and 2,007,678 bytes for Markdown. Bench executable sizes were
 3,838,960 and 3,839,584 bytes. [Reproduce](docs/performance.md)
 
+**Test tiers at the Types baseline**
+
+The local workspace run at `f20fa5c1` reported 161 tests.
+There were 87 core unit tests, 30 API integration cases, nine
+metadata cases, and four fixture-harness cases over 168 captured
+inputs. The CLI had one unit test and 15 binary tests. The native
+WASM wrapper had three tests, and vendored htmd had eight unit
+tests. Four doctests ran. The fixture and CLI suites took about
+0.92 s and 0.74 s respectively after compilation. The fixture-corpus
+benchmark remains the separate timed workload.
+
+The CLI checks now compare emitted JSON fields, exact Markdown,
+and the replaced destination file. They exercise implicit stdin,
+a dash, and the empty source argument. The empty TTY case was
+removed. With the ordinary Markdown write changed to emit zero
+characters, the CLI exited successfully and the exact stdout case
+failed. Restoring the write passed all 160 tests and strict Clippy.
+A real TTY fixture, branch coverage, and the retained mutation
+gate remain open under DSLP-4.
+
 ## Tickets
 
 
