@@ -5,6 +5,32 @@ Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/mai
 
 ## Report
 
+**CLI input failure trial**
+
+At `207a73e2` on macOS ARM64, the public extraction and metadata
+contracts are exercised by `integration_tests`, `fixture_harness`, and
+`metadata_tests`. `cli_tests` checks output, archive errors and destination
+preservation; `cli_tty` checks missing terminal input. WASM adapter tests
+check exact JSON, extractor selection and enumeration; the browser fixture
+checks generated bindings. No reachable serializer error case has been
+established for the current string-only result; that path is unexercised.
+
+The existing CLI suite did not check an unreadable input file with an
+existing output destination. A single hand-injected mutant replaced the
+file read error with empty input. On the baseline all 22 CLI cases passed
+(one survivor, 110.72 s); the new boundary test failed on the mutant with
+status 0 instead of 1 (9.78 s). Restoring the source byte-for-byte passed
+all 23 CLI cases. This survivor group is dispositioned by the new test:
+it checks status 1, the diagnostic, empty stdout, and unchanged destination
+bytes. The one-runner trial cost 120.50 s; there were no timeouts or
+unviable mutants. This is a hand-selected fault, not a package sweep.
+
+`make coverage` with cargo-llvm-cov 0.9.1 reported 12,222 of 14,590
+lines and 3,029 of 4,666 branches covered before; after, 12,223 lines
+and the same 3,029 branches. The warm workspace baseline and candidate
+took 7.39 s and 5.43 s on a contended host; `perf-gate-ready` exited 75.
+The retained diff mutation gate and its CI qualification remain open.
+
 Ground (DSLP-1) measured default revision
 `63a23ca89d409d2e211991d5bd8ebfc1dc349716` on macOS ARM64.
 Both `make test` runs passed 161 cases. An empty target directory

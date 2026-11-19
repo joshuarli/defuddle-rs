@@ -438,6 +438,33 @@ fn cli_output_to_file() {
 }
 
 #[test]
+fn cli_unreadable_input_preserves_destination() {
+    let directory = std::env::temp_dir().join(format!(
+        "defuddle-cli-unreadable-input-{}",
+        std::process::id()
+    ));
+    fs::create_dir(&directory).expect("create isolated fixture directory");
+    let source = directory.join("missing.html");
+    let destination = directory.join("output.txt");
+    let original = b"existing output\n";
+    fs::write(&destination, original).expect("write output fixture");
+
+    let mut command = assert_cmd::Command::from_std(bin());
+    let result = command
+        .timeout(Duration::from_secs(10))
+        .arg("--output")
+        .arg(&destination)
+        .arg(&source)
+        .assert();
+    let contents = fs::read(&destination);
+    fs::remove_file(&destination).expect("remove output fixture");
+    fs::remove_dir(&directory).expect("remove fixture directory");
+
+    result.code(1).stdout("").stderr(predicates::str::contains("Cannot read file"));
+    assert_eq!(contents.expect("read output fixture"), original);
+}
+
+#[test]
 fn cli_invalid_property_preserves_destination() {
     let destination = std::env::temp_dir().join(format!(
         "defuddle-cli-invalid-property-{}.txt",
