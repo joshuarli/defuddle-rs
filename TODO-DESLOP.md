@@ -100,6 +100,21 @@ module moved from 48 to 49 of 60 branches, with 229 of 301 lines
 covered on both revisions. The eight-case stdin and option
 forwarding mutation scope is separate.
 
+**Tests inventory at `eebba91a`**
+
+| Public boundary and consumer | Critical decisions and existing checks | Open evidence |
+| --- | --- | --- |
+| `parse_html` and `parse_html_profiled`, used by the CLI and WASM adapter | DOM preparation, short-result retry, extractor selection, sanitize before output, phase reporting. `integration_tests` exercises the public results. `fixture_harness` checks 168 captured inputs. | Select and disposition the critical decision regions. DSLP-6 tracks retry pruning. |
+| Extraction metadata used by both wire consumers | Document, Open Graph and JSON-LD precedence, author, dates, language and schema text. `metadata_tests` checks these values and corpus preambles. | Metadata precedence and adapter selection have no mutation results yet. |
+| CLI on macOS ARM64 and hosted Linux ARM64 | Source and option admission, SingleFile size limit, dispatch to the library, JSON and Markdown output, property handling and destination replacement. `cli_tests` runs the executable built by Cargo. | Real terminal stdin, exact error statuses and property failure before opening a destination (DSLP-7). The focused mutation scope covers only stdin selection and option forwarding. |
+| `parse_page` and `list_extractors` for WASM callers | Options to extraction, JSON result, and extractor enumeration. Three native adapter tests cover successful output and listing. | A real WASM browser run and the error boundary remain unverified. |
+
+Run the ordinary suite with `make test`, strict lint with
+`make lint` and the coverage report with `make coverage`.
+Recheck the fixture-corpus budget only if extraction changes.
+The retained mutation command, whole-change selection,
+executed CI controls and paired gate cost remain open.
+
 ## Tickets
 
 
