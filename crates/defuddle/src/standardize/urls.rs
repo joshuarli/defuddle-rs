@@ -1,12 +1,9 @@
+use std::borrow::Cow;
+
 use crate::dom::{Document, NodeId};
 
 pub fn resolve_urls(doc: &mut Document, content_id: NodeId, page_url: &str) {
-    if page_url.is_empty() {
-        return;
-    }
-
-    let base_url = page_url.to_string();
-    if !base_url.contains("://") {
+    if !page_url.contains("://") {
         return;
     }
 
@@ -23,7 +20,7 @@ pub fn resolve_urls(doc: &mut Document, content_id: NodeId, page_url: &str) {
                 {
                     continue;
                 }
-                if let Some(resolved) = resolve_url(trimmed, &base_url) {
+                if let Some(resolved) = resolve_url(trimmed, page_url) {
                     doc.set_attr(id, attr_name, &resolved);
                 }
             }
@@ -31,52 +28,47 @@ pub fn resolve_urls(doc: &mut Document, content_id: NodeId, page_url: &str) {
     }
 }
 
-pub(crate) fn resolve_url(url: &str, base: &str) -> Option<String> {
-    if url.contains("://") {
-        if url.matches('/').count() == 2 && !url.contains(['?', '#']) {
+fn resolve_url(url: &str, base: &str) -> Option<String> {
+    let (path, suffix) = url.split_at(url.find(['?', '#']).unwrap_or(url.len()));
+    if let Some((scheme, _)) = path.split_once("://")
+        && !scheme.contains('/')
+    {
+        if path.matches('/').count() == 2 && suffix.is_empty() {
             return Some(format!("{url}/"));
         }
         return Some(url.to_string());
     }
     if url.starts_with("//") {
-        let proto = base.split("://").next()?;
-        return Some(format!("{}:{}", proto, url));
+        let (scheme, _) = base.split_once("://")?;
+        return Some(format!("{scheme}:{url}"));
     }
-    if url.starts_with('/') {
-        if let Some(end) = base.find("://") {
-            let after = &base[end + 3..];
-            if let Some(slash) = after.find('/') {
-                return Some(format!("{}{}", &base[..end + 3 + slash], url));
-            }
-            return Some(format!("{}{}", base, url));
-        }
-        return None;
-    }
-    if url.starts_with('#') || url.starts_with('?') || url.starts_with("mailto:") {
+    if path.is_empty() || url.starts_with("mailto:") {
         return Some(url.to_string());
     }
-    let last_slash = base.rfind('/');
-    if let Some(pos) = last_slash
-        && pos > base.find("://").unwrap_or(0) + 2
-    {
-        let base_dir = &base[..pos + 1];
-        return Some(resolve_dot_segments(&format!("{}{}", base_dir, url)));
-    }
-    Some(format!("{}/{}", base.trim_end_matches('/'), url))
-}
 
-pub(crate) fn resolve_dot_segments(path: &str) -> String {
-    let mut segs: Vec<&str> = Vec::new();
-    for seg in path.split('/') {
-        match seg {
-            "." | "" => {}
+    let base = base.split(['?', '#']).next()?;
+    let (scheme, authority_and_path) = base.split_once("://")?;
+    let (authority, base_path) = authority_and_path
+        .split_once('/')
+        .unwrap_or((authority_and_path, ""));
+    let merged = match (path.strip_prefix('/'), base_path.rsplit_once('/')) {
+        (Some(rooted), _) => Cow::Borrowed(rooted),
+        (None, Some((directory, _))) => Cow::Owned(format!("{directory}/{path}")),
+        (None, None) => Cow::Borrowed(path),
+    };
+
+    let mut segments = Vec::new();
+    for segment in merged.split('/') {
+        match segment {
+            "." => {}
             ".." => {
-                segs.pop();
+                segments.pop();
             }
-            _ => segs.push(seg),
+            _ => segments.push(segment),
         }
     }
-    segs.join("/")
+    if matches!(merged.rsplit('/').next(), Some("." | "..")) {
+        segments.push("");
+    }
+    Some(format!("{scheme}://{authority}/{}{suffix}", segments.join("/")))
 }
-
-// Remaining URL standardization functions.

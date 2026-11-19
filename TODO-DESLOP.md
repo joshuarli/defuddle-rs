@@ -306,6 +306,22 @@ and the `metadata_tests` target, both the baseline and candidate
 caught the same six identities and found one unviable. Strict
 Clippy passed on the metadata target.
 
+
+**Relative links in extracted output**
+
+The public fixtures failed at `207a73e29`. A relative archive
+link came back with a single slash after the scheme and its host
+repeated. An article with a slash in the document query also used
+the query as part of its base directory. Dot-segment removal now
+takes place within the path, with the authority, query and fragment
+kept outside that operation. The integration cases check exact
+HTML attributes and Markdown destinations, including a port,
+repeated slashes, excess parent traversal and a directory link.
+The archive fixture still verifies zero extraction retries.
+All 33 integration, 13 metadata and four fixture-harness tests
+passed on macOS ARM64.
+[Relative resolution](https://www.rfc-editor.org/rfc/rfc3986.html#section-5.2)
+
 ## Tickets
 
 
