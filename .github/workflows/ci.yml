@@ -32,3 +32,18 @@ jobs:
           toolchain: nightly-2026-09-15
           components: rust-src, llvm-tools
       - run: make test
+
+  wasm:
+    name: WASM
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup target add wasm32-unknown-unknown
+      - run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
+      - run: |
+          node --version
+          google-chrome --version
+          make test-wasm CHROMIUM=google-chrome

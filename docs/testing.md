@@ -7,29 +7,19 @@ Run the workspace build, test, and clippy commands in [AGENTS.md](../AGENTS.md).
 ## WASM runtime
 
 Use the pinned Rust toolchain with `wasm32-unknown-unknown`,
-Node.js, and `wasm-bindgen-test-runner` 0.2.130 to run the
-adapter tests inside WebAssembly.
+Node.js, Chromium, Python 3, and wasm-bindgen-cli 0.2.130.
 
 ```sh
-CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
-  cargo test --locked --target wasm32-unknown-unknown -p defuddle-wasm
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.130 --locked
+make test-wasm CHROMIUM=chromium
 ```
 
-To check the generated web bindings, use `wasm-bindgen` 0.2.130
-and serve the smoke fixture on loopback.
-
-```sh
-mkdir -p .work/tmp/wasm-browser
-cargo build --locked --target wasm32-unknown-unknown -p defuddle-wasm
-wasm-bindgen --target web --out-name defuddle --out-dir .work/tmp/wasm-browser \
-  "${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/debug/defuddle_wasm.wasm"
-cp crates/defuddle-wasm/tests/browser.html .work/tmp/wasm-browser/index.html
-python3 -m http.server 0 --bind 127.0.0.1 --directory .work/tmp/wasm-browser
-```
-
-Open the printed listener URL in Chromium. The page displays
-`PASS` after checking Unicode HTML and Markdown, domain,
-iframe removal, and the extractor list.
+The test runs all four adapter cases in Node, builds the web
+bindings, then serves the browser fixture on loopback. The
+headless browser checks Unicode HTML and Markdown, domain,
+iframe removal, and the extractor list. CI uses the GitHub
+Ubuntu runner's Chrome and logs its version and Node's version.
 
 ## Upstream fixtures
 
