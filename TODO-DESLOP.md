@@ -160,6 +160,34 @@ dependency. The lock adds the harness and four terminal
 dependencies. The existing locked versions and production
 dependency graph were preserved.
 
+**Document-wide pruning on retries**
+
+At `c18db995`, the short-article fixture triggered both generic
+retries and the selected result restored the removed footer.
+Both retries now reapply document-wide pruning when the initial
+parse removed content. The exact output contains only the
+article paragraph. All 31 integration cases, four fixture-harness
+cases and strict Clippy passed. This closes DSLP-6.
+
+The fixture-corpus benchmark compared the unchanged extraction
+baseline at `c18db995` with the extraction patch at `92142446`.
+The baseline executable was reused from the Types run after
+checking the exact library, fixture and lock inputs. On macOS
+ARM64 with nightly 2026-11-09 and Rustybench 0.5.0, all five
+interleaved pairs passed readiness. Each side used five samples
+per pair over the same 168 fixtures.
+
+| Output | Baseline median ms (range) | Candidate median ms (range) |
+| --- | ---: | ---: |
+| HTML | 200.527 (190.409–209.445) | 198.134 (181.118–215.365) |
+| Markdown | 232.056 (217.901–252.190) | 233.963 (224.076–248.748) |
+
+Both medians stayed within baseline variation. The median live
+peak was unchanged at 1,054,422 bytes for HTML and 2,007,678
+bytes for Markdown. Median cumulative allocated bytes rose by
+about 11 KiB per pass. The benchmark executables were
+3,839,584 and 3,839,568 bytes. [Reproduce](docs/performance.md)
+
 ## Tickets
 
 
@@ -182,13 +210,3 @@ dependency graph were preserved.
 - **Recommendation:** Run the deslop Dead code step. Accept: tools clean or allowlisted with reasons; walk-backs filed as Needs owner tickets.
 - **Fix with:** deslop
 - **Effort:** M
-
-
-### DSLP-6 · P2 · Retry skips document-wide pruning
-
-- **Area:** extraction · retries
-- **Where:** crates/defuddle/src/lib.rs:259, crates/defuddle/src/lib.rs:465, crates/defuddle/src/extractors/substack.rs:412
-- **Problem:** Initial parsing runs the prune registry, but both short-result retries reparse the original HTML without it and can win on word count. Reproduce: printf %s '<html><body><article><p>Short article text.</p><div><hr></div><p>For More news and commentary visit our publication every day.</p><p>Subscribe to receive every new article and more special reports.</p></article></body></html>' | cargo run -q -p defuddle-cli -- --json; output includes both footer paragraphs even though the initial pruning rule removes them.
-- **Recommendation:** Apply the same document preparation to each retry before extraction, retaining the intentional retry option changes; cover the resulting public output with a short-page regression witness.
-- **Fix with:** root-cause
-- **Effort:** S
