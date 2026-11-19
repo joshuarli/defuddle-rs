@@ -210,6 +210,12 @@ diagnostic. Changing the default index name and decoding invalid UTF-8
 lossily each failed the corresponding fixture. The source was restored
 byte for byte. All 20 CLI cases and strict Clippy passed.
 
+A plain HTML glossary containing both SingleFile marker names used to
+fail with a ZIP diagnostic. Archive admission now also requires a ZIP
+local header or end-of-directory signature. The CLI test preserves the
+HTML title and content. Empty and truncated marked ZIPs still report a
+ZIP diagnostic, and valid stored and deflated archives still decode.
+
 **Static archive redirects**
 
 The public profiled parser fixture checks zero retries for a single

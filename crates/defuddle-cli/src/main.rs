@@ -241,6 +241,9 @@ fn is_single_file_cli_archive(bytes: &[u8]) -> bool {
         && bytes
             .windows(b"sfz-extra-data".len())
             .any(|window| window == b"sfz-extra-data")
+        && bytes
+            .windows(4)
+            .any(|window| window == b"PK\x03\x04" || window == b"PK\x05\x06")
 }
 
 fn read_single_file_cli_archive(bytes: &[u8]) -> Result<CliInput, String> {

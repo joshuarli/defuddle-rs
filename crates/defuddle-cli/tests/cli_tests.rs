@@ -43,6 +43,39 @@ fn single_file_document(zip_bytes: &[u8]) -> Vec<u8> {
 }
 
 #[test]
+fn cli_reads_html_that_mentions_both_single_file_markers() {
+    let mut command = assert_cmd::Command::from_std(bin());
+    command
+        .write_stdin("<html><head><title>Archive glossary</title></head><body><article><p>The names data-sfz and sfz-extra-data describe parts of a file format.</p></article></body></html>")
+        .timeout(Duration::from_secs(10))
+        .args(["--json", "-"]);
+    let value = stdout_json(&mut command);
+    let fields = value.as_map().expect("JSON object");
+    assert_eq!(fields.get("title").and_then(|field| field.as_str()), Some("Archive glossary"));
+    assert_eq!(
+        fields.get("content").and_then(|field| field.as_str()),
+        Some("<article><p>The names data-sfz and sfz-extra-data describe parts of a file format.</p></article>"),
+    );
+}
+
+#[test]
+fn cli_reports_zip_errors_for_empty_or_truncated_single_file_archives() {
+    let mut empty = Vec::new();
+    rawzip::ZipArchiveWriter::new(&mut empty).finish().expect("finish empty ZIP");
+    for zip in [empty.as_slice(), b"PK\x03\x04".as_slice()] {
+        let result = assert_cmd::Command::from_std(bin())
+            .write_stdin(single_file_document(zip))
+            .timeout(Duration::from_secs(10))
+            .args(["--json", "-"])
+            .assert()
+            .code(1)
+            .stdout("");
+        let stderr = std::str::from_utf8(&result.get_output().stderr).expect("UTF-8 diagnostic");
+        assert!(stderr.starts_with("defuddle: Cannot read SingleFile ZIP archive:"), "{stderr}");
+    }
+}
+
+#[test]
 fn cli_rejects_lang() {
     let output = bin()
         .arg("--lang")
