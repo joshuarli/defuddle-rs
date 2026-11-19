@@ -502,9 +502,12 @@ fn get_favicon(doc: &Document, base_url: &str, meta_tags: &MetaTags) -> String {
         return href.to_string();
     }
 
-    let shortcut_links = doc.query_selector_all("link[rel='shortcut icon']");
-    if let Some(id) = shortcut_links.first()
-        && let Some(href) = doc.get_attr(*id, "href")
+    let shortcut = doc
+        .query_selector_all("link[rel]")
+        .into_iter()
+        .find(|id| doc.get_attr(*id, "rel") == Some("shortcut icon"));
+    if let Some(id) = shortcut
+        && let Some(href) = doc.get_attr(id, "href")
     {
         return href.to_string();
     }
