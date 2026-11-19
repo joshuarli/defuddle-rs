@@ -1,9 +1,42 @@
 Prefix: DSLP
-Next: 9
+Next: 11
 
 Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/main/docs/campaigns/deslop.md), tier B). One agent works this file with the `deslop` skill: take the lowest-numbered open ticket whose area does not start with `Needs owner ·`. After DSLP-5, work the open P1 and P2 findings, then fill in `## Report` below.
 
 ## Report
+
+**Bench audit**
+
+The fixture harness benchmarks public `parse_html` for HTML and separate
+Markdown over 168 captured pages. It loads files outside timing, processes every
+page and consumes byte counts; fixture parity tests separately check expected
+output, with manifest exclusions. The driver self-test is Edit, one five-sample
+corpus pass is Change, and the original harness defaults are Full. Scenario's
+five interleaved baseline/candidate pairs remain a manual comparison; there is
+no automated Scenario workload. No sustained or platform matrix workload exists.
+
+The October 2026 macOS anchor uses Rustybench 0.4.0, while the lock now pins
+0.5.0; its numbers are historical, not an interchangeable automatic gate.
+The scorecard comparisons use five interleaved pairs and host readiness checks;
+PR #33 is parked for that evidence. No benchmark enforces a budget, and the
+corpus's output lengths are not an oracle. The allocation profiler counts
+allocation traffic and live tracked heap in the benchmark process, not RSS,
+allocator overhead or a process-tree peak. Rustybench also reports process RSS
+on this host, but it is not a workload-tree peak. No CLI startup/I/O, archive or WASM
+journey, tail latency, disk I/O or artifact-size budget is measured. Missing
+performance evidence without a demonstrated regression is P3: DSLP-9 covers
+missing journeys; DSLP-10 covers correctness, comparison and attribution.
+
+Instrumented phase timings give coarse operation boundaries with overhead and
+must not be compared with timed samples. CPU sampling (Instruments or perf),
+allocation profiling and OS syscall/I/O tools are the cheapest attribution
+paths; none is collected automatically. The driver checks selection, tools,
+fixture count and cleanliness, lockfile and disk before launching anything;
+Cargo rebuilds sources. It reports uncontrolled cache and host readiness and
+saves statuses, exclusions and logs. It does not establish machine isolation,
+fixture authenticity beyond the checkout, or a regression verdict. No network
+service is involved. `make bench-corpus` preserves the former target.
+
 
 **Dead code (DSLP-5)**
 
@@ -377,4 +410,23 @@ Clippy passed on the metadata target.
 - **Problem:** Profiling constructs a structural snapshot and empty mutation overlay solely to report their named timings; overlay mutation operations have only unit-test consumers. Maintaining this machinery costs code and profiling work, but removing it changes the phases exposed by parse_html_profiled when profile is enabled.
 - **Recommendation:** Decide whether consumers may lose the analysis snapshot and analysis overlay timing phases; if so remove the machinery and its isolated tests together.
 - **Fix with:** debloat
+- **Effort:** M
+
+### DSLP-9 · P3 · Cover CLI and WASM performance journeys
+
+- **Area:** benchmarks
+- **Where:** docs/performance.md; crates/defuddle/benches/fixture_bench.rs
+- **Problem:** The corpus measures library extraction only; CLI startup, input and output I/O, archive handling and WASM execution have no representative resource or latency evidence. No regression is demonstrated.
+- **Recommendation:** Define representative completed-work workloads and correctness oracles for the public CLI and WASM journeys before setting budgets.
+- **Fix with:** bench-pyramid
+- **Effort:** M
+
+
+### DSLP-10 · P3 · Strengthen corpus comparison and attribution evidence
+
+- **Area:** benchmarks
+- **Where:** crates/defuddle/benches/fixture_bench.rs; docs/performance.md
+- **Problem:** The corpus consumes output lengths but does not assert expected outputs; comparisons and readiness are manual, with no automated regression verdict. Allocator counters omit RSS and process-tree memory, and phase timings do not attribute allocation, CPU samples or I/O. No regression is demonstrated.
+- **Recommendation:** Tie correctness to the fixture oracle, capture reproducible interleaved comparisons and host validity, and document low-overhead CPU and allocation attribution separately from timing.
+- **Fix with:** bench-pyramid
 - **Effort:** M

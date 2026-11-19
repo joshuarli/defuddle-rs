@@ -3,6 +3,8 @@ CHROMIUM ?= chromium
 CRATES := htmd defuddle defuddle-cli defuddle-wasm
 
 test:
+	@mkdir -p .work/tmp
+	python3 -m unittest discover -s tests -p bench_driver_test.py
 	cargo test --workspace
 
 .PHONY: coverage test-wasm
@@ -22,6 +24,15 @@ coverage:
 	TMPDIR="$(CURDIR)/.work/tmp" cargo llvm-cov --locked --workspace --branch --summary-only
 
 bench:
+	python3 scripts/bench.py run $(BENCH_ARGS)
+
+bench-check:
+	python3 scripts/bench.py check $(BENCH_ARGS)
+
+bench-list:
+	python3 scripts/bench.py list
+
+bench-corpus:
 	cargo bench -p defuddle --bench fixture_bench
 
 lint:
