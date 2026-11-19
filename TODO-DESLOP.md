@@ -104,7 +104,7 @@ forwarding mutation scope is separate.
 | Public boundary and consumer | Critical decisions and existing checks | Open evidence |
 | --- | --- | --- |
 | `parse_html` and `parse_html_profiled`, used by the CLI and WASM adapter | DOM preparation, short-result retry, extractor selection, sanitize before output, phase reporting. `integration_tests` exercises the public results. `fixture_harness` checks 168 captured inputs. | Select and disposition the critical decision regions. DSLP-6 tracks retry pruning. |
-| Extraction metadata used by both wire consumers | Document, Open Graph and JSON-LD precedence, author, dates, language and schema text. `metadata_tests` checks these values and corpus preambles. | Metadata precedence and adapter selection have no mutation results yet. |
+| Extraction metadata used by both wire consumers | Document, Open Graph and JSON-LD precedence, author, dates, language and schema text. `metadata_tests` checks these values and corpus preambles. | URL precedence has a scoped mutation run. Wider metadata decisions and adapter selection remain open. |
 | CLI on macOS ARM64 and hosted Linux ARM64 | Source and option admission, SingleFile size limit, dispatch to the library, JSON and Markdown output, property handling and destination replacement. `cli_tests` runs the executable built by Cargo, and `cli_tty` exercises terminal stdin. | Wider exact error statuses and mutation scopes for archive and output handling. |
 | `parse_page` and `list_extractors` for WASM callers | Options to extraction, JSON result, and extractor enumeration. The adapter cases run natively and in Node's WASM runtime. Default CI checks the generated web bindings and iframe removal in headless Chrome. | Separate evidence for serializer error translation. |
 
@@ -264,6 +264,20 @@ extractor path and has no error-producing branch. The WASM
 wrapper still preserves the public error mapping. Its serializer
 error path remains unexercised.
 [WASM reproduction](docs/testing.md#wasm-runtime)
+
+**Document URL and publication date**
+
+`cargo test --locked -p defuddle --test metadata_tests` passed all
+13 cases. The new in-memory fixtures check URL and date source
+precedence, including a relative canonical URL and a related-link
+time that must be ignored. Removing the Twitter URL fallback and
+removing the related-link time guard each failed the corresponding
+fixture. Both source controls were restored byte for byte.
+
+With `cargo-mutants` 27.1.0 scoped to `extract_domain_and_url`
+and the `metadata_tests` target, both the baseline and candidate
+caught the same six identities and found one unviable. Strict
+Clippy passed on the metadata target.
 
 ## Tickets
 

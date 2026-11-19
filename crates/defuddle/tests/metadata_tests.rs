@@ -294,6 +294,41 @@ fn metadata_favicon_falls_back_to_the_document_origin() {
 }
 
 #[test]
+fn metadata_uses_the_declared_url_precedence() {
+    let sources = [
+        (r#"<meta property="OG:URL" content="https://graph.example/article">"#, "graph.example"),
+        (r#"<meta property="twitter:url" content="https://social.example/article">"#, "social.example"),
+        (r#"<script type="application/ld+json">{"@type":"Article","url":"https://schema.example/article"}</script>"#, "schema.example"),
+        (r#"<link rel="canonical" href="https://canonical.example/article">"#, "canonical.example"),
+        (r#"<base href="https://base.example/article">"#, "base.example"),
+    ];
+    let parse = |head: &str, url: Option<&str>| {
+        let html = format!("<html><head>{head}</head><body><p>Field notes.</p></body></html>");
+        parse_html(
+            &html,
+            DefuddleOptions { url: url.map(str::to_string), ..DefuddleOptions::default() },
+        )
+        .expect("parse succeeds")
+    };
+    let head: String = sources.iter().map(|(markup, _)| *markup).collect();
+    let explicit = parse(&head, Some("http://www.request.example/notes"));
+    assert_eq!(explicit.domain, "request.example");
+    assert_eq!(explicit.favicon, "http://www.request.example/favicon.ico");
+    for (index, (_, domain)) in sources.iter().enumerate() {
+        let head: String = sources[index..].iter().map(|(markup, _)| *markup).collect();
+        let result = parse(&head, None);
+        assert_eq!(result.domain, *domain);
+        assert_eq!(result.favicon, format!("https://{domain}/favicon.ico"));
+    }
+    let relative = parse(r#"<link rel="canonical" href="/notes"><base href="https://base.example/notebook/">"#, None);
+    assert_eq!(relative.domain, "base.example");
+    assert_eq!(relative.favicon, "https://base.example/favicon.ico");
+    let absent = parse("", None);
+    assert!(absent.domain.is_empty());
+    assert!(absent.favicon.is_empty());
+}
+
+#[test]
 fn metadata_date_published() {
     let html = r#"
     <!DOCTYPE html>
@@ -317,6 +352,33 @@ fn metadata_date_published() {
     .expect("parse succeeds");
 
     assert_eq!(result.published, "2024-06-15");
+}
+
+#[test]
+fn metadata_published_prefers_the_first_usable_date_source() {
+    let schema = r#"<script type="application/ld+json">{"@type":"Article","datePublished":"2025-01-01"}</script>"#;
+    let publish_meta = r#"<meta name="publishDate" content="2025-02-02">"#;
+    let open_graph = r#"<meta property="article:published_time" content="2025-03-03">"#;
+    let fallback_meta = r#"<meta name="sailthru.date" content="2025-06-06">"#;
+    let abbr = r#"<abbr itemprop="datePublished" title="2025-04-04">April 4</abbr>"#;
+    let related = r#"<a href="/related"><time datetime="2024-09-09">Previous story</time></a>"#;
+    let current = r#"<time datetime=" 2025-05-05 ">May 5</time>"#;
+    for (head, body, expected) in [
+        (format!("{schema}{publish_meta}{open_graph}{fallback_meta}"), format!("{abbr}{related}{current}"), "2025-01-01"),
+        (format!("{publish_meta}{open_graph}{fallback_meta}"), format!("{abbr}{related}{current}"), "2025-02-02"),
+        (format!("{open_graph}{fallback_meta}"), format!("{abbr}{related}{current}"), "2025-03-03"),
+        (fallback_meta.to_string(), format!("{abbr}{related}{current}"), "2025-04-04"),
+        (fallback_meta.to_string(), format!("{related}{current}"), "2025-05-05"),
+        (fallback_meta.to_string(), related.to_string(), "2025-06-06"),
+    ] {
+        let html = format!("<html><head>{head}</head><body><article><h1>Field notes</h1>{body}<p>Read the notes before the walk.</p></article></body></html>");
+        let result = parse_html(
+            &html,
+            DefuddleOptions { url: Some("https://example.com/article".into()), ..DefuddleOptions::default() },
+        )
+        .expect("parse succeeds");
+        assert_eq!(result.published, expected, "{html}");
+    }
 }
 
 #[test]
