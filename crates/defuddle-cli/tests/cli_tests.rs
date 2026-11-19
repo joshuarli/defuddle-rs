@@ -6,6 +6,10 @@ use std::time::Duration;
 
 const FIELD_NOTES_HTML: &[u8] = br#"<html lang="en"><head><title>Field Notes</title></head><body><article><p>Read the <strong>field notes</strong> before the walk.</p></article></body></html>"#;
 const FIELD_NOTES_MARKDOWN: &str = "Read the **field notes** before the walk.";
+const GMAIL_HTML: &str = r#"<html><head><title>Fallback - account@example.com - Gmail</title></head><body>
+<h2 class="hP">Project kickoff</h2>
+<div class="adn ads"><span class="gD" name="Alex Rivera" email="alex@example.com">Alex Rivera</span><span class="g3" title="May 13, 2026, 11:02 PM">date</span><div class="a3s"><div>Hello Jane.</div></div></div>
+</body></html>"#;
 
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -23,6 +27,12 @@ fn field_notes_stdin() -> assert_cmd::Command {
         .write_stdin(FIELD_NOTES_HTML)
         .timeout(Duration::from_secs(10));
     command
+}
+
+fn stdout_json(command: &mut assert_cmd::Command) -> deser_value::Value {
+    let result = command.assert().success();
+    let stdout = std::str::from_utf8(&result.get_output().stdout).expect("UTF-8 JSON output");
+    deser_json::from_str(stdout).expect("valid JSON output")
 }
 
 #[test]
@@ -61,9 +71,7 @@ fn cli_reads_stdin() {
         if let Some(source) = source {
             command.arg(source);
         }
-        let result = command.assert().success();
-        let stdout = std::str::from_utf8(&result.get_output().stdout).expect("UTF-8 JSON output");
-        let value: deser_value::Value = deser_json::from_str(stdout).expect("valid JSON output");
+        let value = stdout_json(&mut command);
         let fields = value.as_map().expect("JSON object");
         for (key, expected) in [
             ("title", "Field Notes"),
@@ -80,6 +88,59 @@ fn cli_reads_stdin() {
                 "field {key} for source {source:?}"
             );
         }
+    }
+}
+
+#[test]
+fn cli_debug_reports_the_content_selector() {
+    let ordinary = stdout_json(field_notes_stdin().args(["--json", "-"]));
+    let debug = stdout_json(field_notes_stdin().args(["--debug", "--json", "-"]));
+
+    assert!(
+        ordinary
+            .as_map()
+            .expect("JSON object")
+            .get("debug")
+            .expect("debug field")
+            .is_null()
+    );
+    let selector = debug
+        .as_map()
+        .expect("JSON object")
+        .get("debug")
+        .and_then(|field| field.as_map())
+        .and_then(|fields| fields.get("content_selector"))
+        .and_then(|field| field.as_str());
+    assert_eq!(selector, Some(" > html > body > article"));
+}
+
+#[test]
+fn cli_extractor_overrides_url_detection() {
+    for (extractor_args, expected_extractor, expected_title) in [
+        (&[][..], None, "Fallback - account@example.com"),
+        (
+            &["--extractor", "gmail"][..],
+            Some("gmail"),
+            "Project kickoff",
+        ),
+    ] {
+        let mut command = assert_cmd::Command::from_std(bin());
+        command
+            .write_stdin(GMAIL_HTML.as_bytes())
+            .timeout(Duration::from_secs(10))
+            .args(["--json", "--url", "https://example.com/field-notes"])
+            .args(extractor_args)
+            .arg("-");
+
+        let value = stdout_json(&mut command);
+        let fields = value.as_map().expect("JSON object");
+        let extractor = fields.get("extractor_type").expect("extractor_type field");
+        assert_eq!(extractor.is_null(), expected_extractor.is_none());
+        assert_eq!(extractor.as_str(), expected_extractor);
+        assert_eq!(
+            fields.get("title").and_then(|field| field.as_str()),
+            Some(expected_title)
+        );
     }
 }
 
@@ -321,12 +382,7 @@ fn cli_json_output_keeps_wire_text() {
 
 #[test]
 fn cli_json_output_sorts_extractor_variables() {
-    let html = r#"<html><head><title>Fallback - account@example.com - Gmail</title></head><body>
-<h2 class="hP">Project kickoff</h2>
-<div class="adn ads"><span class="gD" name="Alex Rivera" email="alex@example.com">Alex Rivera</span><span class="g3" title="May 13, 2026, 11:02 PM">date</span><div class="a3s"><div>Hello Jane.</div></div></div>
-</body></html>"#;
-
-    let json = json_output_for("variables", "https://mail.google.com/mail/u/0/", html);
+    let json = json_output_for("variables", "https://mail.google.com/mail/u/0/", GMAIL_HTML);
     assert!(
         json.ends_with(
             r#""extractor_type":"gmail","debug":null,"variables":{"messageCount":"1","postAuthor":"alex@example.com"}}

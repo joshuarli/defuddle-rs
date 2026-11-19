@@ -100,6 +100,44 @@ module moved from 48 to 49 of 60 branches, with 229 of 301 lines
 covered on both revisions. The eight-case stdin and option
 forwarding mutation scope is separate.
 
+**Tests inventory at `eebba91a`**
+
+| Public boundary and consumer | Critical decisions and existing checks | Open evidence |
+| --- | --- | --- |
+| `parse_html` and `parse_html_profiled`, used by the CLI and WASM adapter | DOM preparation, short-result retry, extractor selection, sanitize before output, phase reporting. `integration_tests` exercises the public results. `fixture_harness` checks 168 captured inputs. | Select and disposition the critical decision regions. DSLP-6 tracks retry pruning. |
+| Extraction metadata used by both wire consumers | Document, Open Graph and JSON-LD precedence, author, dates, language and schema text. `metadata_tests` checks these values and corpus preambles. | Metadata precedence and adapter selection have no mutation results yet. |
+| CLI on macOS ARM64 and hosted Linux ARM64 | Source and option admission, SingleFile size limit, dispatch to the library, JSON and Markdown output, property handling and destination replacement. `cli_tests` runs the executable built by Cargo. | Real terminal stdin, exact error statuses and property failure before opening a destination (DSLP-7). The focused mutation scope covers only stdin selection and option forwarding. |
+| `parse_page` and `list_extractors` for WASM callers | Options to extraction, JSON result, and extractor enumeration. Three native adapter tests cover successful output and listing. | A real WASM browser run and the error boundary remain unverified. |
+
+Run the ordinary suite with `make test`, strict lint with
+`make lint` and the coverage report with `make coverage`.
+Recheck the fixture-corpus budget only if extraction changes.
+The retained mutation command, whole-change selection,
+executed CI controls and paired gate cost remain open.
+
+**CLI option forwarding and stdin selection**
+
+At the Types default `f20fa5c1`, the CLI suite caught five of
+eight cases. At `57014178`, exact Markdown output caught the
+deletion of the Markdown option passed to the library. The
+debug selector and Gmail override cases caught the remaining
+two option deletions at `3b6addc0`. The three lists of
+mutation identities match. The final result was eight caught,
+with zero misses, timeouts or unviable builds.
+
+Use cargo-mutants 27.1.0 on macOS ARM64 with nightly 2026-11-09.
+The first two runs used disposable copies. The last reused a
+warm target with `--in-place` in an isolated checkout. These
+runs establish outcomes for the matched scope, with different
+build conditions. Run the command in disposable scratch to
+reproduce the eight identities and tests.
+
+```sh
+cargo mutants -p defuddle-cli --file crates/defuddle-cli/src/main.rs \
+  --re 'main\.rs:(119|122|201):' --baseline run --timeout 20 \
+  --build-timeout 300 --cargo-test-arg=--test --cargo-test-arg=cli_tests
+```
+
 ## Tickets
 
 
@@ -109,7 +147,7 @@ forwarding mutation scope is separate.
 
 - **Area:** deslop · tests
 - **Where:** test suites and CI
-- **Problem:** Coverage and mutation results are unmeasured; no deslop mutation lane exists.
+- **Problem:** Workspace coverage and eight CLI option-forwarding and stdin mutation identities are accounted for. Critical extraction, metadata, archive, output and WASM decisions still need disposition. The real terminal input boundary, whole-change gate and measured cost remain open.
 - **Recommendation:** Run the deslop Tests step. Accept: no undispositioned survivor in critical code, the test cost budget holds, and the lane is green where the tools are mirrored.
 - **Fix with:** deslop
 - **Effort:** M
