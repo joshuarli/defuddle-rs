@@ -51,7 +51,7 @@ pub fn list_extractors() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_page;
+    use super::{list_extractors, parse_page};
 
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -66,7 +66,8 @@ mod tests {
         assert!(serialized_page.contains("Readable content."));
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn returns_extracted_html_and_markdown_as_json() {
         let page_html = "<html><head><title>Test</title></head><body><article><h1>Test</h1><p>A readable paragraph.</p></article></body></html>";
         let serialized_page =
@@ -79,7 +80,8 @@ mod tests {
         assert!(!serialized_page.contains("meta_tags"));
     }
 
-    #[test]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn json_text_is_stable() {
         let page_html = "<html lang=\"en\"><head><title>Wire &amp; \"Contract\"</title></head><body><article><h1>Wire</h1><p>Caf\u{e9} \u{1F600} \\ / tab\there.</p></article></body></html>";
         let serialized_page =
@@ -88,6 +90,15 @@ mod tests {
         assert_eq!(
             serialized_page,
             r###"{"content":"<article><h2>Wire</h2><p>Café 😀 \\ / tab here.</p></article>","content_markdown":"## Wire\n\nCafé 😀 \\\\ / tab here.","title":"Wire & \"Contract\"","author":"","description":"","published":"","site":"","domain":"example.com","extractor_type":null}"###
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn lists_supported_extractors() {
+        assert_eq!(
+            list_extractors(),
+            "hackernews\nsubstack\nreddit\ngithub\ngmail\nchatgpt\nmastodon\ntwitter"
         );
     }
 }

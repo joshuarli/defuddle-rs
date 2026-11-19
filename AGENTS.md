@@ -13,7 +13,8 @@ Defuddle is a synchronous Rust library and CLI for extracting readable content f
 
 - `make test` ran 161 workspace tests on macOS ARM64. It took 945.43 s with an empty target directory and 4.55 s on the warm repeat. Warm `make lint` took 0.36 s. These measurements include concurrent host load. Release performance requires a readiness-qualified run.
 - Library consumers include the CLI and WASM adapter; core API, extraction, sanitization and Markdown are exercised by `crates/defuddle/tests/integration_tests.rs`, `metadata_tests.rs`, and `fixture_harness.rs`. The harness checks 168 upstream inputs, 168 expected Markdown files and 3 expected HTML files.
-- CLI flags, input files, JSON, Markdown, frontmatter and success/failure status are exercised by `crates/defuddle-cli/tests/cli_tests.rs`; exact error exit codes are not comprehensively tested. WASM JSON and extractor listing have native tests in `crates/defuddle-wasm/src/lib.rs`; browser execution is unverified. There are no network endpoints.
+- CLI flags, input files, JSON, Markdown, frontmatter and success/failure status are exercised by `crates/defuddle-cli/tests/cli_tests.rs`. WASM JSON and extractor enumeration run in the native and wasm32 test suites. The generated web bindings also have a [Chromium smoke test](docs/testing.md#wasm-runtime). There are no network endpoints.
+- DSLP-4 in [the deslop backlog](TODO-DESLOP.md) tracks broader CLI error status coverage.
 - For CLI-only changes, `cargo test --locked -p defuddle-cli --test cli_tests`
   checks the built binary's exit status, stdin, output formats, and destination files.
   On Unix, `cargo test --locked -p defuddle-cli --test cli_tty` checks the

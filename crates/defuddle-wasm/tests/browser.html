@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Defuddle WASM smoke test</title>
+<output id="result">Running</output>
+<script type="module">
+const result = document.querySelector("#result");
+
+try {
+    const { default: init, list_extractors, parse_page } = await import("./defuddle.js");
+    await init();
+
+    const html = '<html lang="en"><head><title>Café Notes</title></head><body><article><p>Read the <strong>field notes</strong>.</p><iframe src="https://example.com/embed"></iframe></article></body></html>';
+    const page = JSON.parse(parse_page(html, "https://example.com/notes", ""));
+    const expected = {
+        title: "Café Notes",
+        domain: "example.com",
+        content: "<article><p>Read the <strong>field notes</strong>.</p></article>",
+        content_markdown: "Read the **field notes**.",
+        extractor_type: null,
+    };
+    for (const [name, value] of Object.entries(expected)) {
+        if (page[name] !== value) {
+            throw new Error(`Unexpected ${name}: ${JSON.stringify(page[name])}`);
+        }
+    }
+
+    const adapters = ["hackernews", "substack", "reddit", "github", "gmail", "chatgpt", "mastodon", "twitter"];
+    if (list_extractors() !== adapters.join("\n")) {
+        throw new Error("Unexpected extractor list");
+    }
+
+    result.textContent = "PASS";
+} catch (error) {
+    result.textContent = `FAIL: ${error.message}`;
+}
+</script>
+</html>
