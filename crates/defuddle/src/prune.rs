@@ -1,7 +1,7 @@
 use crate::dom::Document;
 
 pub struct Registry {
-    fns: Vec<fn(&mut Document)>,
+    fns: Vec<fn(&mut Document) -> bool>,
 }
 
 impl Registry {
@@ -9,14 +9,16 @@ impl Registry {
         Self { fns: Vec::new() }
     }
 
-    pub fn register(&mut self, f: fn(&mut Document)) {
+    pub fn register(&mut self, f: fn(&mut Document) -> bool) {
         self.fns.push(f);
     }
 
-    pub fn run(&self, doc: &mut Document) {
+    pub fn run(&self, doc: &mut Document) -> bool {
+        let mut changed = false;
         for f in &self.fns {
-            f(doc);
+            changed |= f(doc);
         }
+        changed
     }
 }
 

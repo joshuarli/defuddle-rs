@@ -257,7 +257,7 @@ fn parse_html_internal(
     let mut doc = diagnostics.measure("parsing", || parse_source_html(source_html));
     let is_simple_redirect = pipeline::is_simple_redirect_document(&doc);
     let prune_registry = prune::build_registry();
-    diagnostics.measure("prune", || prune_registry.run(&mut doc));
+    let pruned = diagnostics.measure("prune", || prune_registry.run(&mut doc));
 
     let page_url = defuddle_options.url.as_deref().unwrap_or("");
     let schema_org_data = diagnostics.measure("schema", || schema::extract_schema_org_data(&doc));
@@ -339,7 +339,7 @@ fn parse_html_internal(
         debug,
         profile: defuddle_options.profile,
     };
-    let (parsed_page, diagnostics) = parse_internal(pipeline::ExtractionContext {
+    let context = pipeline::ExtractionContext {
         source_html,
         doc: context.doc,
         metadata: config.metadata,
@@ -349,7 +349,8 @@ fn parse_html_internal(
         defuddle_options: &defuddle_options,
         diagnostics: context.diagnostics,
         is_simple_redirect: context.is_simple_redirect,
-    });
+    };
+    let (parsed_page, diagnostics) = parse_internal(context, pruned.then_some(&prune_registry));
     Ok((parsed_page, diagnostics))
 }
 
@@ -425,6 +426,7 @@ fn site_result(
 /// for the short HTML documents that reach this path.
 fn parse_internal(
     mut context: pipeline::ExtractionContext<'_>,
+    retry_prune: Option<&prune::Registry>,
 ) -> (DefuddleResult, pipeline::Diagnostics) {
     let mut config = GenericPipelineConfig {
         source_html: context.source_html,
@@ -461,17 +463,19 @@ fn parse_internal(
     let mut parsed_page = parse_internal_once(doc, &config, &mut context.diagnostics);
 
     let mut word_count = pipeline::count_html_words(&parsed_page.content);
+    let retry = |config: &GenericPipelineConfig<'_>, diagnostics: &mut pipeline::Diagnostics| {
+        let mut doc = parse_source_html(config.source_html);
+        if let Some(registry) = retry_prune {
+            registry.run(&mut doc);
+        }
+        parse_internal_once(doc, config, diagnostics)
+    };
 
     if word_count < 200 && !context.is_simple_redirect {
         config.remove_partial = false;
         context.diagnostics.retry_count += 1;
-        let (retry_parsed_page, retry_nanos) = pipeline::timed(|| {
-            parse_internal_once(
-                parse_source_html(config.source_html),
-                &config,
-                &mut context.diagnostics,
-            )
-        });
+        let (retry_parsed_page, retry_nanos) =
+            pipeline::timed(|| retry(&config, &mut context.diagnostics));
         context.diagnostics.retry_nanos += retry_nanos;
         let retry_word_count = pipeline::count_html_words(&retry_parsed_page.content);
         context
@@ -487,13 +491,8 @@ fn parse_internal(
     if word_count < 50 && !context.is_simple_redirect {
         config.remove_hidden = false;
         context.diagnostics.retry_count += 1;
-        let (retry_parsed_page, retry_nanos) = pipeline::timed(|| {
-            parse_internal_once(
-                parse_source_html(config.source_html),
-                &config,
-                &mut context.diagnostics,
-            )
-        });
+        let (retry_parsed_page, retry_nanos) =
+            pipeline::timed(|| retry(&config, &mut context.diagnostics));
         context.diagnostics.retry_nanos += retry_nanos;
         let retry_word_count = pipeline::count_html_words(&retry_parsed_page.content);
         context
