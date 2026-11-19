@@ -203,6 +203,13 @@ in the second. Both runs failed their exact assertions.
 Restoring the source passed all 18 binary cases and strict
 CLI Clippy.
 
+The CLI fixtures also check the default index with absent, malformed,
+non-object, non-string or non-UTF-8 manifest data. A missing named index
+or a non-UTF-8 index exits with status 1, empty stdout and the archive
+diagnostic. Changing the default index name and decoding invalid UTF-8
+lossily each failed the corresponding fixture. The source was restored
+byte for byte. All 20 CLI cases and strict Clippy passed.
+
 **Static archive redirects**
 
 The public profiled parser fixture checks zero retries for a single
