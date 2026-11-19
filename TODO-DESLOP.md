@@ -5,18 +5,22 @@ Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/mai
 
 ## Report
 
-Not started.
+Ground (DSLP-1) measured default revision
+`63a23ca89d409d2e211991d5bd8ebfc1dc349716` on macOS ARM64.
+Both `make test` runs passed 161 cases. An empty target directory
+took 945.43 s and the warm repeat took 4.55 s. Warm
+`make lint` took 0.36 s. The host was busy, so these
+are observed command costs. The reported release workload is
+the existing public HTML and Markdown fixture benchmark.
+`perf-gate-ready` rejected the host for release measurements.
+The [verification guide](AGENTS.md#verification) records the
+public boundaries, consumers, vendored revisions and CI pins.
+Both ordinary default checks and the fleet test-workflow rule passed.
+[Default tests](https://github.com/joshuarli/defuddle-rs/actions/runs/43925764730) ·
+[Default lint](https://github.com/joshuarli/defuddle-rs/actions/runs/43925764944)
 
 ## Tickets
 
-### DSLP-1 · P2 · Ground: baseline, boundaries, and CI test entry point
-
-- **Area:** deslop · ground
-- **Where:** AGENTS.md, Makefile, .github/workflows/
-- **Problem:** Base 8d3c9e1; code lines Rust 20.7k (fleet/loc/v1, vendored included); timings not yet measured. Open fleet lint findings: make-clean-target 1, owned-tool-support 1. Perf gate: decide in Ground whether a user-visible hot path needs a workload.
-- **Recommendation:** Run the deslop Ground step. Accept: CI runs make test and is green, and AGENTS.md has a Verification section.
-- **Fix with:** deslop
-- **Effort:** S
 
 ### DSLP-2 · P2 · Diagnose: ultrareview into this backlog
 
