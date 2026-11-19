@@ -19,6 +19,32 @@ Both ordinary default checks and the fleet test-workflow rule passed.
 [Default tests](https://github.com/joshuarli/defuddle-rs/actions/runs/43925764730) ·
 [Default lint](https://github.com/joshuarli/defuddle-rs/actions/runs/43925764944)
 
+**Strict-profile trial**
+
+At `9edcdb27`, Clippy 0.1.101 on nightly 2026-11-09
+checked all workspace targets. The table counts distinct
+locations in the three first-party crates, including inline
+and separate test code. Vendored htmd keeps its own policy.
+
+| Candidate | Locations | Decision |
+| --- | ---: | --- |
+| `redundant_clone` | 4 | Adopt for first-party crates. Each diagnostic identifies a value that can be moved. |
+| `unsafe_code` | 0 | No current violation. |
+| `match_wildcard_for_single_variants` | 0 | No current violation. |
+| `wildcard_enum_match_arm` | 13 | Reject. Examples include intentional fallbacks for node kinds that the operation skips. |
+| `cast_possible_truncation` | 2 | Reject. Elapsed milliseconds would need to exceed the range of u64. |
+| `cast_sign_loss` | 0 | No current first-party violation. |
+| `unwrap_used` | 41 | Reject. The run includes generated constants, fixed selectors, and test assertions. |
+| `expect_used` | 30 | Reject. The run includes fixed patterns and test assertions. |
+| `needless_pass_by_value` | 2 | Reject at this scope. The trial found private argument borrowing opportunities without a demonstrated contract error. |
+
+The candidate moves the already-owned HTML namespace, fallback
+Markdown, author text, and schema text. The public types stay the
+same. All 161 local workspace tests passed, including the
+fixture corpus, JSON-LD metadata cases, CLI cases, and the native
+WASM wrapper test. Strict Clippy passed. DSLP-3 stays open until
+the fixture-corpus performance gate runs on an admitted host.
+
 ## Tickets
 
 

@@ -1045,7 +1045,7 @@ fn clean_author_string(s: &str) -> String {
     let s = url_re.replace_all(s, "").to_string();
 
     if crate::content_utils::is_absolute_url(&s) {
-        return s.to_string();
+        return s;
     }
 
     s.replace(" and ", ", ")

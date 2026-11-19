@@ -67,7 +67,7 @@ fn clean_json_content(content: &str) -> String {
         let end = content.rfind("*/").map(|i| i + 2).unwrap_or(content.len());
         content[end..].trim().to_string()
     } else {
-        content.to_string()
+        content
     };
 
     if let Some(inner) = content
