@@ -138,6 +138,15 @@ cargo mutants -p defuddle-cli --file crates/defuddle-cli/src/main.rs \
   --build-timeout 300 --cargo-test-arg=--test --cargo-test-arg=cli_tests
 ```
 
+**Destination preservation**
+
+At `8ea4e261`, a real CLI run with `--property typo` exited
+with status 1 and the expected diagnostic. The file under
+`--output` was truncated. Resolving the property before
+opening the destination preserves its existing bytes and
+keeps the input diagnostic. All 17 binary cases and strict
+CLI Clippy passed. This closes DSLP-7.
+
 ## Tickets
 
 
@@ -170,14 +179,3 @@ cargo mutants -p defuddle-cli --file crates/defuddle-cli/src/main.rs \
 - **Recommendation:** Apply the same document preparation to each retry before extraction, retaining the intentional retry option changes; cover the resulting public output with a short-page regression witness.
 - **Fix with:** root-cause
 - **Effort:** S
-
-
-### DSLP-7 · P2 · Invalid property can truncate the output file
-
-- **Area:** CLI · output
-- **Where:** crates/defuddle-cli/src/main.rs:133, crates/defuddle-cli/src/main.rs:139
-- **Problem:** File::create opens and truncates --output before the property name is validated; an unknown property then returns an error. With a scratch file containing nine bytes, piping a valid article into `defuddle --property typo --output "$scratch"` exits 1 with `unknown property` and leaves the file at zero bytes.
-- **Recommendation:** Validate the property and compute the selected output before opening the destination; add a CLI regression asserting a pre-existing destination survives invalid input.
-- **Fix with:** error-model
-- **Effort:** S
-
