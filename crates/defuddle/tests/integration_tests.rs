@@ -56,6 +56,33 @@ fn simple_redirect_documents_skip_retries_without_changing_output() {
 
 
 #[test]
+fn archive_redirect_shortcut_requires_a_single_nonempty_body_link() {
+    let refresh = r#"<meta http-equiv="ReFrEsH" content="0;url=/target">"#;
+    let link = r#"<a href="/target">Archived page</a>"#;
+    let cases = [
+        (refresh.to_owned(), format!(" \n{link}\n "), 0),
+        (String::new(), link.to_owned(), 2),
+        (format!("{refresh}{refresh}"), link.to_owned(), 2),
+        (refresh.to_owned(), format!("{link}{link}"), 2),
+        (
+            refresh.to_owned(),
+            r#"<a href="/target">Archived page<svg><a href="/alternate">Alternate</a></svg></a>"#.to_owned(),
+            2,
+        ),
+        (refresh.to_owned(), format!("<div>{link}</div>"), 2),
+        (refresh.to_owned(), format!("Archive text {link}"), 2),
+        (refresh.to_owned(), r#"<a href="/target"> </a>"#.to_owned(), 2),
+        (refresh.to_owned(), "Archive text".to_owned(), 2),
+    ];
+    for (head, body, retries) in cases {
+        let html = format!("<html><head>{head}</head><body>{body}</body></html>");
+        let (_, profile) = defuddle::parse_html_profiled(&html, defuddle::DefuddleOptions::default())
+            .expect("archive fixture parses");
+        assert_eq!(profile.retry_count, retries, "{html}");
+    }
+}
+
+#[test]
 fn preserves_video_elements_that_use_source_children() {
     let html = r#"<!DOCTYPE html>
 <html>

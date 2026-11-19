@@ -203,6 +203,20 @@ in the second. Both runs failed their exact assertions.
 Restoring the source passed all 18 binary cases and strict
 CLI Clippy.
 
+**Static archive redirects**
+
+The public profiled parser fixture checks zero retries for a single
+mixed-case refresh and nonempty direct link. Missing or repeated refreshes,
+a nested link, multiple links, empty link text and extra body text each
+retain both ordinary retries. `cargo test --locked -p defuddle --test
+integration_tests` passed all 32 cases, and strict Clippy passed.
+
+With `cargo-mutants` 27.1.0 scoped to `crates/defuddle/src/pipeline.rs`,
+`is_simple_redirect_document` and `integration_tests`, separate Cargo
+target directories ran the same 11 identities. The fixtures caught ten,
+up from eight. The combined body-and-anchor count guard still has one
+survivor. The production source was restored byte for byte.
+
 **Favicon metadata**
 
 At `557757c9`, a page with only a shortcut icon returned
