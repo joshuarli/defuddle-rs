@@ -115,6 +115,29 @@ Recheck the fixture-corpus budget only if extraction changes.
 The retained mutation command, whole-change selection,
 executed CI controls and paired gate cost remain open.
 
+**CLI option forwarding and stdin selection**
+
+At the Types default `f20fa5c1`, the CLI suite caught five of
+eight cases. At `57014178`, exact Markdown output caught the
+deletion of the Markdown option passed to the library. The
+debug selector and Gmail override cases caught the remaining
+two option deletions at `3b6addc0`. The three lists of
+mutation identities match. The final result was eight caught,
+with zero misses, timeouts or unviable builds.
+
+Use cargo-mutants 27.1.0 on macOS ARM64 with nightly 2026-11-09.
+The first two runs used disposable copies. The last reused a
+warm target with `--in-place` in an isolated checkout. These
+runs establish outcomes for the matched scope, with different
+build conditions. Run the command in disposable scratch to
+reproduce the eight identities and tests.
+
+```sh
+cargo mutants -p defuddle-cli --file crates/defuddle-cli/src/main.rs \
+  --re 'main\.rs:(119|122|201):' --baseline run --timeout 20 \
+  --build-timeout 300 --cargo-test-arg=--test --cargo-test-arg=cli_tests
+```
+
 ## Tickets
 
 
@@ -124,7 +147,7 @@ executed CI controls and paired gate cost remain open.
 
 - **Area:** deslop · tests
 - **Where:** test suites and CI
-- **Problem:** Coverage and mutation results are unmeasured; no deslop mutation lane exists.
+- **Problem:** Workspace coverage and eight CLI option-forwarding and stdin mutation identities are accounted for. Critical extraction, metadata, archive, output and WASM decisions still need disposition. The real terminal input boundary, whole-change gate and measured cost remain open.
 - **Recommendation:** Run the deslop Tests step. Accept: no undispositioned survivor in critical code, the test cost budget holds, and the lane is green where the tools are mirrored.
 - **Fix with:** deslop
 - **Effort:** M
