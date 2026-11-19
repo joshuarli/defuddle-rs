@@ -106,7 +106,7 @@ forwarding mutation scope is separate.
 | `parse_html` and `parse_html_profiled`, used by the CLI and WASM adapter | DOM preparation, short-result retry, extractor selection, sanitize before output, phase reporting. `integration_tests` exercises the public results. `fixture_harness` checks 168 captured inputs. | Select and disposition the critical decision regions. DSLP-6 tracks retry pruning. |
 | Extraction metadata used by both wire consumers | Document, Open Graph and JSON-LD precedence, author, dates, language and schema text. `metadata_tests` checks these values and corpus preambles. | Metadata precedence and adapter selection have no mutation results yet. |
 | CLI on macOS ARM64 and hosted Linux ARM64 | Source and option admission, SingleFile size limit, dispatch to the library, JSON and Markdown output, property handling and destination replacement. `cli_tests` runs the executable built by Cargo, and `cli_tty` exercises terminal stdin. | Wider exact error statuses and mutation scopes for archive and output handling. |
-| `parse_page` and `list_extractors` for WASM callers | Options to extraction, JSON result, and extractor enumeration. Three native adapter tests cover successful output and listing. | A real WASM browser run and the error boundary remain unverified. |
+| `parse_page` and `list_extractors` for WASM callers | Options to extraction, JSON result, and extractor enumeration. Four tests run natively and in Node's WASM runtime. Chromium verifies the generated web bindings and iframe removal. | Error translation and a retained browser gate. |
 
 Run the ordinary suite with `make test`, strict lint with
 `make lint` and the coverage report with `make coverage`.
@@ -230,6 +230,23 @@ range of 161.219 to 239.967 ms. The Markdown medians were
 variation. Peak live allocation stayed at 1,054,422 and
 2,007,678 bytes. The executable sizes were 3,839,568 and
 3,838,720 bytes. [Reproduce](docs/performance.md)
+
+**WASM runtime and web bindings**
+
+At `b08b13e0`, the WASM harness executed one adapter test.
+All four adapter tests now pass on the native host and in
+Node 26.12.0 with wasm-bindgen-test-runner 0.2.130. They
+exercise extracted output, exact Unicode JSON and extractor
+enumeration.
+
+The generated web bindings passed the loopback fixture in
+Chromium 155.0.8059.84. The fixture checks exact HTML and
+Markdown, domain and title, iframe removal, and adapter names.
+Turning off iframe removal in an isolated build left the
+iframe in the generated HTML and failed the browser fixture.
+The source was restored byte for byte and rebuilt. Strict
+adapter Clippy passed.
+[Reproduce](docs/testing.md#wasm-runtime)
 
 ## Tickets
 
