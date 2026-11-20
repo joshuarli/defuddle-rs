@@ -49,11 +49,35 @@ fn simple_redirect_documents_skip_retries_without_changing_output() {
     assert_eq!(
         result.content_markdown.as_deref(),
         Some(
-            "[Coenzymes and cofactors](https:/en.wikipedia.org/wiki/https:/en.wikipedia.org/wiki/Enzyme#Cofactors_and_coenzymes)"
+            "[Coenzymes and cofactors](https://en.wikipedia.org/wiki/Enzyme#Cofactors_and_coenzymes)"
         )
     );
 }
 
+
+#[test]
+fn relative_article_links_preserve_origin_path_and_suffix() {
+    let html = r#"<article><p>Read <a href="../notes//index?next=/x/../y#section">notes</a>, <a href="../../../../manual">the manual</a>, and <a href="./">this section</a>.</p></article>"#;
+    let (result, _) = defuddle::parse_html_profiled(
+        html,
+        defuddle::DefuddleOptions {
+            url: Some("https://example.org:8443/docs/start/page?next=/a/b#intro".into()),
+            separate_markdown: true,
+            content_selector: Some("article".into()),
+            ..Default::default()
+        },
+    ).expect("article parses");
+
+    let markdown = result.content_markdown.as_deref().unwrap();
+    for (text, url) in [
+        ("notes", "https://example.org:8443/docs/notes//index?next=/x/../y#section"),
+        ("the manual", "https://example.org:8443/manual"),
+        ("this section", "https://example.org:8443/docs/start/"),
+    ] {
+        assert!(result.content.contains(&format!("href=\"{url}\"")), "{}", result.content);
+        assert!(markdown.contains(&format!("[{text}]({url})")), "{markdown}");
+    }
+}
 
 #[test]
 fn archive_redirect_shortcut_requires_a_single_nonempty_body_link() {
