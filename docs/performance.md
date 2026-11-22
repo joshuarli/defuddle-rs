@@ -9,6 +9,9 @@ fixture parity harness.
 ## Tiered entrypoint
 
 `make bench-list` lists workload names, areas, commands and estimated costs.
+The Change corpus gate requires a five-sample measurement for both HTML and
+Markdown. Its run directory contains the separate `corpus.json` report.
+
 `make bench-check BENCH_ARGS='--name corpus'` checks only the selected
 workloads; `make bench BENCH_ARGS='--tier edit --dry-run'` prints the plan
 without creating files. `make bench` defaults to the Change ceiling. Set

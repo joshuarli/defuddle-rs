@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 import shutil
 from pathlib import Path
@@ -46,6 +47,23 @@ class SelectionTest(unittest.TestCase):
                 self.assertEqual(bench.main(), 1)
                 summary = next((Path(directory) / '.work/bench').glob('*/summary.txt')).read_text()
                 self.assertIn('failure: exit 7', summary)
+
+    def test_requires_both_completed_corpus_measurements(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / '.work/tmp') as directory:
+            report = Path(directory) / 'corpus.json'
+            html = {'name': 'fixture_bench::upstream_fixtures_html', 'sample_count': 5, 'iter_count': 5, 'median_ns': 100}
+            markdown = dict(html, name='fixture_bench::upstream_fixtures_markdown')
+            for measurements, expected in [
+                ([], False),
+                ([html], False),
+                ([html, html], False),
+                ([html, dict(markdown, iter_count=0)], False),
+                ([html, dict(markdown, median_ns=float('nan'))], False),
+                ([html, markdown], True),
+            ]:
+                with self.subTest(measurements=measurements):
+                    report.write_text(json.dumps({'schema': 1, 'benchmarks': measurements}))
+                    self.assertEqual(bench.corpus_measurements_complete(report), expected)
 
     def test_dry_run_and_failed_preflight_do_not_create_runs(self):
         with tempfile.TemporaryDirectory(dir=ROOT / '.work/tmp') as directory:

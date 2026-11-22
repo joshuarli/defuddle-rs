@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import argparse
 import datetime
+import json
+import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -9,9 +11,14 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 TIERS = ('edit', 'change', 'scenario', 'full')
+CORPUS_SAMPLES = 5
+CORPUS_BENCHMARKS = {
+    'fixture_bench::upstream_fixtures_html',
+    'fixture_bench::upstream_fixtures_markdown',
+}
 WORKLOADS = {
     'driver-test': ('edit', 'driver', ['python3', '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'bench_driver_test.py'], 'selection and preflight contracts; seconds'),
-    'corpus': ('change', 'extraction', ['cargo', 'bench', '--locked', '-p', 'defuddle', '--bench', 'fixture_bench', '--', '--format', 'json', '--threads', '1', '--sample-count', '5', '--sample-size', '1'], 'HTML and Markdown corpus; estimated minutes including build'),
+    'corpus': ('change', 'extraction', ['cargo', 'bench', '--locked', '-p', 'defuddle', '--bench', 'fixture_bench', '--', '--format', 'json', '--threads', '1', '--sample-count', str(CORPUS_SAMPLES), '--sample-size', '1'], 'HTML and Markdown corpus; estimated minutes including build'),
     'corpus-legacy': ('full', 'extraction', ['cargo', 'bench', '-p', 'defuddle', '--bench', 'fixture_bench'], 'original make bench; harness defaults, estimated minutes'),
 }
 
@@ -57,6 +64,32 @@ def preflight(selected):
     return errors
 
 
+def corpus_measurements_complete(report: Path) -> bool:
+    try:
+        data: object = json.loads(report.read_text())
+    except (OSError, UnicodeError, ValueError):
+        return False
+    if not isinstance(data, dict) or data.get('schema') != 1:
+        return False
+    measurements = data.get('benchmarks')
+    if not isinstance(measurements, list) or len(measurements) != len(CORPUS_BENCHMARKS):
+        return False
+    names: set[str] = set()
+    for measurement in measurements:
+        if not isinstance(measurement, dict):
+            return False
+        name = measurement.get('name')
+        samples = measurement.get('sample_count')
+        iterations = measurement.get('iter_count')
+        median = measurement.get('median_ns')
+        if (not isinstance(name, str) or type(samples) is not int or samples != CORPUS_SAMPLES
+                or type(iterations) is not int or iterations < CORPUS_SAMPLES
+                or type(median) not in (int, float) or not 0 <= median < math.inf):
+            return False
+        names.add(name)
+    return names == CORPUS_BENCHMARKS
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('action', choices=['run', 'check', 'list'])
@@ -92,7 +125,15 @@ def main():
     for name, _ in selected:
         started = time.monotonic()
         with (run_dir / (name + '.log')).open('w') as log:
-            result = subprocess.run(WORKLOADS[name][2], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+            if name == 'corpus':
+                report = run_dir / 'corpus.json'
+                with report.open('w') as output:
+                    result = subprocess.run(WORKLOADS[name][2], cwd=ROOT, stdout=output, stderr=log)
+                if result.returncode == 0 and not corpus_measurements_complete(report):
+                    lines.append('corpus: missing or invalid HTML and Markdown measurements in corpus.json')
+                    failed = True
+            else:
+                result = subprocess.run(WORKLOADS[name][2], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
         duration = time.monotonic() - started
         lines.append('%s: exit %d; %.2f s; log %s.log; command: %s' % (name, result.returncode, duration, name, ' '.join(WORKLOADS[name][2])))
         failed |= result.returncode != 0
