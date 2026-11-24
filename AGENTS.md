@@ -2,6 +2,8 @@
 
 Defuddle is a synchronous Rust library and CLI for extracting readable content from static HTML.
 
+The roadmap, [docs/roadmap.md](docs/roadmap.md), holds all current and future work; its Status is the resume point.
+
 ## Build, test, check
 
 - Build: `cargo build --workspace`.
